@@ -1,0 +1,10 @@
+*~
+*.beam
+*.app
+deps/*
+*.orig
+.eunit
+doc
+erl_crash.dump
+*.swp
+*.swo

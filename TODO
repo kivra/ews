@@ -1,0 +1,22 @@
+TODO - wsdl
+===========
+* types dict [X]
+* message dict [X]
+* ops dict [X]
+* records generation from types dict [X]
+* soap client [X]
+* xml2struct and struct2xml [X]
+* 
+
+
+Interface
+=========
+
+* ews:add_wsdl_to_model/1
+* ews:emit_complete_model_types/1
+* ews:emit_service_types/2
+* ews:emit_service_ops/1
+* ews:list_services/0
+* ews:get_service_ops/1
+* ews:get_service_op_args/2
+* ews:call_service_op/3 (svc, op, args)

@@ -1,0 +1,19 @@
+%-*- erlang -*-
+%% Copyright © Campanja AB 2012. All Rights Reserved.
+%%
+
+{application, ews,
+ [{description, "Erlang Web Services Library"},
+  {vsn, "0.2.0"},
+  {registered, []},
+  {applications, [kernel,
+                  stdlib,
+                  crypto,
+                  public_key,
+                  ssl,
+                  inets,
+                  lhttpc
+                 ]},
+  {mod, {ews_app, no_arg}},
+  {env, []}
+ ]}.

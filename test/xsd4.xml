@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" targetNamespace="http://schemas.datacontract.org/2004/07/Microsoft.AdCenter.Advertiser.CampaignManagement.Api.DataContracts" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="http://schemas.datacontract.org/2004/07/Microsoft.AdCenter.Advertiser.CampaignManagement.Api.DataContracts">
+    <xs:import schemaLocation="https://adcenterapi.microsoft.com/Api/Advertiser/V8/CampaignManagement/CampaignManagementService.svc?xsd=xsd0" namespace="http://schemas.microsoft.com/2003/10/Serialization/"/>
+    <xs:import schemaLocation="https://adcenterapi.microsoft.com/Api/Advertiser/V8/CampaignManagement/CampaignManagementService.svc?xsd=xsd2" namespace="http://schemas.microsoft.com/2003/10/Serialization/Arrays"/>
+    <xs:import schemaLocation="https://adcenterapi.microsoft.com/Api/Advertiser/V8/CampaignManagement/CampaignManagementService.svc?xsd=xsd1" namespace="https://adcenter.microsoft.com/v8"/>
+    <xs:simpleType name="AdComponent">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Unknown"/>
+            <xs:enumeration value="Keyword"/>
+            <xs:enumeration value="KeywordParam1"/>
+            <xs:enumeration value="KeywordParam2"/>
+            <xs:enumeration value="KeywordParam3"/>
+            <xs:enumeration value="AdTitleDescription"/>
+            <xs:enumeration value="AdTitle"/>
+            <xs:enumeration value="AdDescription"/>
+            <xs:enumeration value="DisplayUrl"/>
+            <xs:enumeration value="DestinationUrl"/>
+            <xs:enumeration value="LandingUrl"/>
+            <xs:enumeration value="SiteDomain"/>
+            <xs:enumeration value="BusinessName"/>
+            <xs:enumeration value="PhoneNumber"/>
+            <xs:enumeration value="CashbackTextParam"/>
+            <xs:enumeration value="AltText"/>
+            <xs:enumeration value="Audio"/>
+            <xs:enumeration value="Video"/>
+            <xs:enumeration value="Flash"/>
+            <xs:enumeration value="CAsset"/>
+            <xs:enumeration value="Image"/>
+            <xs:enumeration value="Destination"/>
+            <xs:enumeration value="Asset"/>
+            <xs:enumeration value="Ad"/>
+            <xs:enumeration value="Order"/>
+            <xs:enumeration value="BiddingKeyword"/>
+            <xs:enumeration value="Association"/>
+            <xs:enumeration value="Script"/>
+            <xs:enumeration value="SiteLinkDestinationUrl"/>
+            <xs:enumeration value="SiteLinkDisplayText"/>
+            <xs:enumeration value="BusinessImage"/>
+            <xs:enumeration value="MapIcon"/>
+            <xs:enumeration value="AddressLine1"/>
+            <xs:enumeration value="AddressLine2"/>
+            <xs:enumeration value="LocationExtensionBusinessName"/>
+            <xs:enumeration value="Country"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:element name="AdComponent" nillable="true" type="tns:AdComponent"/>
+    <xs:complexType name="ArrayOfGoal">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="Goal" nillable="true" type="tns:Goal"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfGoal" nillable="true" type="tns:ArrayOfGoal"/>
+    <xs:complexType name="Goal">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="CostModel" nillable="true" type="tns:CostModel"/>
+            <xs:element minOccurs="0" name="DaysApplicableForConversion" nillable="true" type="tns:DaysApplicableForConversion"/>
+            <xs:element minOccurs="0" name="Id" nillable="true" type="xs:long"/>
+            <xs:element minOccurs="0" name="Name" nillable="true" type="xs:string"/>
+            <xs:element minOccurs="0" name="RevenueModel" nillable="true" type="tns:RevenueModel"/>
+            <xs:element minOccurs="0" name="Steps" nillable="true" type="tns:ArrayOfStep"/>
+            <xs:element minOccurs="0" name="YEventId" nillable="true" type="xs:int"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="Goal" nillable="true" type="tns:Goal"/>
+    <xs:simpleType name="CostModel">
+        <xs:list>
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value="None"/>
+                    <xs:enumeration value="NonAdvertising"/>
+                    <xs:enumeration value="Taxed"/>
+                    <xs:enumeration value="Shipped"/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:list>
+    </xs:simpleType>
+    <xs:element name="CostModel" nillable="true" type="tns:CostModel"/>
+    <xs:simpleType name="DaysApplicableForConversion">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Seven">
+                <xs:annotation>
+                    <xs:appinfo>
+                        <EnumerationValue xmlns="http://schemas.microsoft.com/2003/10/Serialization/">7
+                        </EnumerationValue>
+                    </xs:appinfo>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Fifteen">
+                <xs:annotation>
+                    <xs:appinfo>
+                        <EnumerationValue xmlns="http://schemas.microsoft.com/2003/10/Serialization/">15
+                        </EnumerationValue>
+                    </xs:appinfo>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Thirty">
+                <xs:annotation>
+                    <xs:appinfo>
+                        <EnumerationValue xmlns="http://schemas.microsoft.com/2003/10/Serialization/">30
+                        </EnumerationValue>
+                    </xs:appinfo>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="FortyFive">
+                <xs:annotation>
+                    <xs:appinfo>
+                        <EnumerationValue xmlns="http://schemas.microsoft.com/2003/10/Serialization/">45
+                        </EnumerationValue>
+                    </xs:appinfo>
+                </xs:annotation>
+            </xs:enumeration>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:element name="DaysApplicableForConversion" nillable="true" type="tns:DaysApplicableForConversion"/>
+    <xs:complexType name="RevenueModel">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="ConstantRevenueValue" nillable="true" type="xs:double"/>
+            <xs:element minOccurs="0" name="Type" nillable="true" type="tns:RevenueModelType"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="RevenueModel" nillable="true" type="tns:RevenueModel"/>
+    <xs:simpleType name="RevenueModelType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Constant"/>
+            <xs:enumeration value="Variable"/>
+            <xs:enumeration value="None"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:element name="RevenueModelType" nillable="true" type="tns:RevenueModelType"/>
+    <xs:complexType name="ArrayOfStep">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="Step" nillable="true" type="tns:Step"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfStep" nillable="true" type="tns:ArrayOfStep"/>
+    <xs:complexType name="Step">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="Id" nillable="true" type="xs:long"/>
+            <xs:element minOccurs="0" name="Name" nillable="true" type="xs:string"/>
+            <xs:element minOccurs="0" name="PositionNumber" nillable="true" type="xs:int"/>
+            <xs:element minOccurs="0" name="Script" nillable="true" type="xs:string"/>
+            <xs:element minOccurs="0" name="Type" nillable="true" type="tns:StepType"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="Step" nillable="true" type="tns:Step"/>
+    <xs:simpleType name="StepType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Lead"/>
+            <xs:enumeration value="Browse"/>
+            <xs:enumeration value="Prospect"/>
+            <xs:enumeration value="Conversion"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:element name="StepType" nillable="true" type="tns:StepType"/>
+    <xs:complexType name="ArrayOfGoalResult">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="GoalResult" nillable="true" type="tns:GoalResult"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfGoalResult" nillable="true" type="tns:ArrayOfGoalResult"/>
+    <xs:complexType name="GoalResult">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="GoalId" type="xs:long"/>
+            <xs:element minOccurs="0" name="StepIds" nillable="true" type="q1:ArrayOflong" xmlns:q1="http://schemas.microsoft.com/2003/10/Serialization/Arrays"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="GoalResult" nillable="true" type="tns:GoalResult"/>
+    <xs:complexType name="ArrayOfGoalError">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="GoalError" nillable="true" type="tns:GoalError"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfGoalError" nillable="true" type="tns:ArrayOfGoalError"/>
+    <xs:complexType name="GoalError">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="BatchErrors" nillable="true" type="q2:ArrayOfBatchError" xmlns:q2="https://adcenter.microsoft.com/v8"/>
+            <xs:element minOccurs="0" name="Index" type="xs:int"/>
+            <xs:element minOccurs="0" name="StepErrors" nillable="true" type="q3:ArrayOfBatchError" xmlns:q3="https://adcenter.microsoft.com/v8"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="GoalError" nillable="true" type="tns:GoalError"/>
+    <xs:complexType name="ArrayOfAccountAnalyticsType">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="AccountAnalyticsType" nillable="true" type="tns:AccountAnalyticsType"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfAccountAnalyticsType" nillable="true" type="tns:ArrayOfAccountAnalyticsType"/>
+    <xs:complexType name="AccountAnalyticsType">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="AccountId" type="xs:long"/>
+            <xs:element minOccurs="0" name="Type" type="tns:AnalyticsType"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="AccountAnalyticsType" nillable="true" type="tns:AccountAnalyticsType"/>
+    <xs:simpleType name="AnalyticsType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Enabled"/>
+            <xs:enumeration value="Disabled"/>
+            <xs:enumeration value="CampaignLevel"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:element name="AnalyticsType" nillable="true" type="tns:AnalyticsType"/>
+    <xs:complexType name="ArrayOfAnalyticsType">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="AnalyticsType" type="tns:AnalyticsType"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfAnalyticsType" nillable="true" type="tns:ArrayOfAnalyticsType"/>
+    <xs:complexType name="ArrayOfBMCStore">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="unbounded" name="BMCStore" nillable="true" type="tns:BMCStore"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="ArrayOfBMCStore" nillable="true" type="tns:ArrayOfBMCStore"/>
+    <xs:complexType name="BMCStore">
+        <xs:sequence>
+            <xs:element minOccurs="0" name="HasCatalog" type="xs:boolean"/>
+            <xs:element minOccurs="0" name="Id" type="xs:long"/>
+            <xs:element minOccurs="0" name="IsActive" type="xs:boolean"/>
+            <xs:element minOccurs="0" name="IsProductAdsEnabled" type="xs:boolean"/>
+            <xs:element minOccurs="0" name="Name" nillable="true" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:element name="BMCStore" nillable="true" type="tns:BMCStore"/>
+</xs:schema>
