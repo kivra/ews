@@ -5,7 +5,7 @@
 -export([add_wsdl_to_model/1,
          emit_complete_model_types/1, emit_service_types/2, emit_service_ops/1,
          list_services/0, get_service_ops/1, get_service_op_info/2,
-         call_service_op/3]).
+         call_service_op/4]).
 
 -include("ews.hrl").
 
@@ -37,5 +37,5 @@ get_service_ops(Service) ->
 get_service_op_info(Service, Op) ->
     ews_svc:get_op_info(Service, Op).
 
-call_service_op(Service, Op, Args) ->
-    ews_svc:call(Service, Op, Args).
+call_service_op(Service, Op, Header, Body) ->
+    ews_svc:call(Service, Op, Header, Body).

@@ -1,8 +1,5 @@
 REBAR="bin/rebar"
 JAVAFOLDERS="apps/ebase/java_src"
-PWD=$(shell pwd)
-DIALYZER_PLT="$(PWD)/dev.plt"
-DIALYZER_OUT="$(PWD)/dialyzer_result.txt"
 
 .PHONY: all compile check test doc clean get-deps update-deps tools
 
@@ -17,14 +14,12 @@ java:
 xref:
 	@$(REBAR) -jk skip_deps=true xref
 
-$(DIALYZER_PLT):
-	mv apps/custmgmt custmgmt
-	- dialyzer --output_plt $(DIALYZER_PLT) --build_plt \
-		--apps erts kernel stdlib crypto public_key -r apps
-	mv custmgmt apps/
+ews.plt:
+	dialyzer --output_plt ews.plt --build_plt \
+		--apps stdlib kernel inets lhttpc
 
-dialyzer: get-deps compile tools $(DIALYZER_PLT)
-	bin/run_dialyzer $(DIALYZER_PLT) $(DIALYZER_OUT)
+dialyzer: get-deps compile
+	dialyzer --plt ews.plt --src src
 
 test: all
 	@rm -rf .eunit apps/*/.eunit

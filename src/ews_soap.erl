@@ -16,20 +16,22 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
             {"Content-Type", "text/xml"}],
     Envelope = make_envelope(Header, Body),
     BodyIoList = ews_xml:from_term(Envelope),
-    Log = log_request(BodyIoList),
-    case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
-        {ok, {{200,_}, _, RespEnv}} ->
-            log_response(Log, RespEnv),
-            XmlTerm = ews_xml:to_term(RespEnv),
-            {ok, parse_envelope(XmlTerm)};
-            %% {ok, {empty, RespEnv}};
-        {ok, {_Code, _, FaultEnv}} ->
-            log_response(Log, FaultEnv),
-            XmlTerm = ews_xml:to_term(FaultEnv),
-            {fault, parse_envelope(XmlTerm)};
-        {error, Error} ->
-            {error, Error}
-    end.
+    Log = init_log(),
+    log_request(Log, BodyIoList),
+    Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
+                   {ok, {{200,_}, _, RespEnv}} ->
+                       log_response(Log, RespEnv),
+                       XmlTerm = ews_xml:to_term(RespEnv),
+                       {ok, parse_envelope(XmlTerm)};
+                   {ok, {_Code, _, FaultEnv}} ->
+                       log_response(Log, FaultEnv),
+                       XmlTerm = ews_xml:to_term(FaultEnv),
+                       {fault, parse_envelope(XmlTerm)};
+                   {error, Error} ->
+                       {error, Error}
+               end,
+    cleanup_log(Log),
+    Response.
 
 %% ----------------------------------------------------------------------------
 
@@ -55,13 +57,22 @@ parse_envelope([{{?SOAPNS, "Envelope"}, _, [Headers, Body]}]) ->
 parse_envelope(_) ->
     {error, not_envelope}.
 
-log_request(Body) ->
-    Dir = "/tmp/soap/",
+init_log() ->
+    {ok, Dir} = application:get_env(ews, soap_log_dir),
     filelib:ensure_dir(Dir),
-    {ok, Fd} = file:open(filename:join([Dir, "rand.soap"]), [write]),
-    file:write(Fd, ["request:\n", Body, 10, 10]),
+    Filename = get_filename(),
+    {ok, Fd} = file:open(filename:join([Dir, Filename]), [write]),
     Fd.
 
+get_filename() ->
+    %%TODO filename should include request id and timestamp
+    "rand.soap".
+
+log_request(Fd, Body) ->
+    file:write(Fd, ["request:\n", Body, 10, 10]).
+
 log_response(Fd, Body) ->
-    file:write(Fd, ["\nresponse:\n", Body]),
+    file:write(Fd, ["\nresponse:\n", Body]).
+
+cleanup_log(Fd) ->
     file:close(Fd).

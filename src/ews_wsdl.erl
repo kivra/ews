@@ -10,8 +10,6 @@
 
 -export([parse/1, fetch/1, fetch_and_parse/1]).
 
--export([test/0]).
-
 -include("ews.hrl").
 
 %% ----------------------------------------------------------------------------
@@ -41,16 +39,6 @@ parse(WsdlDoc) ->
 
 fetch_and_parse(WsdlUrl) ->
     parse(fetch(WsdlUrl)).
-
-test() ->
-    Urls = ["https://adwords.google.com/"
-            "api/adwords/cm/v201306/CampaignService?wsdl",
-            "https://api.bingads.microsoft.com"
-            "/Api/Advertiser/CampaignManagement/V9"
-            "/CampaignManagementService.svc?wsdl",
-            "http://www.webservicex.net/WeatherForecast.asmx?WSDL"],
-    [ begin #wsdl{} = fetch_and_parse(U) end || U <- Urls ],
-    ok.
 
 %% ---------------------------------------------------------------------------
 

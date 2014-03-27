@@ -7,7 +7,7 @@
 model_to_file(#model{type_map=Tbl}, Filename) ->
     AllTypes = [ output_type(T, Tbl) || T <- sort_types(Tbl) ],
     io:format("emitting ~p records~n", [length(AllTypes)]),
-    {ok, Fd} = file:open(Filename, write),
+    {ok, Fd} = file:open(Filename, [write]),
     [ ok = file:write(Fd, [T, $\n]) || T <- AllTypes ],
     file:close(Fd).
 
@@ -66,8 +66,6 @@ tick_word(Word) when is_atom(Word) ->
     tick_word(atom_to_list(Word));
 tick_word([C|_] = Word) when C >= $A andalso C =< $Z ->
     [$', Word, $'];
-tick_word(Word) when is_atom(Word)->
-    tick_word(atom_to_list(Word));
 tick_word(Word) ->
     Word.
 
@@ -105,4 +103,4 @@ create_graph(Tbl) ->
 emit_enum(Values, Indent) ->
     TickedValues = [ tick_word(V) || V <- Values ],
     JoinStr = [$\n,  lists:duplicate(Indent-2, $ ), $|, $ ],
-    string:join(TickedValues, JoinStr).
+    string:join(TickedValues, lists:flatten(JoinStr)).

@@ -14,7 +14,7 @@ put(#type{qname=Key} = T, Table) ->
     ets:insert_new(Table, {Key, T#type{alias=ews_alias:create_unique(Key)}}).
 
 append(#type{qname=Key} = T, Table) ->
-    T2 = T#type{alias=ews_alias:create(Key)},
+    T2 = T#type{alias=ews_alias:create_unique(Key)},
     case ets:lookup(Table, Key) of
         [] ->
             ets:insert(Table, {Key, T2});

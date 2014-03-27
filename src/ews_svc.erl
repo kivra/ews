@@ -332,7 +332,7 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     ews_serialize:decode(ResponseBody, Outs, Model);
-                {fault, FaultBody} ->
+                {fault, {_FaultHeader, FaultBody}} ->
                     ews_serialize:decode(FaultBody, hd(Faults), Model)
             end
     end.

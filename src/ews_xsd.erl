@@ -148,8 +148,8 @@ extract_extension(#extension{base=Base, parts=ExtParts}) ->
     {Base, Order, Parts}.
 
 
-choose_order({undefined, _, _}, O2) -> O2;
-choose_order(O1, {undefined, _, _}) -> O1;
+choose_order(undefined, O2) -> O2;
+choose_order(O1, undefined) -> O1;
 choose_order(O1, _) -> O1.
 
 parse_simple_type(Simple) ->
@@ -380,7 +380,7 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts) ->
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
                     [Elem | process(Rest, Ts)]
-            end;    
+            end;
         #base{} = Base ->
             [#elem{qname=Qname, type=Base, meta=Meta} | process(Rest, Ts)]
     end;
