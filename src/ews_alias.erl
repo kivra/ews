@@ -4,9 +4,10 @@
 
 -module(ews_alias).
 
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
--export([create/1, create_unique/1, get_alias/1, get_qname/1]).
+-export([create/1, create_unique/1, get_alias/1, get_qname/1,
+         get_alias_map/0]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -14,8 +15,6 @@
 -behaviour(gen_server).
 
 -record(state, {alias_map}).
-
--compile(export_all).
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -39,6 +38,9 @@ get_qname(Alias) ->
 get_alias_map() ->
     gen_server:call(?MODULE, get_alias_map).
 
+stop() ->
+    gen_server:cast(?MODULE, stop).
+
 %% >-----------------------------------------------------------------------< %%
 
 init([]) ->
@@ -53,12 +55,16 @@ handle_call({get_alias, {Ns, N}}, _, #state{alias_map=Map} = State) ->
 handle_call({get_qname, Alias}, _, #state{alias_map=Map} = State) ->
     Qname = get_qname(Alias, Map),
     {reply, Qname, State};
-handle_call(get_alias_map, _, #state{alias_map=Map} = State) ->
-    Matches = ets:match(Map, {{'$0', '$1'}, '$2'}),
-    {reply, [ {{Ns, N}, A} || [Ns, N, A] <- Matches ], State};
+handle_call(get_alias_map, _, #state{alias_map=AliasMap} = State) ->
+    %% We need to process the alias map a bit to return it in the correct
+    %% format
+    Map = process_alias_map(AliasMap),
+    {reply, Map, State};
 handle_call(_, _, State) ->
     {noreply, State}.
 
+handle_cast(stop, State) ->
+    {stop, normal, State};
 handle_cast(_, State) ->
     {noreply, State}.
 
@@ -127,6 +133,10 @@ get_qname(Alias, Map) ->
         [[Qname]] ->
             Qname
     end.
+
+process_alias_map(AliasMap) ->
+    Matches = ets:match(AliasMap, {{'$0', '$1'}, '$2'}),
+    [ {{Ns, N}, A} || [Ns, N, A] <- Matches ].
 
 to_underscore(Word) ->
     list_to_atom(string:join(to_underscore(Word, [], []), "_")).

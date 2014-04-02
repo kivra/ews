@@ -31,9 +31,8 @@ get_attribute(#xmlElement{attributes=Attrs, namespace=Ns}, Name) ->
             end
     end.
 
-get_child(#xmlElement{content=Content}, Name) ->
-    case [ E || E = #xmlElement{nsinfo={_, N}} <- Content, N == Name ] ++
-         [ E || E = #xmlElement{name=N} <- Content, atom_to_list(N) == Name ] of
+get_child(Xml, Name) ->
+    case get_children(Xml, Name) of
         [] ->
             undefined;
         [Child|_] ->
@@ -92,8 +91,7 @@ get_docs(ParentElem) ->
     end.
 
 stripns(Name) when is_atom(Name) ->
-    [_,NewName] = string:tokens(atom_to_list(Name), ":"),
-    NewName;
+    stripns(atom_to_list(Name));
 stripns(Name) when is_list(Name) ->
     case lists:member($:, Name) of
         true ->

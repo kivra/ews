@@ -1,8 +1,6 @@
 -module(ews_serialize).
 
--export([encode/3, decode/3, validate/3]).
-
--compile(export_all).
+-export([encode/3, decode/3]).
 
 -include("ews.hrl").
 
@@ -11,50 +9,52 @@
 %% ---------------------------------------------------------------------------
 
 encode(Terms, MsgElems, #model{elems=RootElems, type_map=Tbl}) ->
-    case validate_root(MsgElems, RootElems) of
+    case validate_model(MsgElems, RootElems) of
         {error, Error} ->
             error({error, Error});
         BaseElems ->
             Zipped = lists:zip(Terms, BaseElems),
-            [ validate(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
+            [ validate_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
     end.
 
-validate_root([{_,_}=Qname | Es], RootEs) ->
+validate_model([{_,_}=Qname | Es], RootEs) ->
     case lists:keyfind(Qname, #elem.qname, RootEs) of
         false ->
             {error, {"message input faulty", Qname}};
         #elem{qname=Qname} = E ->
-            [ E | validate_root(Es, RootEs) ]
+            [ E | validate_model(Es, RootEs) ]
     end;
-validate_root([#elem{qname=Qname} | Es], RootEs) ->
+validate_model([#elem{qname=Qname} | Es], RootEs) ->
     case lists:keyfind(Qname, #elem.qname, RootEs) of
         false ->
             {error, {"message input faulty", Qname}};
         #elem{qname=Qname} = E ->
-            [ E | validate_root(Es, RootEs) ]
+            [ E | validate_model(Es, RootEs) ]
     end;
-validate_root([], _) ->
+validate_model([], _) ->
     [].
 
 %% TODO: handle list of Terms -> check if #meta{max=M}, M > 1
 %% TODO: check meta on undefined to see if zero elems is ok
-validate(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
-    [ validate(Term, Type, Tbl) || {Term, Type} <- lists:zip(Terms, Types) ];
-validate(undefined, _, _) ->
+validate_term(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
+    [ validate_term(Term, Type, Tbl) || {Term, Type} <- lists:zip(Terms, Types)
+    ];
+validate_term(undefined, _, _) ->
     undefined;
-validate([_|_]=Terms, #elem{qname=Qname, meta=M}=E, Tbl) ->
+validate_term([_|_]=Terms, #elem{qname=Qname, meta=M}=E, Tbl) ->
     case M of
         #meta{max=Max} when Max > 1 ->
-            [ validate(T, E, Tbl) || T <- Terms ];
+            [ validate_term(T, E, Tbl) || T <- Terms ];
         _ ->
             error({"expected single value: ", element(2, Qname), Terms})
     end;
-validate(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+validate_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     Type = ews_type:get(TypeKey, Tbl), %% TODO: Handle false here
-    {Qname, [], validate(Term, Type, Tbl)};
-validate(Term, #elem{qname=Qname, type=Type}, Tbl) ->
-    {Qname, [], validate(Term, Type, Tbl)};
-validate(Term, #type{qname={_Ns, N}=Key, alias=A}, Tbl) when is_tuple(Term) ->
+    {Qname, [], validate_term(Term, Type, Tbl)};
+validate_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
+    {Qname, [], validate_term(Term, Type, Tbl)};
+validate_term(Term, #type{qname={_Ns, N}=Key, alias=A}, Tbl) when
+      is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term),
     Elems = ews_type:get_parts(Key, Tbl),
     case N == atom_to_list(Name) orelse A == Name of
@@ -66,13 +66,13 @@ validate(Term, #type{qname={_Ns, N}=Key, alias=A}, Tbl) when is_tuple(Term) ->
                     error("Wrong number of args in record "++N);
                 true ->
                     Parts = lists:zip(Values, Elems),
-                    lists:flatten([ validate(V, E, Tbl) ||
+                    lists:flatten([ validate_term(V, E, Tbl) ||
                                     {V, E} <- Parts, V /= undefined ])
             end
     end;
-validate(Term, #type{qname={_, N}}, _) ->
+validate_term(Term, #type{qname={_, N}}, _) ->
     error({"expected #"++N++"{}", Term});
-validate(Term, #base{erl_type=Type}, _) ->
+validate_term(Term, #base{erl_type=Type}, _) ->
     case Type of
         string when is_binary(Term) ->
             [{txt, Term}];
@@ -85,10 +85,11 @@ validate(Term, #base{erl_type=Type}, _) ->
         _ ->
             error({"expected "++atom_to_list(Type), Term})
     end;
-validate(Term, #enum{type=#base{erl_type=_Base}, values=Values}, _) ->
+validate_term(Term, #enum{type=#base{erl_type=_Base}, values=Values}, _) ->
     case lists:keyfind(Term, 1, Values) of
         false ->
-            Accepted = string:join([ atom_to_list(A) || {A,_} <- Values]," | "),
+            Accepted = string:join([ atom_to_list(A) || {A,_} <- Values ],
+                                   " | "),
             error({"expected "++Accepted, Term});
         {Term, Value} ->
             [{txt, Value}]
@@ -109,7 +110,8 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
             Type = ews_type:get(TypeKey, Tbl),
             validate_xml({Qname, As, Cs}, Type, Tbl)
     end;
-validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
+validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
+             Tbl) ->
     case has_inherited_type(As, Tbl) of %% FIXME: Can't assume all element is same type in list
         #type{} = Type ->
             validate_xml(Es, Type, Tbl);
@@ -130,7 +132,8 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
         false ->
             Elems = ews_type:get_parts(Key, Tbl),
             Pairs = match_children_elems(Cs, Elems, [], []),
-            list_to_tuple([Alias | [ validate_xml(T, E, Tbl) || {T, E} <- Pairs ]])
+            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            list_to_tuple([Alias | ValidatedXml])
     end;
 validate_xml({_Qname, _, []}, #base{erl_type=string}, _) ->
     undefined;
@@ -153,19 +156,24 @@ validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
 %% TODO: Fix Max > 1 terms are bunched into a list
 %% TODO: Just start by matching pairs together, maybe not even check meta now,
 %%       but after all terms that conform to the same Qname have been bunched
-match_children_elems([{Qname,_,_}=C1, {Qname,_,_}=C2|Cs], [#elem{qname=Qname}=E|Es], Acc, Res) ->
+match_children_elems([{Qname,_,_}=C1, {Qname,_,_}=C2|Cs],
+                     [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
 
 match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], [], Res) ->
     match_children_elems(Cs, Es, [], [{C1,E}|Res]);
 
-match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], [{Qname,_,_}|Acc], Res) ->
+match_children_elems([{Qname,_,_}=C1|Cs],
+                     [#elem{qname=Qname}=E|Es],
+                     [{Qname,_,_}|Acc], Res) ->
     match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
 
-match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], Acc, Res) ->
+match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], Acc,
+                     Res) ->
     match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
 
-match_children_elems([{_,_,_}=C|Cs], [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
+match_children_elems([{_,_,_}=C|Cs], [#elem{meta=#meta{min=0}}=E|Es], Acc,
+                     Res) ->
     match_children_elems([C|Cs], Es, Acc, [{undefined,E}|Res]);
 
 match_children_elems([{Qname,_,_}|_], [#elem{qname={_,N}}|_], _, _) ->

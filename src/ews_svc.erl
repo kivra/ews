@@ -321,18 +321,22 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            [{name, OpName}, {doc, _},
-             {in, Ins}, {in_hdr, InHdrs},
-             {out, Outs}, {out_hdr, _OutHdrs}, {faults, Faults},
-             {endpoint, Endpoint}, {action, Action}] = Info,
+            InHdrs = proplists:get_value(in_hdr, Info),
             EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
+
+            Ins = proplists:get_value(in, Info),
+            Endpoint = proplists:get_value(endpoint, Info),
+            Action = proplists:get_value(action, Info),
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
+
             case ews_soap:call(Endpoint, Action, EncodedHeader, EncodedBody) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
+                    Outs = proplists:get_value(out, Info),
                     ews_serialize:decode(ResponseBody, Outs, Model);
                 {fault, {_FaultHeader, FaultBody}} ->
+                    Faults = proplists:get_value(faults, Info),
                     ews_serialize:decode(FaultBody, hd(Faults), Model)
             end
     end.

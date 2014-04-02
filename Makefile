@@ -23,9 +23,7 @@ dialyzer: get-deps compile
 
 test: all
 	@rm -rf .eunit apps/*/.eunit
-	@bin/run_global_tests
-	@bin/check_specs_for_reltool.rb
-	@$(REBAR) -jk eunit skip_deps=true
+	@$(REBAR) -jk ct skip_deps=true
 
 external-test: all
 	@rm -rf .eunit apps/*/.eunit
@@ -35,6 +33,7 @@ doc:
 	@$(REBAR) -j doc skip_deps=true
 
 clean:
+	@rm -rf test/*.beam
 	@$(REBAR) -j clean
 
 clean-java:

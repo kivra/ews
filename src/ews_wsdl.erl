@@ -109,23 +109,19 @@ parse_fault(Fault) ->
     FaultName = wh:get_attribute(SoapFault, name),
     #binding_op_fault{name=FaultName, use=FaultUse}.
 
-%%parse_operation_parts(Part) ->
-%%    InputHeader = wh:get_child(Part, "header"),
-%%    HeaderPart = wh:get_attribute(InputHeader, part),
-%%    Message = wh:get_attribute(InputHeader, message),
-%%    {part, HeaderPart, Message}.
-
 parse_messages(Doc, TargetNs) ->
     [ parse_message(M, TargetNs) || M <- wh:get_children(Doc, "message") ].
 
 parse_message(Message, TargetNs) ->
+    Name = wh:get_attribute(Message, name),
     Parts = [ parse_message_part(P) || P <- wh:get_children(Message, "part") ],
-    #message{name={TargetNs, wh:get_attribute(Message, name)}, parts=Parts}.
+    #message{name={TargetNs, Name}, parts=Parts}.
 
 parse_message_part(Part) ->
-    #part{name=wh:get_attribute(Part, name),
-          element=wh:get_attribute(Part, element),
-          type=wh:get_attribute(Part, type)}.
+    Name = wh:get_attribute(Part, name),
+    Element = wh:get_attribute(Part, element),
+    Type = wh:get_attribute(Part, type),
+    #part{name=Name, element=Element, type=Type}.
 
 parse_port_types(Doc, TargetNs) ->
     [ parse_port_type(T, TargetNs) || T <- wh:get_children(Doc, "portType") ].

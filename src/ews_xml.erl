@@ -2,11 +2,12 @@
 
 -export([from_term/1, to_term/1, compare/2]).
 
+-define(XML_NS, "http://www.w3.org/XML/1998/namespace").
+
 -type name() :: atom() | string().
 -type qname() :: name() | {name(), name()}.
 -type xml_data() :: {qname(), [{name(), string()}], list()}.
 
-%% TODO: Handle naked xmlns-declarations
 %% ----------------------------------------------------------------------------
 %% Api
 
@@ -20,7 +21,7 @@ from_term(Data) when is_list(Data) ->
 to_term(XmlString) when is_binary(XmlString) ->
     to_term(binary_to_list(XmlString));
 to_term(XmlString) when is_list(XmlString) ->
-    Tokens = scan_tag(XmlString, [], [], [], []),
+    Tokens = scan_tag(XmlString, [], [], [{"xml", ?XML_NS}], []),
     parse_xml(Tokens, []).
 
 %% ----------------------------------------------------------------------------
@@ -74,9 +75,6 @@ to_string(Name) when is_list(Name) -> Name.
 %% ----------------------------------------------------------------------------
 %% xml to term
 
-to_txt(TxtLst) ->
-    list_to_binary(lists:reverse(TxtLst)).
-
 scan_tag([$<, $/ | Rest], [], Txt, Nss, Acc) ->
     scan_tag(Rest, [$/ ,$<], [], Nss, [{txt, Txt} | Acc]);
 scan_tag([$< | Rest], [], Txt, Nss, Acc) ->
@@ -101,6 +99,9 @@ strip_empty([E | Rest], Acc) ->
     strip_empty(Rest, [E | Acc]);
 strip_empty([], Acc) ->
     Acc.
+
+to_txt(TxtLst) ->
+    list_to_binary(lists:reverse(TxtLst)).
 
 parse_tag(Element, EntryNss) ->
     [Tag | Attrs] = string:tokens(Element, "<> "),
@@ -226,6 +227,8 @@ compare(S1, [], Acc) ->
 %% ----------------------------------------------------------------------------
 %% Namespace utils
 
+get_ns_prefix(?XML_NS, Store) ->
+    {"xml", ?XML_NS, Store};
 get_ns_prefix(Ns, Store) ->
     case lists:keyfind(Ns, 2, Store) of
         {Prefix, Ns, _} ->

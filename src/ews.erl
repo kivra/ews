@@ -24,9 +24,11 @@ add_wsdl_to_model(WsdlUrl) ->
 emit_complete_model_types(Filename) ->
     ews_svc:emit_model(Filename).
 
-emit_service_types(_, _) -> ok.
+emit_service_types(_, _) ->
+    {error, not_implemented}.
 
-emit_service_ops(_) -> ok.
+emit_service_ops(_) ->
+    {error, not_implemented}.
 
 list_services() ->
     ews_svc:list_services().
