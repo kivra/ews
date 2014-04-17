@@ -20,13 +20,9 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
     log_request(Log, BodyIoList),
     Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
                    {ok, {{200,_}, _, RespEnv}} ->
-                       log_response(Log, RespEnv),
-                       XmlTerm = ews_xml:to_term(RespEnv),
-                       {ok, parse_envelope(XmlTerm)};
+                       parse_response(ok, Log, RespEnv);
                    {ok, {_Code, _, FaultEnv}} ->
-                       log_response(Log, FaultEnv),
-                       XmlTerm = ews_xml:to_term(FaultEnv),
-                       {fault, parse_envelope(XmlTerm)};
+                       parse_response(fault, Log, FaultEnv);
                    {error, Error} ->
                        {error, Error}
                end,
@@ -34,6 +30,16 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
     Response.
 
 %% ----------------------------------------------------------------------------
+
+parse_response(Type, Log, Response) ->
+    log_response(Log, Response),
+    XmlTerm = ews_xml:to_term(Response),
+    case parse_envelope(XmlTerm) of
+        {error, Error} ->
+            {error, Error};
+        ParsedResponse ->
+            {Type, ParsedResponse}
+    end.
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
@@ -54,6 +60,9 @@ parse_envelope([{{?SOAPNS, "Envelope"}, _, [Headers, Body]}]) ->
     {{?SOAPNS, "Header"}, _, HeaderFields} = Headers,
     {{?SOAPNS, "Body"}, _, BodyFields} = Body,
     {HeaderFields, BodyFields};
+parse_envelope([{{?SOAPNS, "Envelope"}, _, [Body]}]) ->
+    {{?SOAPNS, "Body"}, _, BodyFields} = Body,
+    {undefined, BodyFields};
 parse_envelope(_) ->
     {error, not_envelope}.
 

@@ -6,11 +6,9 @@
 
 -export([start_link/0]).
 
--export([add_wsdl/1,
-         list_services/0, list_service_ops/1,
-         get_op_info/2, list_types/0, get_type/1,
-         list_simple_clashes/0, list_full_clashes/0,
-         emit_model/1,
+-export([add_wsdl/1, list_services/0, list_service_ops/1, get_op_info/2,
+         get_op/2, get_op_message_details/2, list_types/0, get_type/1,
+         get_model/0, list_simple_clashes/0, list_full_clashes/0, emit_model/1,
          call/4]).
 
 -export([init/1, handle_call/3, handle_cast/2,
@@ -21,8 +19,6 @@
 -record(state, {services=[], model}).
 
 -include("ews.hrl").
-
--compile(export_all).
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -122,12 +118,18 @@ handle_call({get_op_message_details, SvcName, OpName}, _, State) ->
                     {reply, {ok, message_info(Op, Model)}, State}
             end
     end;
+handle_call(list_clashes, _, #state{model=undefined} = State) ->
+    {reply, [], State};
 handle_call(list_clashes, _, #state{model=#model{clashes=Clashes}} = State) ->
     {reply, dict:to_list(Clashes), State};
+handle_call(list_types, _, #state{model=undefined} = State) ->
+    {reply, [], State};
 handle_call(list_types, _, #state{model=#model{type_map=Map}} = State) ->
     {reply, ews_type:keys(Map), State};
 handle_call({get_type, Key}, _, #state{model=#model{type_map=Map}} = State) ->
     {reply, ews_type:get(Key, Map), State};
+handle_call({emit_model, _File}, _, #state{model=undefined} = State) ->
+    {reply, {error, no_model}, State};
 handle_call({emit_model, File}, _, #state{model=Model} = State) ->
     {reply, ews_emit:model_to_file(Model, File), State};
 handle_call(get_model, _, #state{model=Model} = State) ->
@@ -340,6 +342,3 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
                     ews_serialize:decode(FaultBody, hd(Faults), Model)
             end
     end.
-
-get_type_list(TypeInfo) ->
-    [ I || {_, I} <- TypeInfo ].
