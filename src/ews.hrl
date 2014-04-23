@@ -34,11 +34,14 @@
 -record(all, {min_occurs=1, max_occurs=1, parts}).
 -record(enumeration, {base_type, values}).
 
+%% Simplified XSD
 -record(elem, {qname, type, meta}).
--record(type, {qname, alias, elems, extends}).
+-record(type, {qname, alias, elems, extends, abstract}).
 -record(base, {xsd_type, erl_type, restrictions}).
 -record(enum, {type, values}).
 -record(meta, {nillable=false, default, fixed, max, min}).
 
+%% Service related records
 -record(op, {name, doc, input, output, faults, style, endpoint, action}).
 -record(model, {type_map, elems, clashes=dict:new()}).
+-record(fault, {code, string, actor, detail}).

@@ -1,10 +1,15 @@
 -module(ews_type).
 
--export([new/0, put/2, append/2, get/2, get_parts/2, get_from_base/2,
+-export([new/0, put/2, append/2, get/2, get_parts/2,
+         get_from_base/2, get_from_alias/2,
+         get_super/2, get_inherited/2, inherits/3, equals/3,
          to_list/1, keys/1, values/1]).
 
 -include("ews.hrl").
 
+%% ---
+%% TODO: Module could probably be a bit more lean
+%% TODO: Remove all funs from export that isn't used outside this module
 %% ---
 
 new() ->
@@ -24,24 +29,58 @@ append(#type{qname=Key} = T, Table) ->
             ets:insert(Table, {Key, [T2|Values]})
     end.
 
-get(Key, Table) ->
+get({_,_} = Key, Table) ->
     case ets:lookup(Table, Key) of
         [{Key, Value}] ->
             Value;
         [] ->
             false
-    end.
+    end;
+get(Key, Table) when is_atom(Key) ->
+    get_from_alias(Key, Table).
 
 get_parts(Key, Table) ->
-    case ets:lookup(Table, Key) of
-        [{Key, #type{qname=Key, elems=Parts, extends=undefined}}] ->
+    case ews_type:get(Key, Table) of
+        #type{elems=Parts, extends=undefined} ->
             Parts;
-        [{Key, #type{qname=Key, elems=Parts, extends={ExtNs, ExtName}}}] ->
-            ExtendKey = {ExtNs, ExtName},
+        #type{elems=Parts, extends=ExtendKey} ->
             ExtendParts = get_parts(ExtendKey, Table),
             ExtendParts ++ Parts;
-        [] ->
+        false ->
             []
+    end.
+
+get_inherited(Key, Table) ->
+    case ets:match(Table, {'_', {type, '$1', '$2', '_', Key, '_'}}) of
+        [] ->
+            false;
+        Res ->
+            [{N,A} || [N, A] <- Res ]
+    end.
+
+get_super({_, _} = Key, Table) ->
+    case ews_type:get(Key, Table) of
+        false ->
+            Key;
+        #type{extends=Super} ->
+            Super
+    end;
+get_super(Key, Table) when is_atom(Key) ->
+    case ews_type:get_from_alias(Key, Table) of
+        false ->
+            Key;
+        #type{extends=undefined} ->
+            Key;
+        #type{extends=Super} ->
+            Super
+    end.
+
+get_from_alias(Alias, Tbl) ->
+    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_'}}) of
+        [] ->
+            false;
+        [[Key]] ->
+            ews_type:get(Key, Tbl)
     end.
 
 get_from_base(BaseKey, Table) ->
@@ -50,6 +89,22 @@ get_from_base(BaseKey, Table) ->
             false;
         Vals ->
             [ {{Ns, BaseKey}, Type} || [Ns, Type] <- Vals ]
+    end.
+
+inherits(Key, SuperKey, Tbl) ->
+    case get_super(Key, Tbl) of
+        false ->
+            false;
+        SuperKey ->
+            true
+    end.
+
+equals(Key1, Key2, Tbl) ->
+    case {ews_type:get(Key1, Tbl), ews_type:get(Key2, Tbl)} of
+        {#type{qname=Qn1, alias=A1}, #type{qname=Qn2, alias=A2}} ->
+            Qn1 == Qn2 orelse A1 == A2;
+        _ ->
+            false
     end.
 
 to_list(Tbl) ->

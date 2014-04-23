@@ -363,8 +363,10 @@ process(Types) ->
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts) ->
     Meta = parse_meta(E),
     Elem = #elem{qname=Qname, type=Qname, meta=Meta},
-    #complex_type{extends=Ext, parts=Ps2} = lists:keyfind(complex_type, 1, Ps),
-    Type = #type{qname=Qname, extends=Ext, elems=process(Ps2, Ts)},
+    #complex_type{extends=Ext, parts=Ps2,
+                  abstract=Abstract} = lists:keyfind(complex_type, 1, Ps),
+    Type = #type{qname=Qname, extends=Ext,
+                 abstract=Abstract, elems=process(Ps2, Ts)},
     [Elem, Type | process(Rest, Ts) ];
 process([#element{parts=[{doc, _}]} = E | Rest], Ts) ->
     process([E#element{parts=[]} | Rest], Ts);

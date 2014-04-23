@@ -25,7 +25,7 @@ decode(XmlString) when is_list(XmlString) ->
     parse_xml(Tokens, [], []).
 
 %% ----------------------------------------------------------------------------
-%% term to xml
+%% encode
 
 emit_tag({txt, Content}, _) ->
     Content;
@@ -73,7 +73,7 @@ to_string(Name) when is_binary(Name) -> binary_to_list(Name);
 to_string(Name) when is_list(Name) -> Name.
 
 %% ----------------------------------------------------------------------------
-%% xml to term
+%% decode
 
 scan_tag([$<, $/ | Rest], [], Txt, Acc) ->
     scan_tag(Rest, [$/ ,$<], [], [{txt, Txt} | Acc]);
@@ -167,18 +167,16 @@ find_start([{Tag, Attrs, []}|Rest], Tag, Acc) ->
     {{Tag, Attrs, Acc}, Rest};
 find_start([Elem | Rest], Tag, Acc) ->
     find_start(Rest, Tag, [Elem | Acc]);
-find_start([], Tag, Acc) ->
-    io:format("woot:~p~n", [Tag]),
+find_start([], _, Acc) ->
     {Acc, []}.
 
 push_xmlns(Attrs, Key, Nss) ->
-    push_xmlns(Attrs, Key, Nss, []).
+    {NewNss, NewAttrs} = push_xmlns(Attrs, Key, [], []),
+    {NewNss ++ Nss, NewAttrs}.
 
 push_xmlns([{"xmlns", Ns}|Rest], Key, Nss, Attrs) ->
-    %%io:format("push xmlns: ~p~n", [Ns]),
     push_xmlns(Rest, Key, [{Key, {"", Ns}}|Nss], Attrs);
 push_xmlns([{{"xmlns", Prefix}, Ns}|Rest], Key, Nss, Attrs) ->
-    %%io:format("push xmlns: ~p~n", [{Prefix, Ns}]),
     push_xmlns(Rest, Key, [{Key, {Prefix, Ns}}|Nss], Attrs);
 push_xmlns([A|Rest], Key, Nss, Attrs) ->
     push_xmlns(Rest, Key, Nss, [A|Attrs]);
@@ -227,27 +225,15 @@ add_prefix(Ns, Max, Store) ->
      XmlNsDecl,
      lists:keystore(NewPrefix, 1, Store, {NewPrefix, Ns, Max+1})}.
 
-%% TODO: Split up and nicefy
 parse_qname(Qname, RawNss) ->
     Nss = [ N || {_, N} <- RawNss ],
     case split_qname(Qname) of
-        {"/"++Prefix, Name} ->
-            {Prefix, Ns} = lists:keyfind(Prefix, 1, Nss),
-            {"/"++Ns, Name};
         {Prefix, Name} ->
             case lists:keyfind(Prefix, 1, Nss) of
                 {Prefix, Ns} ->
                     {Ns, Name};
                 false ->
-                    io:format("didnt find ~p in ~p~n", [Prefix, Nss]),
                     {Prefix, Name}
-            end;
-        "/"++Name ->
-            case lists:keyfind("", 1, Nss) of
-                {"", Ns} ->
-                    {"/"++Ns, Name};
-                false ->
-                    "/"++Name
             end;
         Name ->
             case lists:keyfind("", 1, Nss) of

@@ -22,8 +22,6 @@
 
 -include("ews.hrl").
 
--compile(export_all).
-
 %% >-----------------------------------------------------------------------< %%
 
 start_link() ->
@@ -323,22 +321,33 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
         {ok, Info} ->
             InHdrs = proplists:get_value(in_hdr, Info),
             EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
-
             Ins = proplists:get_value(in, Info),
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
-
             case ews_soap:call(Endpoint, Action, EncodedHeader, EncodedBody) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     Outs = proplists:get_value(out, Info),
                     ews_serialize:decode(ResponseBody, Outs, Model);
-                {fault, {_FaultHeader, FaultBody}} ->
+                {fault, #fault{detail=undefined} = Fault} ->
+                    {error, Fault};
+                {fault, #fault{detail=Detail} = Fault} ->
                     Faults = proplists:get_value(faults, Info),
-                    ews_serialize:decode(FaultBody, hd(Faults), Model)
+                    DecodedDetail = try_decode_fault(Faults, Detail, Model),
+                    {error, Fault#fault{detail=DecodedDetail}}
             end
+    end.
+
+try_decode_fault([], _, _) ->
+    error(no_model_matched_fault_detail);
+try_decode_fault([F|Faults], Detail, Model) ->
+    case catch ews_serialize:decode(Detail, [F], Model) of
+        {'EXIT',_} ->
+            try_decode_fault(Faults, Detail, Model);
+        DecodedDetail ->
+            DecodedDetail
     end.
 
 get_type_list(TypeInfo) ->

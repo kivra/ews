@@ -5,6 +5,8 @@
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
 -define(HTTP_TIMEOUT, 10000).
 
+-include("ews.hrl").
+
 %% ----------------------------------------------------------------------------
 
 call(Endpoint, SoapAction, Header, Body) ->
@@ -15,17 +17,17 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
     Hdrs = [{"SOAPAction", SoapAction},
             {"Content-Type", "text/xml"}],
     Envelope = make_envelope(Header, Body),
-    BodyIoList = ews_xml:from_term(Envelope),
+    BodyIoList = ews_xml:encode(Envelope),
     Log = init_log(),
     log_request(Log, BodyIoList),
     Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
                    {ok, {{200,_}, _, RespEnv}} ->
                        log_response(Log, RespEnv),
-                       XmlTerm = ews_xml:to_term(RespEnv),
+                       XmlTerm = ews_xml:decode(RespEnv),
                        {ok, parse_envelope(XmlTerm)};
                    {ok, {_Code, _, FaultEnv}} ->
                        log_response(Log, FaultEnv),
-                       XmlTerm = ews_xml:to_term(FaultEnv),
+                       XmlTerm = ews_xml:decode(FaultEnv),
                        {fault, parse_envelope(XmlTerm)};
                    {error, Error} ->
                        {error, Error}
@@ -54,8 +56,32 @@ parse_envelope([{{?SOAPNS, "Envelope"}, _, [Headers, Body]}]) ->
     {{?SOAPNS, "Header"}, _, HeaderFields} = Headers,
     {{?SOAPNS, "Body"}, _, BodyFields} = Body,
     {HeaderFields, BodyFields};
+parse_envelope([{{?SOAPNS, "Envelope"}, _, [Body]}]) ->
+    {{?SOAPNS, "Body"}, _, BodyFields} = Body,
+    case BodyFields of
+        [{{?SOAPNS, "Fault"}, _, Faults}] ->
+            parse_fault(Faults);
+        _ ->
+            {[], BodyFields}
+    end;
 parse_envelope(_) ->
     {error, not_envelope}.
+
+parse_fault(Fields) ->
+    #fault{code=parse_fault_field("faultcode", Fields),
+           string=parse_fault_field("faultstring", Fields),
+           actor=parse_fault_field("faultactor", Fields),
+           detail=parse_fault_field("detail", Fields)}.
+
+parse_fault_field(Name, Fields) ->
+    case lists:keyfind(Name, 1, Fields) of
+        {_, _, [{txt, Txt}]} ->
+            Txt;
+        {_, _, Content} ->
+            Content;
+        false ->
+            undefined
+    end.
 
 init_log() ->
     {ok, Dir} = application:get_env(ews, soap_log_dir),
