@@ -53,22 +53,25 @@ validate_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     {Qname, [], validate_term(Term, Type, Tbl)};
 validate_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], validate_term(Term, Type, Tbl)};
-validate_term(Term, #type{qname={_Ns, N}=Key, alias=A}, Tbl) when
-      is_tuple(Term) ->
+validate_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term),
-    Elems = ews_type:get_parts(Key, Tbl),
-    case N == atom_to_list(Name) orelse A == Name of
+    Super = ews_type:get_super(Name, Tbl),
+    #type{alias=OtherAlias} = ews_type:get(Super, Tbl),
+    case ews_type:get(Name, Tbl) of
+        #type{qname=Key} ->
+            Elems = ews_type:get_parts(Key, Tbl),
+            Parts = lists:zip(Values, Elems),
+            lists:flatten([ validate_term(V, E, Tbl) ||
+                            {V, E} <- Parts, V /= undefined ]);
+        #type{qname=InheritedKey} when Super == Key ->
+            Elems = ews_type:get_parts(InheritedKey, Tbl),
+            Parts = lists:zip(Values, Elems),
+            lists:flatten([ validate_term(V, E, Tbl) ||
+                            {V, E} <- Parts, V /= undefined ]);
+        #type{qname=_Qname} ->
+            error({"expected #"++atom_to_list(OtherAlias)++"{}", Term});
         false ->
-            error({"expected #"++A++"{}", Term});
-        true ->
-            case length(Elems) == length(Values) of
-                false ->
-                    error("Wrong number of args in record "++N);
-                true ->
-                    Parts = lists:zip(Values, Elems),
-                    lists:flatten([ validate_term(V, E, Tbl) ||
-                                    {V, E} <- Parts, V /= undefined ])
-            end
+            error({"expected #"++atom_to_list(A)++"{}", Term})
     end;
 validate_term(Term, #type{qname={_, N}}, _) ->
     error({"expected #"++N++"{}", Term});
