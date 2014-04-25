@@ -32,14 +32,14 @@ end_per_testcase(_TestCase, Config) ->
 
 tag_with_multiple_namespaces(_Config) ->
     XMLString = "<a:test xmlns:a=\"a\" xmlns:b=\"b\" ></a:test>",
-    Terms = ews_xml:to_term(XMLString),
+    Terms = ews_xml:decode(XMLString),
     Terms = [{{"a","test"},
               [{{"xmlns","a"},"a"},{{"xmlns","b"},"b"}],
               []}].
 
 namespace_owerwriting(_Config) ->
     XMLString = "<test xmlns=\"a\" ><test2 xmlns=\"b\" /></test>",
-    Terms = ews_xml:to_term(XMLString),
+    Terms = ews_xml:decode(XMLString),
     Terms = [{{"a","test"},
               [{{"xmlns",[]},"a"}],
               [{{"b","test2"},[{{"xmlns",[]},"b"}],[]}]}].

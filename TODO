@@ -6,8 +6,6 @@ TODO - wsdl
 * records generation from types dict [X]
 * soap client [X]
 * xml2struct and struct2xml [X]
-* 
-
 
 Interface
 =========
@@ -20,3 +18,13 @@ Interface
 * ews:get_service_ops/1
 * ews:get_service_op_args/2
 * ews:call_service_op/3 (svc, op, args)
+
+SEDRIK COMMENTS
+===============
+* logging?
+* model/terms name and type
+* ews_emit -> ews_record
+* ews_svc -> ews_service
+* ews_serialize should be renamed, what is it serializing
+* array_of issues!
+* we should detect duplicates, ex date and date_1

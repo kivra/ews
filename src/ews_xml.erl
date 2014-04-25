@@ -1,6 +1,6 @@
 -module(ews_xml).
 
--export([from_term/1, to_term/1, compare/2]).
+-export([encode/1, decode/1, compare/2]).
 
 -define(XML_NS, "http://www.w3.org/XML/1998/namespace").
 
@@ -11,21 +11,21 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
--spec from_term(xml_data()) -> iolist().
-from_term(Data) when is_tuple(Data) andalso size(Data) == 3 ->
+-spec encode(xml_data()) -> iolist().
+encode(Data) when is_tuple(Data) andalso size(Data) == 3 ->
     emit_tag(Data, []);
-from_term(Data) when is_list(Data) ->
+encode(Data) when is_list(Data) ->
     [ emit_tag(D, []) || D <- Data ].
 
--spec to_term(string()|binary()) -> xml_data() | [xml_data()].
-to_term(XmlString) when is_binary(XmlString) ->
-    to_term(binary_to_list(XmlString));
-to_term(XmlString) when is_list(XmlString) ->
-    Tokens = scan_tag(XmlString, [], [], [{"xml", ?XML_NS}], []),
-    parse_xml(Tokens, []).
+-spec decode(string()|binary()) -> xml_data() | [xml_data()].
+decode(XmlString) when is_binary(XmlString) ->
+    decode(binary_to_list(XmlString));
+decode(XmlString) when is_list(XmlString) ->
+    Tokens = scan_tag(XmlString, [], [], []),
+    parse_xml(Tokens, [], []).
 
 %% ----------------------------------------------------------------------------
-%% term to xml
+%% encode
 
 emit_tag({txt, Content}, _) ->
     Content;
@@ -73,20 +73,20 @@ to_string(Name) when is_binary(Name) -> binary_to_list(Name);
 to_string(Name) when is_list(Name) -> Name.
 
 %% ----------------------------------------------------------------------------
-%% xml to term
+%% decode
 
-scan_tag([$<, $/ | Rest], [], Txt, Nss, Acc) ->
-    scan_tag(Rest, [$/ ,$<], [], Nss, [{txt, Txt} | Acc]);
-scan_tag([$< | Rest], [], Txt, Nss, Acc) ->
-    scan_tag(Rest, [$<], [], Nss, [{txt, Txt} | Acc]);
-scan_tag([$> | Rest], Tag, [], Nss, Acc) ->
-    {Element, NewNss} = parse_tag(lists:reverse([$> | Tag]), Nss),
-    scan_tag(Rest, [], [], NewNss, [Element| Acc]);
-scan_tag([C | Rest], [], Txt, Nss, Acc) ->
-    scan_tag(Rest, [], [C | Txt], Nss, Acc);
-scan_tag([C | Rest], Stack, [], Nss, Acc) ->
-    scan_tag(Rest, [C | Stack], [], Nss, Acc);
-scan_tag([], _, _, _, Acc) -> strip_empty(Acc, []).
+scan_tag([$<, $/ | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [$/ ,$<], [], [{txt, Txt} | Acc]);
+scan_tag([$< | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [$<], [], [{txt, Txt} | Acc]);
+scan_tag([$> | Rest], Tag, [], Acc) ->
+    Element = parse_tag(lists:reverse([$> | Tag])),
+    scan_tag(Rest, [], [], [Element| Acc]);
+scan_tag([C | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [], [C | Txt], Acc);
+scan_tag([C | Rest], Stack, [], Acc) ->
+    scan_tag(Rest, [C | Stack], [], Acc);
+scan_tag([], _, _, Acc) -> strip_empty(Acc, []).
 
 strip_empty([{txt, Txt} | Rest], Acc) ->
     case string:tokens(Txt, " \n\t") == "" of
@@ -103,60 +103,18 @@ strip_empty([], Acc) ->
 to_txt(TxtLst) ->
     list_to_binary(lists:reverse(TxtLst)).
 
-parse_tag(Element, EntryNss) ->
+parse_tag(Element) ->
     [Tag | Attrs] = string:tokens(Element, "<> "),
-    Fun = fun(A, {Acc, Nss}) ->
+    Fun = fun(A, Acc) ->
               case lists:member($=, A) of
                   true ->
-                      case split_attribute(A) of
-                          {"xmlns", Tns} ->
-                              NewNss = lists:keystore("", 1,
-                                                      Nss, {"", Tns}),
-                              {[{{"xmlns", ""}, Tns} | Acc], NewNss};
-                          {{"xmlns", Prefix} = Key, Ns} ->
-                              NewNss = lists:keystore(Prefix, 1,
-                                                      Nss, {Prefix, Ns}),
-                              {[{Key, Ns} | Acc], NewNss};
-                          {{Prefix, Key}, Val}  ->
-                              {Prefix, Ns} = lists:keyfind(Prefix, 1, Nss),
-                              {[{{Ns, Key}, Val} | Acc], Nss}
-                      end;
-                  false ->
-                      {Acc, Nss}
+                       [split_attribute(A)|Acc];
+                   false ->
+                       Acc
               end
           end,
-    {NewAttrs, NewNss} = lists:foldl(Fun, {[], EntryNss}, Attrs),
-    Qname = parse_qname(Tag, NewNss),
-    {{Qname, lists:reverse(NewAttrs), []}, NewNss}.
-
-parse_qname(Qname, Nss) ->
-    case split_qname(Qname) of
-        {"/"++Prefix, Name} ->
-            {Prefix, Ns} = lists:keyfind(Prefix, 1, Nss),
-            {"/"++Ns, Name};
-        {Prefix, Name} ->
-            case lists:keyfind(Prefix, 1, Nss) of
-                {Prefix, Ns} ->
-                    {Ns, Name};
-                false ->
-                    io:format("didnt find ~p in ~p~n", [Prefix, Nss]),
-                    {Prefix, Name}
-            end;
-        "/"++Name ->
-            case lists:keyfind("", 1, Nss) of
-                {"", Ns} ->
-                    {"/"++Ns, Name};
-                false ->
-                    "/"++Name
-            end;
-        Name ->
-            case lists:keyfind("", 1, Nss) of
-                {"", Ns} ->
-                    {Ns, Name};
-                false ->
-                    Name
-            end
-    end.
+    NewAttrs = lists:foldl(Fun, [], Attrs),
+    {Tag, lists:reverse(NewAttrs), []}.
 
 split_attribute(Attr) ->
     [Key | Vals] = string:tokens(Attr, "="),
@@ -185,28 +143,45 @@ clean_attr([C | Rest], Acc) ->
 clean_attr([], Acc) ->
     lists:reverse(Acc).
 
-parse_xml([{{[$/ | Ns], Name}, _, _} | Rest], Stack) ->
-    {Element, NewStack} = find_start(Stack, {Ns, Name}),
-    parse_xml(Rest, [Element | NewStack]);
-parse_xml([{[$/ | Tag], _, _} | Rest], Stack) ->
-    {Element, NewStack} = find_start(Stack, Tag),
-    parse_xml(Rest, [Element | NewStack]);
-parse_xml([{txt, _} = Txt | Rest], Stack) ->
-    parse_xml(Rest, [Txt | Stack]);
-parse_xml([{"!--", _, _} | Rest], Stack) ->
-    parse_xml(Rest, Stack);
-parse_xml([Tag | Rest], Stack) ->
-    parse_xml(Rest, [Tag | Stack]);
-parse_xml([], Stack) ->
+%% parses the xml tree from tokens
+parse_xml([{[$/ | Tag], _, _} | Rest], Stack, Nss) ->
+    Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
+    {Element, NewStack} = find_start(Stack, Key),
+    NewNss = lists:keydelete(Tag, 1, Nss),
+    parse_xml(Rest, [Element | NewStack], NewNss);
+parse_xml([{txt, _} = Txt | Rest], Stack, Nss) ->
+    parse_xml(Rest, [Txt | Stack], Nss);
+parse_xml([{"!--", _, _} | Rest], Stack, Nss) ->
+    parse_xml(Rest, Stack, Nss);
+parse_xml([{Tag, Attrs ,_} | Rest], Stack, Nss) ->
+    Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
+    {NewNss, NewAttrs} = push_xmlns(Attrs, Key, Nss),
+    parse_xml(Rest, [{parse_qname(Tag, NewNss), NewAttrs, []} | Stack], NewNss);
+parse_xml([], Stack, _) ->
     lists:reverse(Stack).
 
 find_start(Stack, Tag) -> find_start(Stack, Tag, []).
+find_start([{{_, Tag} = Qname, Attrs, []}|Rest], Tag, Acc) ->
+    {{Qname, Attrs, Acc}, Rest};
 find_start([{Tag, Attrs, []}|Rest], Tag, Acc) ->
     {{Tag, Attrs, Acc}, Rest};
 find_start([Elem | Rest], Tag, Acc) ->
     find_start(Rest, Tag, [Elem | Acc]);
 find_start([], _, Acc) ->
     {Acc, []}.
+
+push_xmlns(Attrs, Key, Nss) ->
+    {NewNss, NewAttrs} = push_xmlns(Attrs, Key, [], []),
+    {NewNss ++ Nss, NewAttrs}.
+
+push_xmlns([{"xmlns", Ns}|Rest], Key, Nss, Attrs) ->
+    push_xmlns(Rest, Key, [{Key, {"", Ns}}|Nss], Attrs);
+push_xmlns([{{"xmlns", Prefix}, Ns}|Rest], Key, Nss, Attrs) ->
+    push_xmlns(Rest, Key, [{Key, {Prefix, Ns}}|Nss], Attrs);
+push_xmlns([A|Rest], Key, Nss, Attrs) ->
+    push_xmlns(Rest, Key, Nss, [A|Attrs]);
+push_xmlns([], _, Nss, Attrs) ->
+    {lists:usort(lists:reverse(Nss)), lists:reverse(Attrs)}.
 
 %% ----------------------------------------------------------------------------
 %% Xml utils
@@ -249,3 +224,22 @@ add_prefix(Ns, Max, Store) ->
     {NewPrefix,
      XmlNsDecl,
      lists:keystore(NewPrefix, 1, Store, {NewPrefix, Ns, Max+1})}.
+
+parse_qname(Qname, RawNss) ->
+    Nss = [ N || {_, N} <- RawNss ],
+    case split_qname(Qname) of
+        {Prefix, Name} ->
+            case lists:keyfind(Prefix, 1, Nss) of
+                {Prefix, Ns} ->
+                    {Ns, Name};
+                false ->
+                    {Prefix, Name}
+            end;
+        Name ->
+            case lists:keyfind("", 1, Nss) of
+                {"", Ns} ->
+                    {Ns, Name};
+                false ->
+                    Name
+            end
+    end.

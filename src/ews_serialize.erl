@@ -53,22 +53,25 @@ validate_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     {Qname, [], validate_term(Term, Type, Tbl)};
 validate_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], validate_term(Term, Type, Tbl)};
-validate_term(Term, #type{qname={_Ns, N}=Key, alias=A}, Tbl) when
-      is_tuple(Term) ->
+validate_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term),
-    Elems = ews_type:get_parts(Key, Tbl),
-    case N == atom_to_list(Name) orelse A == Name of
+    Super = ews_type:get_super(Name, Tbl),
+    #type{alias=OtherAlias} = ews_type:get(Super, Tbl),
+    case ews_type:get(Name, Tbl) of
+        #type{qname=Key} ->
+            Elems = ews_type:get_parts(Key, Tbl),
+            Parts = lists:zip(Values, Elems),
+            lists:flatten([ validate_term(V, E, Tbl) ||
+                            {V, E} <- Parts, V /= undefined ]);
+        #type{qname=InheritedKey} when Super == Key ->
+            Elems = ews_type:get_parts(InheritedKey, Tbl),
+            Parts = lists:zip(Values, Elems),
+            lists:flatten([ validate_term(V, E, Tbl) ||
+                            {V, E} <- Parts, V /= undefined ]);
+        #type{qname=_Qname} ->
+            error({"expected #"++atom_to_list(OtherAlias)++"{}", Term});
         false ->
-            error({"expected #"++A++"{}", Term});
-        true ->
-            case length(Elems) == length(Values) of
-                false ->
-                    error("Wrong number of args in record "++N);
-                true ->
-                    Parts = lists:zip(Values, Elems),
-                    lists:flatten([ validate_term(V, E, Tbl) ||
-                                    {V, E} <- Parts, V /= undefined ])
-            end
+            error({"expected #"++atom_to_list(A)++"{}", Term})
     end;
 validate_term(Term, #type{qname={_, N}}, _) ->
     error({"expected #"++N++"{}", Term});
@@ -112,7 +115,8 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
     end;
 validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
              Tbl) ->
-    case has_inherited_type(As, Tbl) of %% FIXME: Can't assume all element is same type in list
+    %% FIXME: Can't assume all element is same type in list
+    case has_inherited_type(As, Tbl) of
         #type{} = Type ->
             validate_xml(Es, Type, Tbl);
         false ->
@@ -159,26 +163,20 @@ validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
 match_children_elems([{Qname,_,_}=C1, {Qname,_,_}=C2|Cs],
                      [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
-
-match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], [], Res) ->
-    match_children_elems(Cs, Es, [], [{C1,E}|Res]);
-
 match_children_elems([{Qname,_,_}=C1|Cs],
-                     [#elem{qname=Qname}=E|Es],
-                     [{Qname,_,_}|Acc], Res) ->
+                     [#elem{qname=Qname}=E|Es], [], Res) ->
+    match_children_elems(Cs, Es, [], [{C1,E}|Res]);
+match_children_elems([{Qname,_,_}=C1|Cs],
+                     [#elem{qname=Qname}=E|Es], [{Qname,_,_}|_]=Acc, Res) ->
     match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
-
-match_children_elems([{Qname,_,_}=C1|Cs], [#elem{qname=Qname}=E|Es], Acc,
-                     Res) ->
+match_children_elems([{Qname,_,_}=C1|Cs],
+                     [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
-
-match_children_elems([{_,_,_}=C|Cs], [#elem{meta=#meta{min=0}}=E|Es], Acc,
-                     Res) ->
+match_children_elems([{_,_,_}=C|Cs],
+                     [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
     match_children_elems([C|Cs], Es, Acc, [{undefined,E}|Res]);
-
 match_children_elems([{Qname,_,_}|_], [#elem{qname={_,N}}|_], _, _) ->
     error({"expected "++N, Qname});
-
 match_children_elems([], [], [], Res) ->
     lists:reverse(Res);
 match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], [], Res) ->
