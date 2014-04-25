@@ -1,5 +1,6 @@
 -module(ews_soap_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("ews/src/ews.hrl").
 
 %% CT functions
 -export([suite/0, groups/0, all/0,
@@ -62,7 +63,7 @@ no_header_response(_Config) ->
 
     Endpoint = endpoint,
     SoapAction = soap_action,
-    Header = undefined,
+    Header = [],
     Body = [{"Res", [], []}],
     {ok, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header, Body).
 
@@ -90,7 +91,7 @@ fault_response(_Config) ->
                  "<HdrRes />"
                "</s:Header>"
                "<s:Body>"
-                 "<Res />"
+               "  <s:Fault />"
                "</s:Body>"
              "</s:Envelope>",
     meck:expect(lhttpc, request, 5, {ok, {{201, ok}, [], Return}}),
@@ -98,9 +99,9 @@ fault_response(_Config) ->
     Endpoint = endpoint,
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
-    Body = [{"Res", [], []}],
+    Body = #fault{},
     {fault, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header,
-                                             Body).
+                                             [{"", [], []}]).
 
 not_an_envelope(_Config) ->
     %% TODO We should not get a {fault | ok, _} tuple back if the response is

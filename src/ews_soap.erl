@@ -24,11 +24,11 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
                    {ok, {{200,_}, _, RespEnv}} ->
                        log_response(Log, RespEnv),
                        XmlTerm = ews_xml:decode(RespEnv),
-                       {ok, parse_envelope(XmlTerm)};
+                       parse_envelope(XmlTerm);
                    {ok, {_Code, _, FaultEnv}} ->
                        log_response(Log, FaultEnv),
                        XmlTerm = ews_xml:decode(FaultEnv),
-                       {fault, parse_envelope(XmlTerm)};
+                       parse_envelope(XmlTerm);
                    {error, Error} ->
                        {error, Error}
                end,
@@ -36,16 +36,6 @@ call(Endpoint, SoapAction, Header, Body, Timeout) ->
     Response.
 
 %% ----------------------------------------------------------------------------
-
-parse_response(Type, Log, Response) ->
-    log_response(Log, Response),
-    XmlTerm = ews_xml:to_term(Response),
-    case parse_envelope(XmlTerm) of
-        {error, Error} ->
-            {error, Error};
-        ParsedResponse ->
-            {Type, ParsedResponse}
-    end.
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
@@ -62,17 +52,22 @@ make_header(Content) when is_list(Content) ->
 make_header(Content) ->
     {{?SOAPNS, "Header"}, [], [Content]}.
 
-parse_envelope([{{?SOAPNS, "Envelope"}, _, [Headers, Body]}]) ->
-    {{?SOAPNS, "Header"}, _, HeaderFields} = Headers,
+parse_envelope([{{?SOAPNS, "Envelope"}, _, [Header, Body]}]) ->
+    {{?SOAPNS, "Header"}, _, HeaderFields} = Header,
     {{?SOAPNS, "Body"}, _, BodyFields} = Body,
-    {HeaderFields, BodyFields};
+    case BodyFields of
+        [{{?SOAPNS, "Fault"}, _, Faults}] ->
+            {fault, {HeaderFields, parse_fault(Faults)}};
+        _ ->
+            {ok, {HeaderFields, BodyFields}}
+    end;
 parse_envelope([{{?SOAPNS, "Envelope"}, _, [Body]}]) ->
     {{?SOAPNS, "Body"}, _, BodyFields} = Body,
     case BodyFields of
         [{{?SOAPNS, "Fault"}, _, Faults}] ->
-            parse_fault(Faults);
+            {fault, parse_fault(Faults)};
         _ ->
-            {[], BodyFields}
+            {ok, {[], BodyFields}}
     end;
 parse_envelope(_) ->
     {error, not_envelope}.

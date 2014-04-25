@@ -31,11 +31,10 @@ end_per_testcase(_TestCase, Config) ->
     Config.
 
 tag_with_multiple_namespaces(_Config) ->
-    XMLString = "<a:test xmlns:a=\"a\" xmlns:b=\"b\" ></a:test>",
+    XMLString = "<a:test xmlns:a=\"ns-a\" xmlns:b=\"ns-b\" ><b:test2/></a:test>",
     Terms = ews_xml:decode(XMLString),
-    Terms = [{{"a","test"},
-              [{{"xmlns","a"},"a"},{{"xmlns","b"},"b"}],
-              []}].
+    Terms = [{{"ns-a", "test"}, [],
+             [{{"ns-b","test2"}, [], []}]}].
 
 namespace_owerwriting(_Config) ->
     XMLString = "<test xmlns=\"a\" ><test2 xmlns=\"b\" /></test>",
