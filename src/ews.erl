@@ -19,7 +19,7 @@ stop() ->
     application:stop(lhttpc).
 
 add_wsdl_to_model(WsdlUrl) ->
-    ews_svc:add_wsdl(WsdlUrl).
+    ews_svc:add_wsdl_url(WsdlUrl).
 
 emit_complete_model_types(Filename) ->
     ews_svc:emit_model(Filename).

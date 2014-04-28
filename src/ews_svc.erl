@@ -6,7 +6,8 @@
 
 -export([start_link/0]).
 
--export([add_wsdl/1, list_services/0, list_service_ops/1, get_op_info/2,
+-export([add_wsdl_url/1, add_wsdl_bin/1,
+         list_services/0, list_service_ops/1, get_op_info/2,
          get_op/2, get_op_message_details/2, list_types/0, get_type/1,
          get_model/0, list_simple_clashes/0, list_full_clashes/0, emit_model/1,
          call/4]).
@@ -25,8 +26,11 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-add_wsdl(WsdlUrl) ->
-    gen_server:call(?MODULE, {add_wsdl, WsdlUrl}, timer:minutes(1)).
+add_wsdl_url(WsdlUrl) ->
+    gen_server:call(?MODULE, {add_wsdl_url, WsdlUrl}, timer:minutes(1)).
+
+add_wsdl_bin(WsdlBin) ->
+    gen_server:call(?MODULE, {add_wsdl_bin, WsdlBin}, timer:minutes(1)).
 
 list_services() ->
     gen_server:call(?MODULE, list_services).
@@ -72,9 +76,12 @@ call(ServiceName, OpName, HeaderParts, BodyParts) ->
 init([]) ->
     {ok, #state{}}.
 
-handle_call({add_wsdl, WsdlUrl}, _, State) ->
+handle_call({add_wsdl_url, WsdlUrl}, S, State) ->
+    WsdlDoc = ews_wsdl:fetch(WsdlUrl),
+    handle_call({add_wsdl_bin, WsdlDoc}, S, State);
+handle_call({add_wsdl_bin, WsdlDoc}, _, State) ->
     #state{services=OldSvcs, model=OldModel} = State,
-    Wsdl = #wsdl{types=Model} = ews_wsdl:fetch_and_parse(WsdlUrl),
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = lists:ukeysort(1, Svcs++OldSvcs),
     NewModel = merge_models(OldModel, Model),
@@ -343,6 +350,7 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
                     {error, Fault#fault{detail=DecodedDetail}}
             end
     end.
+
 try_decode_fault([], _, _) ->
     error(no_model_matched_fault_detail);
 try_decode_fault([F|Faults], Detail, Model) ->
@@ -352,6 +360,3 @@ try_decode_fault([F|Faults], Detail, Model) ->
         DecodedDetail ->
             DecodedDetail
     end.
-
-get_type_list(TypeInfo) ->
-    [ I || {_, I} <- TypeInfo ].

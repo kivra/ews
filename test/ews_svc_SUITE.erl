@@ -107,7 +107,7 @@ add_model(_Config) ->
     %% with an already downloaded version
     Url = "https://adwords.google.com/api/adwords/cm/"
           "v201306/CampaignService?wsdl",
-    {ok,[{"CampaignService",3}]} = ews_svc:add_wsdl(Url),
+    {ok,[{"CampaignService",3}]} = ews_svc:add_wsdl_url(Url),
 
     true = meck:validate(lhttpc),
     meck:unload(lhttpc).

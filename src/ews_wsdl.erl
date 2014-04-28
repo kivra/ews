@@ -15,21 +15,26 @@
 %% ----------------------------------------------------------------------------
 
 fetch(WsdlUrl) ->
-    {ok, {{200, _},_,Bin}} = lhttpc:request(WsdlUrl, get, [], 10000),
-    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(Bin),
+    case lhttpc:request(WsdlUrl, get, [], 10000) of
+        {ok, {{200, _},_,Bin}} ->
+            Bin;
+        {ok, {_, _, Error}} ->
+            {error, Error};
+        {error, Error} ->
+            {error, Error}
+    end.
+
+parse(WsdlBin) ->
+    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
                                       {validation, schema}]),
-    WsdlDoc.
-
-parse(WsdlDoc) ->
     TargetNs = wh:get_attribute(WsdlDoc, targetNamespace),
     Messages = parse_messages(WsdlDoc, TargetNs),
     Bindings = parse_bindings(WsdlDoc, TargetNs),
     PortTypes = parse_port_types(WsdlDoc, TargetNs),
     Services = parse_services(WsdlDoc),
     Types = parse_types(WsdlDoc),
-    %% TypeTable = ews_emit:process_types(Types),
     #wsdl{target_ns=TargetNs,
           services=Services,
           bindings=Bindings,
