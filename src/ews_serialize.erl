@@ -41,6 +41,10 @@ validate_term(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
     ];
 validate_term(undefined, _, _) ->
     undefined;
+validate_term(nil, #elem{qname=Qname, meta=#meta{nillable=true}}, _) ->
+    {Qname, [{{?SCHEMA_INSTANCE_NS, "nil"}, "true"}], []};
+validate_term(nil, #elem{qname=Qname, meta=#meta{nillable=false}}, _) ->
+    error({"non-nillable type nilled", Qname});
 validate_term([_|_]=Terms, #elem{qname=Qname, meta=M}=E, Tbl) ->
     case M of
         #meta{max=Max} when Max > 1 ->
@@ -134,19 +138,36 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
         true ->
             nil;
         false ->
-            Elems = ews_type:get_parts(Key, Tbl),
+            Elems = case has_inherited_type(As, Tbl) of
+                        false ->
+                            ews_type:get_parts(Key, Tbl);
+                        #type{qname=InheritedKey} ->
+                            ews_type:get_parts(InheritedKey, Tbl)
+                    end,
             Pairs = match_children_elems(Cs, Elems, [], []),
             ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
             list_to_tuple([Alias | ValidatedXml])
     end;
-validate_xml({_Qname, _, []}, #base{erl_type=string}, _) ->
-    undefined;
+validate_xml({_Qname, As, []}, #base{}, _) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            undefined
+    end;
 validate_xml({_Qname, _, [{txt, Txt}]}, #base{erl_type=Type}, _) ->
     case catch to_base(Txt, Type) of
         {'EXIT', _Reason} ->
             error({"failed to convert base", {Txt, Type}});
         Term ->
             Term
+    end;
+validate_xml({_Qname, As, []}, #enum{}, _) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            undefined
     end;
 validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
     Str = binary_to_list(Txt),
@@ -225,8 +246,15 @@ is_nil(Attributes) ->
 has_inherited_type(Attributes, Tbl) ->
     case lists:keyfind({?SCHEMA_INSTANCE_NS, "type"}, 1, Attributes) of
         {_, TypeBase} ->
-            [{_, Type}] = ews_type:get_from_base(TypeBase, Tbl),
-            Type;
+            case lists:member($:, TypeBase) of
+                true ->
+                    [_,Base] = string:tokens(TypeBase, ":"),
+                    [{_, Type}] = ews_type:get_from_base(Base, Tbl),
+                    Type;
+                false ->
+                    [{_, Type}] = ews_type:get_from_base(TypeBase, Tbl),
+                    Type
+            end;
         false ->
             false
     end.

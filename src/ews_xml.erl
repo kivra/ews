@@ -172,7 +172,8 @@ find_start([], _, Acc) ->
 
 push_xmlns(Attrs, Key, Nss) ->
     {NewNss, NewAttrs} = push_xmlns(Attrs, Key, [], []),
-    {NewNss ++ Nss, NewAttrs}.
+    FinalNss = NewNss ++ Nss,
+    {FinalNss, find_ns(NewAttrs, [ N || {_, N} <- FinalNss ])}.
 
 push_xmlns([{"xmlns", Ns}|Rest], Key, Nss, Attrs) ->
     push_xmlns(Rest, Key, [{Key, {"", Ns}}|Nss], Attrs);
@@ -182,6 +183,17 @@ push_xmlns([A|Rest], Key, Nss, Attrs) ->
     push_xmlns(Rest, Key, Nss, [A|Attrs]);
 push_xmlns([], _, Nss, Attrs) ->
     {lists:usort(lists:reverse(Nss)), lists:reverse(Attrs)}.
+
+find_ns([{{P, N}, V} = A | Rest], Nss) ->
+    case lists:keyfind(P, 1, Nss) of
+        false ->
+            [A | find_ns(Rest, Nss)];
+        {_, Ns} ->
+            [{{Ns, N}, V} | find_ns(Rest,Nss)]
+    end;
+find_ns([A | Rest], Nss) ->
+    [A|find_ns(Rest, Nss)];
+find_ns([], _) -> [].
 
 %% ----------------------------------------------------------------------------
 %% Xml utils
