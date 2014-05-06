@@ -53,27 +53,36 @@ validate_term([_|_]=Terms, #elem{qname=Qname, meta=M}=E, Tbl) ->
             error({"expected single value: ", element(2, Qname), Terms})
     end;
 validate_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
-    Type = ews_type:get(TypeKey, Tbl), %% TODO: Handle false here
-    {Qname, [], validate_term(Term, Type, Tbl)};
+    [Name|_] = tuple_to_list(Term),
+    #type{qname=InheritedTypeKey} = InheritedType = ews_type:get(Name, Tbl),
+    SuperKey = ews_type:get_super(Name, Tbl),
+    case TypeKey of
+        InheritedTypeKey ->
+            {Qname, [], validate_term(Term, InheritedType, Tbl)};
+        SuperKey ->
+            TypeDecl = {{?SCHEMA_INSTANCE_NS, "type"}, InheritedTypeKey},
+            Super = ews_type:get(SuperKey, Tbl),
+            {Qname, [TypeDecl], validate_term(Term, Super, Tbl)}
+    end;
 validate_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], validate_term(Term, Type, Tbl)};
 validate_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
-    [Name|Values] = tuple_to_list(Term),
+    [Name|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
     Super = ews_type:get_super(Name, Tbl),
-    #type{alias=OtherAlias} = ews_type:get(Super, Tbl),
     case ews_type:get(Name, Tbl) of
-        #type{qname=Key} ->
-            Elems = ews_type:get_parts(Key, Tbl),
-            Parts = lists:zip(Values, Elems),
-            lists:flatten([ validate_term(V, E, Tbl) ||
-                            {V, E} <- Parts, V /= undefined ]);
         #type{qname=InheritedKey} when Super == Key ->
             Elems = ews_type:get_parts(InheritedKey, Tbl),
             Parts = lists:zip(Values, Elems),
             lists:flatten([ validate_term(V, E, Tbl) ||
                             {V, E} <- Parts, V /= undefined ]);
+        #type{qname=Key} ->
+            Elems = ews_type:get_parts(Key, Tbl),
+            Parts = lists:zip(Values, Elems),
+            lists:flatten([ validate_term(V, E, Tbl) ||
+                            {V, E} <- Parts, V /= undefined ]);
         #type{qname=_Qname} ->
-            error({"expected #"++atom_to_list(OtherAlias)++"{}", Term});
+            #type{alias=KeyAlias} = ews_type:get(Key, Tbl),
+            error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
         false ->
             error({"expected #"++atom_to_list(A)++"{}", Term})
     end;

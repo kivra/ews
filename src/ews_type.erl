@@ -62,6 +62,8 @@ get_super({_, _} = Key, Table) ->
     case ews_type:get(Key, Table) of
         false ->
             Key;
+        #type{extends=undefined} ->
+            Key;
         #type{extends=Super} ->
             Super
     end;

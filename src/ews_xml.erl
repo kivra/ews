@@ -45,6 +45,16 @@ emit_attributes([], _) ->
 emit_attributes(Attributes, NssStore) ->
     emit_attributes(Attributes, NssStore, []).
 
+emit_attributes([{{NsN, N}, {NsV, V}} | Attrs], Nss, Acc) ->
+    {PrefixN, XmlNsDeclN, NewNss} = get_ns_prefix(NsN, Nss),
+    {PrefixV, XmlNsDeclV, NewerNss} = get_ns_prefix(NsV, NewNss),
+    NewAttrs = lists:usort(XmlNsDeclN ++ XmlNsDeclV) ++
+               [{to_string({PrefixN, N}), to_string({PrefixV, V})}] ++ Attrs,
+    emit_attributes(NewAttrs, NewerNss, Acc);
+emit_attributes([{{Ns, N}, Value} | Attrs], Nss, Acc) ->
+    {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
+    NewAttrs = XmlNsDecl++[{to_string({Prefix, N}), Value}]++Attrs,
+    emit_attributes(NewAttrs, NewNss, Acc);
 emit_attributes([{Key, Value} | Attrs], Nss, Acc) ->
     emit_attributes(Attrs, Nss, [[to_string(Key), "=\"", Value, "\""] | Acc]);
 emit_attributes([], _, Acc) ->

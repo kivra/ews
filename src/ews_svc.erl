@@ -341,7 +341,7 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     Outs = proplists:get_value(out, Info),
-                    ews_serialize:decode(ResponseBody, Outs, Model);
+                    {ok, hd(ews_serialize:decode(ResponseBody, Outs, Model))};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->
