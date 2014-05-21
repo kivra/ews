@@ -275,8 +275,8 @@ op_info(Op, Model) ->
      {out, Outs}, {out_hdr, OutHdrs}, {fault, Faults},
      {endpoint, Endpoint}, {action, Action}].
 
-type_info(ElemName, #model{elems=Elems}) ->
-    case lists:keyfind(ElemName, #elem.qname, Elems) of
+type_info(ElemName, #model{type_map=Tbl}) ->
+    case ews_model:get(ElemName, Tbl) of
         false ->
             {error, not_root_elem};
         #elem{qname={_, N}, type={_,_}=TypeName} ->
@@ -311,8 +311,8 @@ message_info(Op, Model) ->
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
      {endpoint, Endpoint}, {action, Action}].
 
-find_elem(Qname, #model{elems=Elems}) ->
-    case lists:keyfind(Qname, #elem.qname, Elems) of
+find_elem(Qname, #model{type_map=Tbl}) ->
+    case ews_model:get(Qname, Tbl) of
         false ->
             {error, not_root_elem};
         #elem{} = E ->

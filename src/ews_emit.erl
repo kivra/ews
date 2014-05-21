@@ -39,17 +39,18 @@ output_part(#elem{qname=Qname, type=#base{erl_type=Et}, meta=M}, _) ->
         {boolean, Max} when Max > 1 ->
             [tick_word(A), " :: [boolean()]"]
     end;
-output_part(#elem{qname=Qname, type=#enum{values=Values}, meta=M}, Indent) ->
+output_part(#elem{qname=Qname, type=#enum{values=Values}=E, meta=M}, Indent) ->
     %% TODO: Save an enum type for -type() emit:ing
     #meta{max=Max} = M,
+    #enum{list=IsList} = E,
     A = ews_alias:create(Qname),
     PartLine = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(PartLine),
     EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
     case Max of
-        1 ->
+        1 when not IsList ->
             [PartLine, EnumSpec];
-        Max when Max > 1 ->
+        Max when Max > 1; IsList ->
             [PartLine, ["[", EnumSpec, "]"]]
     end;
 output_part(#elem{qname=Qname, type={_,_}=Tn, meta=#meta{max=Max}}, _) ->

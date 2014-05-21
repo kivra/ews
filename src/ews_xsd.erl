@@ -353,12 +353,10 @@ to_string(Val) -> Val.
 
 process(Types) ->
     Ts = process_all_simple(Types),
-    ElemsAndTypes = process(Types, Ts),
-    TypeMap = ews_type:new(),
-    Elems = lists:foldl(fun(#type{} = T, Els) -> ews_type:put(T, TypeMap), Els;
-                           (#elem{} = E, Els) -> [E|Els]
-                        end, [], ElemsAndTypes),
-    #model{type_map=TypeMap, elems=Elems}.
+    TypeMap = ews_model:new(),
+    %% Ensure to mark out elements as document root compliant
+    [ ews_model:put(T, TypeMap) || T <- process(Types, Ts) ],
+    #model{type_map=TypeMap, elems=[]}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts) ->
     Meta = parse_meta(E),
@@ -403,15 +401,17 @@ process_all_simple([_ | Rest]) ->
     process_all_simple(Rest);
 process_all_simple([]) -> [].
 
-process_simple(#simple_type{restrictions=Rs}) ->
+process_simple(#simple_type{restrictions=Rs, order=Order}) ->
+    IsList = case Order of list -> true; _ -> false end,
+    IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
         #enumeration{base_type=Base, values=Values} ->
             Vs = [ {ews_alias:create({ok, Str}), Str} ||
                    {enumeration, Str} <- Values ],
-            #enum{type=to_base(Base), values=Vs};
+            #enum{type=to_base(Base), values=Vs, list=IsList, union=IsUnion};
         #restriction{base_type=Base, values=Rvals} ->
             BaseRec = to_base(Base),
-            BaseRec#base{restrictions=Rvals}
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
     end.
 
 parse_meta(#element{default=D, fixed=F, nillable=N,
