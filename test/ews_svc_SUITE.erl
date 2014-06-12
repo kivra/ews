@@ -235,9 +235,9 @@ one_model_call(_Config) ->
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
-    meck:expect(ews_serialize, decode, 3, decoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    decoded = ews_svc:call(Service, Op, HeaderParts, BodyParts),
+    {ok, decoded} = ews_svc:call(Service, Op, HeaderParts, BodyParts),
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}
     ] = meck:history(ews_soap),
@@ -247,7 +247,7 @@ one_model_call(_Config) ->
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
-     {Pid, {ews_serialize, decode, DecodeArgs}, decoded}
+     {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}
     ] = meck:history(ews_serialize),
     [HeaderParts, _InHdrs, Model] = HeaderArgs,
     [BodyParts, _Ins, Model] = BodyArgs,
