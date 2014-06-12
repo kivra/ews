@@ -354,7 +354,6 @@ to_string(Val) -> Val.
 process(Types) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
-    %% Ensure to mark out elements as document root compliant
     [ ews_model:put(T, TypeMap) || T <- process(Types, Ts) ],
     #model{type_map=TypeMap, elems=[]}.
 
