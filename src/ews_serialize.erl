@@ -6,115 +6,147 @@
 
 -define(SCHEMA_INSTANCE_NS, "http://www.w3.org/2001/XMLSchema-instance").
 
-%% ---------------------------------------------------------------------------
+%% API ------------------------------------------------------------------------
 
-encode(Terms, MsgElems, #model{elems=RootElems, type_map=Tbl}) ->
-    case validate_model(MsgElems, RootElems) of
-        {error, Error} ->
-            error({error, Error});
-        BaseElems ->
+%% @doc Encodes and validates a list of erlang terms that describes
+%%      a soap message. The soap message has root elements that each term must
+%%      correspond with.
+%%          Terms       - The terms that correspond to the MessageElements
+%%          MsgElems    - The Elements that make up the message we want to
+%%                        validate against
+%%          Model       - The model that describe the types that the elements
+%%                        in the message has.
+-spec encode([any()], [any()], #model{}) -> iolist().
+encode(Terms, MsgElems, #model{type_map=Tbl}) ->
+    case lists:all(fun(E) -> ews_model:is_root(E, Tbl) end, MsgElems) of
+        false ->
+            error({error, {all_not_root, MsgElems}});
+        true ->
+            BaseElems = [ ews_model:get_elem(E, Tbl) || E <- MsgElems ],
             Zipped = lists:zip(Terms, BaseElems),
-            [ validate_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
+            [ encode_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
     end.
 
-validate_model([{_,_}=Qname | Es], RootEs) ->
-    case lists:keyfind(Qname, #elem.qname, RootEs) of
-        false ->
-            {error, {"message input faulty", Qname}};
-        #elem{qname=Qname} = E ->
-            [ E | validate_model(Es, RootEs) ]
-    end;
-validate_model([#elem{qname=Qname} | Es], RootEs) ->
-    case lists:keyfind(Qname, #elem.qname, RootEs) of
-        false ->
-            {error, {"message input faulty", Qname}};
-        #elem{qname=Qname} = E ->
-            [ E | validate_model(Es, RootEs) ]
-    end;
-validate_model([], _) ->
-    [].
+%% @doc Decodes and validates an xml string that represents a soap message.
+%%      Returns a structured term that represents the payload
+%%          Terms       - String representing xml roots
+%%          Elems       - The Elements that make up the message we want to
+%%                        validate against
+%%          Model       - The model that describe the types that the elements
+%%                        in the message has.
+-spec decode(iolist(), [any()], #model{}) -> tuple().
+decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
+   [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
+
+%% Internal -------------------------------------------------------------------
 
 %% TODO: handle list of Terms -> check if #meta{max=M}, M > 1
 %% TODO: check meta on undefined to see if zero elems is ok
-validate_term(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
-    [ validate_term(Term, Type, Tbl) || {Term, Type} <- lists:zip(Terms, Types)
-    ];
-validate_term(undefined, _, _) ->
+encode_term(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
+    [ encode_term(Term, Type, Tbl) ||
+      {Term, Type} <- lists:zip(Terms, Types) ];
+encode_term(undefined, _, _) ->
     undefined;
-validate_term(nil, #elem{qname=Qname, meta=#meta{nillable=true}}, _) ->
+encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=true}}, _) ->
     {Qname, [{{?SCHEMA_INSTANCE_NS, "nil"}, "true"}], []};
-validate_term(nil, #elem{qname=Qname, meta=#meta{nillable=false}}, _) ->
+encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=false}}, _) ->
     error({"non-nillable type nilled", Qname});
-validate_term([_|_]=Terms, #elem{qname=Qname, meta=M}=E, Tbl) ->
+encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
     case M of
         #meta{max=Max} when Max > 1 ->
-            [ validate_term(T, E, Tbl) || T <- Terms ];
+            [ encode_term(T, E, Tbl) || T <- Terms ];
         _ ->
-            error({"expected single value: ", element(2, Qname), Terms})
+            case Type of
+                #base{list=true} ->
+                    {Qname, [], encode_term(Terms, Type, Tbl)};
+                #enum{list=true} ->
+                    {Qname, [], encode_term(Terms, Type, Tbl)};
+                _ ->
+                    error({"expected single value: ", element(2, Qname), Terms})
+            end
     end;
-validate_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     [Name|_] = tuple_to_list(Term),
-    #type{qname=InheritedTypeKey} = InheritedType = ews_type:get(Name, Tbl),
-    SuperKey = ews_type:get_super(Name, Tbl),
+    #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
+    SuperKey = ews_model:get_super(Name, Tbl),
     case TypeKey of
         InheritedTypeKey ->
-            {Qname, [], validate_term(Term, InheritedType, Tbl)};
+            {Qname, [], encode_term(Term, InheritedType, Tbl)};
         SuperKey ->
             TypeDecl = {{?SCHEMA_INSTANCE_NS, "type"}, InheritedTypeKey},
-            Super = ews_type:get(SuperKey, Tbl),
-            {Qname, [TypeDecl], validate_term(Term, Super, Tbl)}
+            Super = ews_model:get(SuperKey, Tbl),
+            {Qname, [TypeDecl], encode_term(Term, Super, Tbl)}
     end;
-validate_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
-    {Qname, [], validate_term(Term, Type, Tbl)};
-validate_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
+encode_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
+    {Qname, [], encode_term(Term, Type, Tbl)};
+encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
-    Super = ews_type:get_super(Name, Tbl),
-    case ews_type:get(Name, Tbl) of
+    Super = ews_model:get_super(Name, Tbl),
+    case ews_model:get(Name, Tbl) of
         #type{qname=InheritedKey} when Super == Key ->
-            Elems = ews_type:get_parts(InheritedKey, Tbl),
+            Elems = ews_model:get_parts(InheritedKey, Tbl),
             Parts = lists:zip(Values, Elems),
-            lists:flatten([ validate_term(V, E, Tbl) ||
+            lists:flatten([ encode_term(V, E, Tbl) ||
                             {V, E} <- Parts, V /= undefined ]);
         #type{qname=Key} ->
-            Elems = ews_type:get_parts(Key, Tbl),
+            Elems = ews_model:get_parts(Key, Tbl),
             Parts = lists:zip(Values, Elems),
-            lists:flatten([ validate_term(V, E, Tbl) ||
+            lists:flatten([ encode_term(V, E, Tbl) ||
                             {V, E} <- Parts, V /= undefined ]);
         #type{qname=_Qname} ->
-            #type{alias=KeyAlias} = ews_type:get(Key, Tbl),
+            #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
             error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
         false ->
             error({"expected #"++atom_to_list(A)++"{}", Term})
     end;
-validate_term(Term, #type{qname={_, N}}, _) ->
+encode_term(Term, #type{qname={_, N}}, _) ->
     error({"expected #"++N++"{}", Term});
-validate_term(Term, #base{erl_type=Type}, _) ->
-    case Type of
-        string when is_binary(Term) ->
-            [{txt, Term}];
-        integer when is_integer(Term) ->
-            [{txt, integer_to_list(Term)}];
-        float when is_float(Term) ->
-            [{txt, float_to_list(Term)}];
-        boolean when is_boolean(Term) ->
-            [{txt, atom_to_list(Term)}];
-        _ ->
-            error({"expected "++atom_to_list(Type), Term})
+encode_term(Term, #base{erl_type=Type, list=IsList}, _) ->
+    case is_list(Term) of
+        false ->
+            [{txt, encode_single_base(Term, Type)}];
+        true when IsList ->
+            ListParts = [ encode_single_base(T, Type) || T <- Term ],
+            [{txt, string:join(ListParts, " ")}];
+        true ->
+            error({"expected non-list "++atom_to_list(Type), Term})
     end;
-validate_term(Term, #enum{type=#base{erl_type=_Base}, values=Values}, _) ->
+encode_term(Term, #enum{values=Values, list=IsList}, _) ->
+    case is_list(Term) of
+        true when IsList ->
+            ListParts = [ encode_single_enum(T, Values) || T <- Term ],
+            [{txt, string:join(ListParts, " ")}];
+        true ->
+            Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
+            error({"expected non-list "++Accept, Term});
+        false ->
+            [{txt, encode_single_enum(Term, Values)}]
+    end.
+
+encode_single_base(Term, BaseType) ->
+    case BaseType of
+        string when is_binary(Term) ->
+            Term;
+        integer when is_integer(Term) ->
+            integer_to_list(Term);
+        float when is_float(Term) ->
+            float_to_list(Term);
+        boolean when is_boolean(Term) ->
+            atom_to_list(Term);
+        _ ->
+            error({"expected "++atom_to_list(BaseType), Term})
+    end.
+
+encode_single_enum(Term, Values) ->
     case lists:keyfind(Term, 1, Values) of
         false ->
-            Accepted = string:join([ atom_to_list(A) || {A,_} <- Values ],
-                                   " | "),
-            error({"expected "++Accepted, Term});
+            Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
+            error({"expected "++Accept, Term});
         {Term, Value} ->
-            [{txt, Value}]
+            Value
     end.
 
 %% ---------------------------------------------------------------------------
-
-decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
-   [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
 
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
@@ -123,7 +155,7 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
         #type{} = Type ->
             validate_xml({Qname, As, Cs}, Type, Tbl);
         false ->
-            Type = ews_type:get(TypeKey, Tbl),
+            Type = ews_model:get(TypeKey, Tbl),
             validate_xml({Qname, As, Cs}, Type, Tbl)
     end;
 validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
@@ -133,7 +165,7 @@ validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
         #type{} = Type ->
             validate_xml(Es, Type, Tbl);
         false ->
-            Type = ews_type:get(TypeKey, Tbl),
+            Type = ews_model:get(TypeKey, Tbl),
             validate_xml(Es, Type, Tbl)
     end;
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
@@ -149,9 +181,9 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
         false ->
             Elems = case has_inherited_type(As, Tbl) of
                         false ->
-                            ews_type:get_parts(Key, Tbl);
+                            ews_model:get_parts(Key, Tbl);
                         #type{qname=InheritedKey} ->
-                            ews_type:get_parts(InheritedKey, Tbl)
+                            ews_model:get_parts(InheritedKey, Tbl)
                     end,
             Pairs = match_children_elems(Cs, Elems, [], []),
             ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
@@ -258,10 +290,10 @@ has_inherited_type(Attributes, Tbl) ->
             case lists:member($:, TypeBase) of
                 true ->
                     [_,Base] = string:tokens(TypeBase, ":"),
-                    [{_, Type}] = ews_type:get_from_base(Base, Tbl),
+                    [{_, Type}] = ews_model:get_from_base(Base, Tbl),
                     Type;
                 false ->
-                    [{_, Type}] = ews_type:get_from_base(TypeBase, Tbl),
+                    [{_, Type}] = ews_model:get_from_base(TypeBase, Tbl),
                     Type
             end;
         false ->

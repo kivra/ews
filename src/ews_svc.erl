@@ -132,9 +132,9 @@ handle_call(list_clashes, _, #state{model=#model{clashes=Clashes}} = State) ->
 handle_call(list_types, _, #state{model=undefined} = State) ->
     {reply, [], State};
 handle_call(list_types, _, #state{model=#model{type_map=Map}} = State) ->
-    {reply, ews_type:keys(Map), State};
+    {reply, ews_model:keys(Map), State};
 handle_call({get_type, Key}, _, #state{model=#model{type_map=Map}} = State) ->
-    {reply, ews_type:get(Key, Map), State};
+    {reply, ews_model:get(Key, Map), State};
 handle_call({emit_model, _File}, _, #state{model=undefined} = State) ->
     {reply, {error, no_model}, State};
 handle_call({emit_model, File}, _, #state{model=Model} = State) ->
@@ -193,7 +193,7 @@ compile_op(PortOp, EndPoint, Style, Messages, BindingOps) ->
                   output={_OutputName, OutputMessageRef},
                   faults=Faults} = PortOp,
     BindingOp = lists:keyfind(Name, #binding_op.name, BindingOps),
-    {InputHeaderMsg, OutputHeaderMsg} = determine_headers(BindingOp, Messages), 
+    {InputHeaderMsg, OutputHeaderMsg} = determine_headers(BindingOp, Messages),
     InputMsg = lists:keyfind(InputMessageRef, #message.name, Messages),
     OutputMsg = lists:keyfind(OutputMessageRef, #message.name, Messages),
     SoapAction = BindingOp#binding_op.action,
@@ -216,28 +216,48 @@ merge_models(Model, undefined) -> Model;
 merge_models(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
              #model{type_map=NewMap, elems=E2}) ->
     NewElems = lists:ukeysort(#elem.qname, E1++E2),
-    NewClashes = merge_maps(CurrentMap, NewMap, CurrentClashes),
+    NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),
     #model{type_map=CurrentMap, elems=NewElems, clashes=NewClashes}.
 
-merge_maps(CurrentMap, NewMap, ClashDict) ->
-    F = fun(Key, Clashes) ->
-            NewType = ews_type:get(Key, NewMap),
-            case ets:insert_new(CurrentMap, {Key, NewType}) of
+%% FIXME: Seems broken. Somewhere we lose types.
+merge_types(CurrentMap, NewMap, ClashDict) ->
+    TF = fun(Key, Clashes) ->
+             NewType = ews_model:get(Key, NewMap),
+             case ews_model:put(NewType, CurrentMap) of
+                 true ->
+                     Clashes;
+                 false ->
+                     OldType = ews_model:get(Key, CurrentMap),
+                     case NewType of
+                         OldType ->
+                             Clashes;
+                         _ ->
+                             NewClashes = dict:append(Key, NewType, Clashes),
+                             dict:append(Key, OldType, NewClashes)
+                     end
+             end
+         end,
+    EF = fun(Key, Clashes) ->
+             NewElem = ews_model:get_elem(Key, NewMap),
+             case ews_model:put(NewElem, CurrentMap) of
                 true ->
                     Clashes;
                 false ->
-                    OldType = ews_type:get(Key, CurrentMap),
-                    case NewType of
-                        OldType ->
+                    OldElem = ews_model:get_elem(Key, CurrentMap),
+                    case NewElem of
+                        OldElem ->
                             Clashes;
                         _ ->
-                            NewClashes = dict:append(Key, NewType, Clashes),
-                            dict:append(Key, OldType, NewClashes)
+                            NewClashes = dict:append({root, Key},
+                                                     NewElem, Clashes),
+                            dict:append({root, Key}, OldElem, NewClashes)
                     end
-            end
-        end,
-    NewKeys = ews_type:keys(NewMap),
-    lists:foldl(F, ClashDict, NewKeys).
+             end
+         end,
+    TypeKeys = ews_model:keys(NewMap),
+    ElemKeys = ews_model:elem_keys(NewMap),
+    NewClashDict = lists:foldl(TF, ClashDict, TypeKeys),
+    lists:foldl(EF, NewClashDict, ElemKeys).
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -275,8 +295,8 @@ op_info(Op, Model) ->
      {out, Outs}, {out_hdr, OutHdrs}, {fault, Faults},
      {endpoint, Endpoint}, {action, Action}].
 
-type_info(ElemName, #model{elems=Elems}) ->
-    case lists:keyfind(ElemName, #elem.qname, Elems) of
+type_info(ElemName, #model{type_map=Tbl}) ->
+    case ews_model:get_elem(ElemName, Tbl) of
         false ->
             {error, not_root_elem};
         #elem{qname={_, N}, type={_,_}=TypeName} ->
@@ -311,8 +331,8 @@ message_info(Op, Model) ->
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
      {endpoint, Endpoint}, {action, Action}].
 
-find_elem(Qname, #model{elems=Elems}) ->
-    case lists:keyfind(Qname, #elem.qname, Elems) of
+find_elem(Qname, #model{type_map=Tbl}) ->
+    case ews_model:get_elem(Qname, Tbl) of
         false ->
             {error, not_root_elem};
         #elem{} = E ->
@@ -324,7 +344,7 @@ find_elem(Qname, #model{elems=Elems}) ->
 %% TODO: Verify that # headers and body parts are same as message parts,
 %%       could/should be done in the verify step
 %% TODO: Serialize headers
-%% TODO: Simplify ews_type module. Maybe use a named ets.
+%% TODO: Simplify ews_model module. Maybe use a named ets.
 call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
     case get_op_message_details(ServiceName, OpName) of
         {error, Error} ->
