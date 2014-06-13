@@ -223,7 +223,7 @@ merge_models(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
 merge_types(CurrentMap, NewMap, ClashDict) ->
     TF = fun(Key, Clashes) ->
              NewType = ews_model:get(Key, NewMap),
-             case ets:insert_new(CurrentMap, {Key, NewType}) of
+             case ews_model:put(NewType, CurrentMap) of
                  true ->
                      Clashes;
                  false ->
@@ -239,7 +239,7 @@ merge_types(CurrentMap, NewMap, ClashDict) ->
          end,
     EF = fun(Key, Clashes) ->
              NewElem = ews_model:get_elem(Key, NewMap),
-             case ets:insert_new(CurrentMap, {Key, root, NewElem}) of
+             case ews_model:put(NewElem, CurrentMap) of
                 true ->
                     Clashes;
                 false ->
