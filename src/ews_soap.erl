@@ -90,7 +90,7 @@ parse_fault_field(Name, Fields) ->
 
 init_log() ->
     {ok, Dir} = application:get_env(ews, soap_log_dir),
-    filelib:ensure_dir(Dir),
+    filelib:ensure_dir(filename:join(Dir, "file")),
     Filename = get_filename(),
     {ok, Fd} = file:open(filename:join([Dir, Filename]), [write]),
     Fd.
