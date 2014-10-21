@@ -106,7 +106,7 @@ values(Tbl) ->
         [] ->
             [];
         Vals ->
-            [ V || [V] <- Vals ]
+            [ V || [#type{} = V] <- Vals ]
     end.
 
 elem_keys(Tbl) ->
