@@ -59,11 +59,11 @@
     </{{type}}>
   {{/build_task}}  </builders>
   <publishers>
-    <hudson.tasks.junit.JUnitResultArchiver>
-      <testResults>{{publish_test_result}}</testResults>
-      <keepLongStdio>{{publish_keep_long_stdio}}</keepLongStdio>
-      <testDataPublishers/>
-    </hudson.tasks.junit.JUnitResultArchiver>
+    <hudson.tasks.ArtifactArchiver>
+        <artifacts>{{build_artifacts}}</artifacts>
+        <latestOnly>false</latestOnly>
+        <allowEmptyArchive>false</allowEmptyArchive>
+    </hudson.tasks.ArtifactArchiver>
     <hudson.tasks.Mailer>
       <recipients></recipients>
       <dontNotifyEveryUnstableBuild>true</dontNotifyEveryUnstableBuild>
