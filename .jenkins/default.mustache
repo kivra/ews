@@ -1,0 +1,74 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project>
+  <actions/>
+  <description>{{description}}</description>
+  <keepDependencies>{{keep_dependencies}}</keepDependencies>
+  <properties/>
+  <scm class="hudson.plugins.git.GitSCM">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <name>{{git_repo_name}}</name>
+        <refspec></refspec>
+        <url>{{git_url}}</url>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>{{git_branch_name}}</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <disableSubmodules>{{disable_submodules}}</disableSubmodules>
+    <recursiveSubmodules>{{recursive_submodules}}</recursiveSubmodules>
+    <doGenerateSubmoduleConfigurations>
+      {{generate_submodule_config}}
+    </doGenerateSubmoduleConfigurations>
+    <authorOrCommitter>{{author_or_commiter,}}</authorOrCommitter>
+    <clean>{{clean}}</clean>
+    <wipeOutWorkspace>{{wipe_workspace}}</wipeOutWorkspace>
+    <pruneBranches>{{prune_branches}}</pruneBranches>
+    <remotePoll>{{remote_poll}}</remotePoll>
+    <buildChooser class="hudson.plugins.git.util.DefaultBuildChooser"/>
+    <gitTool>{{git_tool}}</gitTool>
+    <submoduleCfg class="list"/>
+    <relativeTargetDir>{{relative_target_dir}}</relativeTargetDir>
+    <reference>{{reference}}</reference>
+    <excludedRegions>{{excluded_regions}}</excludedRegions>
+    <excludedUsers>{{excluded_users}}</excludedUsers>
+    <gitConfigName>{{git_config_name}}</gitConfigName>
+    <gitConfigEmail>{{git_config_email}}</gitConfigEmail>
+    <skipTag>{{skip_tag}}</skipTag>
+    <includedRegions>{{included_regions}}</includedRegions>
+    <scmName>{{scm_name}}</scmName>
+  </scm>
+  <canRoam>{{can_roam}}</canRoam>
+  <disabled>{{diabled}}</disabled>
+  <blockBuildWhenDownstreamBuilding>
+    {{block_build_when_downstream_building}}
+  </blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>
+  {{block_build_when_upstream_building}}
+  </blockBuildWhenUpstreamBuilding>
+  <triggers class="vector"/>
+  <concurrentBuild>{{concurrent_build}}</concurrentBuild>
+  <builders>
+  {{#build_task}}    <{{type}}>
+      <command>
+{{command}}
+      </command>
+    </{{type}}>
+  {{/build_task}}  </builders>
+  <publishers>
+    <hudson.tasks.junit.JUnitResultArchiver>
+      <testResults>{{publish_test_result}}</testResults>
+      <keepLongStdio>{{publish_keep_long_stdio}}</keepLongStdio>
+      <testDataPublishers/>
+    </hudson.tasks.junit.JUnitResultArchiver>
+    <hudson.tasks.Mailer>
+      <recipients></recipients>
+      <dontNotifyEveryUnstableBuild>true</dontNotifyEveryUnstableBuild>
+      <sendToIndividuals>true</sendToIndividuals>
+    </hudson.tasks.Mailer>
+  </publishers>
+  <buildWrappers/>
+</project>

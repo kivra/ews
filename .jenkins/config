@@ -1,0 +1,8 @@
+[{name,"ews"},
+ {host,"jenkins.dev-ext.campanja.net"},
+ {port,8080},
+ {origin_url,"git://git.dev.campanja.net/ews"},
+ {templates,[{default,[{context,".jenkins/default.context"},
+                       {template,".jenkins/default.mustache"}]},
+             {new_view,[{context,".jenkins/new_view.context"},
+                        {template,".jenkins/new_view.mustache"}]}]}].
