@@ -8,6 +8,7 @@
   {registered, []},
   {applications, [kernel,
                   stdlib,
+                  xmerl,
                   crypto,
                   public_key,
                   ssl,
