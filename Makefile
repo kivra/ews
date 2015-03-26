@@ -24,4 +24,5 @@ clean:
 	rm -fr logs
 
 dist-clean: clean
+	@rm -rf .eunit
 	@${REBAR} -j delete-deps
