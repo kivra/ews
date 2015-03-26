@@ -1,57 +1,27 @@
-REBAR="bin/rebar"
-JAVAFOLDERS="apps/ebase/java_src"
+# -*-Make-*-
+#
+# Copyright © Campanja AB 2012. All Rights Reserve.
+ERL ?= erl
+REBAR=bin/rebar
+APP := ews
 
-.PHONY: all compile check test doc clean get-deps update-deps tools
+.PHONY: deps
 
-all: get-deps compile
-
-compile:
-	@$(REBAR) -j compile
-
-java:
-	@$(MAKE) --directory=$(JAVAFOLDERS)
-
-xref:
-	@$(REBAR) -jk skip_deps=true xref
-
-ews.plt:
-	dialyzer --output_plt ews.plt --build_plt \
-		--apps stdlib kernel inets lhttpc
-
-dialyzer: get-deps compile
-	dialyzer --plt ews.plt --src src
+all: deps
+	@${REBAR} -j compile
 
 test: all
-	@rm -rf .eunit apps/*/.eunit
-	@$(REBAR) -jk ct skip_deps=true
+	@${REBAR} -j eunit skip_deps=true
 
-external-test: all
-	@rm -rf .eunit apps/*/.eunit
-	@$(REBAR) -jk eunit skip_deps=true -DEUNIT_EXTERNAL
+xref: all
+	@${REBAR} -j xref skip_deps=true
 
-doc:
-	@$(REBAR) -j doc skip_deps=true
+deps:
+	@${REBAR} -j get-deps
 
 clean:
-	@rm -rf test/*.beam
-	@$(REBAR) -j clean
+	@${REBAR} -j clean
+	rm -fr logs
 
-clean-java:
-	@$(MAKE) --directory=$(JAVAFOLDERS) clean
-
-dist-clean: clean clean-java
-	@$(REBAR) -j delete-deps
-	@rm -rfv deps apps/ec_scribe/gen_* apps/ec_scribe/test/*_test_dir
-	@rm -rf apps/ec_gaw/priv/services/*.bin
-	@rm -f ./bin/jenkins
-	@rm -fr apps/adhoc_downloader
-
-get-deps:
-	@$(REBAR) -j get-deps
-
-update-deps:
-	@$(REBAR) -j update-deps
-	@$(REBAR) -j get-deps
-
-tools:
-	@./bin/bootstrap
+dist-clean: clean
+	@${REBAR} -j delete-deps
