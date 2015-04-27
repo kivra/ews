@@ -3,14 +3,13 @@
 -export([call/4, call/5]).
 
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
--define(HTTP_DEF_TIMEOUT, 60000).
 
 -include("ews.hrl").
 
 %% ----------------------------------------------------------------------------
 
 call(Endpoint, SoapAction, Header, Body) ->
-    {ok, Timeout} = application:get_env(ews, soap_timeout, ?HTTP_DEF_TIMEOUT),
+    {ok, Timeout} = application:get_env(ews, soap_timeout),
     call(Endpoint, SoapAction, Header, Body, Timeout).
 
 %% TODO: Handle http-headers like gzip etc.

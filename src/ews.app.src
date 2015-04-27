@@ -16,5 +16,6 @@
                   lhttpc
                  ]},
   {mod, {ews_app, no_arg}},
-  {env, [{soap_log_dir, "/tmp/soap"}]}
+  {env, [{soap_log_dir, "/tmp/soap"},
+         {soap_timeout, 60000}]}
  ]}.
