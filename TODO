@@ -9,7 +9,6 @@ TODO - wsdl
 
 Interface
 =========
-
 * ews:add_wsdl_to_model/1
 * ews:emit_complete_model_types/1
 * ews:emit_service_types/2
