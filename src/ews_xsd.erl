@@ -50,12 +50,35 @@ find_imports(Schema) ->
        wh:get_attribute(I, schemaLocation)} || I <- Imports ].
 
 import_schema(SchemaUrl) ->
-    {ok, {{200, _},_,Bin}} = lhttpc:request(SchemaUrl, get, [], 10000),
+    {ok, Bin} = request_cached(SchemaUrl),
     {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
                                     [{space, normalize},
                                      {namespace_conformant, true},
                                      {validation, schema}]),
     Schema.
+
+request_cached(SchemaUrl) ->
+    CacheDir = application:get_env(ews, cache_base_dir, "priv"),
+    File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
+    ok = filelib:ensure_dir(File),
+    case file:read_file(File) of
+        {ok, Bin} ->
+            {ok, Bin};
+        {error, Error} ->
+            case lhttpc:request(SchemaUrl, get, [], 10000) of
+                {ok, {{200, _}, _, Bin}} ->
+                    ok = file:write_file(File, Bin),
+                    {ok, Bin};
+                {ok, {{_, _}, _, Bin}} ->
+                    {error, Bin};
+                {error, Error} ->
+                    {error, Error}
+            end
+    end.
+
+escape_slash([]) -> [];
+escape_slash([$/ | Rest]) -> [$- | escape_slash(Rest)];
+escape_slash([C | Rest]) -> [C | escape_slash(Rest)].
 
 %% ----------------------------------------------------------------------------
 %% Parse schema functions
