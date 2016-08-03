@@ -194,6 +194,7 @@ verify(Element, Fingerprints) ->
 
         [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
         Sig = base64:decode(Sig64),
+        io:format("** SIG : ~p~n", [Sig]),
 
         [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
         CertBin = base64:decode(Cert64),
@@ -205,7 +206,7 @@ verify(Element, Fingerprints) ->
         %{_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         KeyBin = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
-
+        io:format("Data : ~p, HashFunction : ~p, Key : ~p~n", [Data, HashFunction, Key]),
         case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
@@ -220,7 +221,8 @@ verify(Element, Fingerprints) ->
                         end
                 end;
             false ->
-                {error, bad_signature}
+                {error, bad_signature},
+                ok
         end
     end.
 
