@@ -201,7 +201,9 @@ verify(Element, Fingerprints) ->
         CertHash2 = crypto:hash(sha256, CertBin),
 
         Cert = public_key:pkix_decode_cert(CertBin, plain),
-        {_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
+        io:format("Cert ~p~n", [Cert]),
+        %{_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
+        KeyBin = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
 
         case public_key:verify(Data, HashFunction, Sig, Key) of
