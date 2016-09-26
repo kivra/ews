@@ -26,7 +26,15 @@
 canon_name(Ns, Name, Nsp) ->
     NsPartRaw = case Ns of
         empty -> Nsp#xmlNamespace.default;
-        [] -> Nsp#xmlNamespace.default;
+        [] -> 
+            io:format("@@@@@ Name : ~p NS : ~p~n", [Name, Nsp]),
+            % Nsp#xmlNamespace.default;
+            % if Nsp == [] -> 'urn:oasis:names:tc:SAML:2.0:assertion';
+            % if Nsp == [] -> 'urn:oasis:names:tc:SAML:2.0:protocol';
+            %    true -> Nsp#xmlNamespace.default
+            % end;
+            [{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
+             {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}];
         _ ->
             case proplists:get_value(Ns, Nsp#xmlNamespace.nodes) of
                 undefined ->
@@ -181,7 +189,10 @@ c14n(#xmlAttribute{nsinfo = NsInfo, name = Name, value = Value}, _KnownNs, Activ
 
 c14n(Elem = #xmlElement{}, KnownNSIn, ActiveNSIn, Comments, InclNs, Acc) ->
     Namespace = Elem#xmlElement.namespace,
-    Default = Namespace#xmlNamespace.default,
+    Default = case Elem#xmlElement.nsinfo of
+        [] -> Namespace#xmlNamespace.default;
+        _ -> [] % omit a default namespace if it is not visibly utilized.
+    end,
     {ActiveNS, ParentDefault} = case ActiveNSIn of
         [{default, P} | Rest] -> {Rest, P};
         Other -> {Other, ''}

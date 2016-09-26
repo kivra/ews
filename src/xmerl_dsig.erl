@@ -51,7 +51,7 @@ strip(#xmlElement{content = Kids} = Elem) ->
 %% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary()) -> #xmlElement{}.
 sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin) when is_binary(CertBin) ->
-    sign(ElementIn, PrivateKey, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1").
+    sign(ElementIn, PrivateKey, CertBin, "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256").
 
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary(), SignatureMethod :: sig_method() | sig_method_uri()) -> #xmlElement{}.
 sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_binary(CertBin) ->
@@ -65,7 +65,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
             case lists:keyfind('id', 2, ElementStrip#xmlElement.attributes) of
                 #xmlAttribute{value = LowId} -> {ElementStrip, LowId};
                 _ ->
-                    NewId = uuid:to_string(uuid:uuid1()),
+                    NewId = "sbs" ++ uuid:to_string(uuid:uuid1()),
                     Attr = #xmlAttribute{name = 'ID', value = NewId, namespace = #xmlNamespace{}},
                     NewAttrs = [Attr | ElementStrip#xmlElement.attributes],
                     Elem = ElementStrip#xmlElement{attributes = NewAttrs},
@@ -132,14 +132,14 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
 %% Strips any XML digital signatures and applies any relevant InclusiveNamespaces
 %% before generating the digest.
 -spec digest(Element :: #xmlElement{}) -> binary().
-digest(Element) -> digest(Element, sha).
+digest(Element) -> digest(Element, sha256).
 
 -spec digest(Element :: #xmlElement{}, HashFunction :: sha | sha256) -> binary().
 digest(Element, HashFunction) ->
     DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
-
-    Txs = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
+    Txs = xmerl_xpath:string("/saml:Assertion/ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
+    io:format("Txs : ~p~n", [Txs]),
     InclNs = case Txs of
         [C14nTx = #xmlElement{}] ->
             case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
@@ -148,7 +148,6 @@ digest(Element, HashFunction) ->
             end;
         _ -> []
     end,
-
     CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
     CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
     crypto:hash(HashFunction, CanonXmlUtf8).
@@ -190,11 +189,11 @@ verify(Element, Fingerprints) ->
     true ->
         [SigInfo] = xmerl_xpath:string("ds:Signature/ds:SignedInfo", Element, [{namespace, DsNs}]),
         SigInfoCanon = xmerl_c14n:c14n(SigInfo),
-        Data = list_to_binary(SigInfoCanon),
-
+        Data1 = list_to_binary(SigInfoCanon),
+        Data =  unicode:characters_to_binary(xmerl:export_simple([SigInfo], xmerl_xml)),
+        io:format("Data 1 : ~p~n", [Data1]),
         [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
         Sig = base64:decode(Sig64),
-        io:format("** SIG : ~p~n", [Sig]),
 
         [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
         CertBin = base64:decode(Cert64),
@@ -202,11 +201,14 @@ verify(Element, Fingerprints) ->
         CertHash2 = crypto:hash(sha256, CertBin),
 
         Cert = public_key:pkix_decode_cert(CertBin, plain),
-        io:format("Cert ~p~n", [Cert]),
         %{_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         KeyBin = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
-        io:format("Data : ~p, HashFunction : ~p, Key : ~p~n", [Data, HashFunction, Key]),
+        io:format("Data : ~p~n", [Data]),
+        io:format("Sig : ~p~n", [Sig]),
+        io:format("Key : ~p~n", [Key]),
+        io:format("HashFunction : ~p~n", [HashFunction]),
+
         case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
@@ -221,6 +223,7 @@ verify(Element, Fingerprints) ->
                         end
                 end;
             false ->
+                io:format("############ got bad signature~n"),
                 {error, bad_signature},
                 ok
         end
