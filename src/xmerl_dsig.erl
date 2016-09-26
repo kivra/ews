@@ -38,9 +38,13 @@ strip(#xmlDocument{content = Kids} = Doc) ->
 
 strip(#xmlElement{content = Kids} = Elem) ->
     NewKids = lists:filter(fun(Kid) ->
-        case xmerl_c14n:canon_name(Kid) of
-            "http://www.w3.org/2000/09/xmldsig#Signature" -> false;
-            _Name -> true
+        case Kid of
+            #xmlElement{} ->
+                case xmerl_c14n:canon_name(Kid) of
+                    "http://www.w3.org/2000/09/xmldsig#Signature" -> false;
+                    _Name -> true
+                end;
+            _ -> true
         end
     end, Kids),
     Elem#xmlElement{content = NewKids}.
@@ -65,7 +69,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
             case lists:keyfind('id', 2, ElementStrip#xmlElement.attributes) of
                 #xmlAttribute{value = LowId} -> {ElementStrip, LowId};
                 _ ->
-                    NewId = "sbs" ++ uuid:to_string(uuid:uuid1()),
+                    NewId = esaml_util:unique_id(),
                     Attr = #xmlAttribute{name = 'ID', value = NewId, namespace = #xmlNamespace{}},
                     NewAttrs = [Attr | ElementStrip#xmlElement.attributes],
                     Elem = ElementStrip#xmlElement{attributes = NewAttrs},
@@ -208,7 +212,6 @@ verify(Element, Fingerprints) ->
         io:format("Sig : ~p~n", [Sig]),
         io:format("Key : ~p~n", [Key]),
         io:format("HashFunction : ~p~n", [HashFunction]),
-
         case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
