@@ -27,14 +27,9 @@ canon_name(Ns, Name, Nsp) ->
     NsPartRaw = case Ns of
         empty -> Nsp#xmlNamespace.default;
         [] -> 
-            io:format("@@@@@ Name : ~p NS : ~p~n", [Name, Nsp]),
-            % Nsp#xmlNamespace.default;
-            % if Nsp == [] -> 'urn:oasis:names:tc:SAML:2.0:assertion';
-            % if Nsp == [] -> 'urn:oasis:names:tc:SAML:2.0:protocol';
-            %    true -> Nsp#xmlNamespace.default
-            % end;
-            [{"samlp", 'urn:oasis:names:tc:SAML:2.0:protocol'},
-             {"saml", 'urn:oasis:names:tc:SAML:2.0:assertion'}];
+            if Nsp == [] -> 'urn:oasis:names:tc:SAML:2.0:assertion';
+               true -> Nsp#xmlNamespace.default
+            end;
         _ ->
             case proplists:get_value(Ns, Nsp#xmlNamespace.nodes) of
                 undefined ->

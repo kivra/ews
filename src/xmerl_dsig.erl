@@ -128,7 +128,6 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
                     #xmlElement{name = 'ds:X509Certificate', content = [#xmlText{value = Cert64} ]}]}]}
         ]
     }),
-
     Element#xmlElement{content = [SigElem | Element#xmlElement.content]}.
 
 %% @doc Returns the canonical digest of an (optionally signed) element
@@ -193,12 +192,10 @@ verify(Element, Fingerprints) ->
     true ->
         [SigInfo] = xmerl_xpath:string("ds:Signature/ds:SignedInfo", Element, [{namespace, DsNs}]),
         SigInfoCanon = xmerl_c14n:c14n(SigInfo),
-        Data1 = list_to_binary(SigInfoCanon),
-        Data =  unicode:characters_to_binary(xmerl:export_simple([SigInfo], xmerl_xml)),
-        io:format("Data 1 : ~p~n", [Data1]),
+        Data = list_to_binary(SigInfoCanon),
+        
         [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
         Sig = base64:decode(Sig64),
-
         [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
         CertBin = base64:decode(Cert64),
         CertHash = crypto:hash(sha, CertBin),
@@ -208,10 +205,6 @@ verify(Element, Fingerprints) ->
         %{_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         KeyBin = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
-        io:format("Data : ~p~n", [Data]),
-        io:format("Sig : ~p~n", [Sig]),
-        io:format("Key : ~p~n", [Key]),
-        io:format("HashFunction : ~p~n", [HashFunction]),
         case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
@@ -226,9 +219,7 @@ verify(Element, Fingerprints) ->
                         end
                 end;
             false ->
-                io:format("############ got bad signature~n"),
-                {error, bad_signature},
-                ok
+                {error, bad_signature}
         end
     end.
 
