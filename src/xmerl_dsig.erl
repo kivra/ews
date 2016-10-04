@@ -142,7 +142,6 @@ digest(Element, HashFunction) ->
     DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
     Txs = xmerl_xpath:string("/saml:Assertion/ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
-    io:format("Txs : ~p~n", [Txs]),
     InclNs = case Txs of
         [C14nTx = #xmlElement{}] ->
             case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
