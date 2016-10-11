@@ -55,7 +55,7 @@ strip(#xmlElement{content = Kids} = Elem) ->
 %% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary()) -> #xmlElement{}.
 sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin) when is_binary(CertBin) ->
-    sign(ElementIn, PrivateKey, CertBin, "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256").
+    sign(ElementIn, PrivateKey, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1").
 
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary(), SignatureMethod :: sig_method() | sig_method_uri()) -> #xmlElement{}.
 sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_binary(CertBin) ->
@@ -128,7 +128,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
                     #xmlElement{name = 'ds:X509Certificate', content = [#xmlText{value = Cert64} ]}]}]}
         ]
     }),
-    Element#xmlElement{content = [SigElem | Element#xmlElement.content]}.
+    Element#xmlElement{content = lists:reverse([SigElem | Element#xmlElement.content])}.
 
 %% @doc Returns the canonical digest of an (optionally signed) element
 %%
