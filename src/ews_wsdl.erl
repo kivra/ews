@@ -12,10 +12,12 @@
 
 -include("ews.hrl").
 
+-define(HTTP_OPTS, [{connect_options, [{versions, [tlsv1, sslv3]}]}]).
+
 %% ----------------------------------------------------------------------------
 
 fetch(WsdlUrl) ->
-    case lhttpc:request(WsdlUrl, get, [], 10000) of
+    case lhttpc:request(WsdlUrl, get, [], [], 10000, ?HTTP_OPTS) of
         {ok, {{200, _},_,Bin}} ->
             Bin;
         {ok, {_, _, Error}} ->
