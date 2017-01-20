@@ -1,7 +1,7 @@
 -module(ews_model).
 
 -export([new/0, put/2, get/2, get_elem/2, get_parts/2,
-         get_from_base/2, get_from_alias/2, get_super/2,
+         get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
          is_root/2]).
 
@@ -69,6 +69,11 @@ get_super(Key, Table) when is_atom(Key) ->
         #type{extends=Super} ->
             Super
     end.
+
+get_subs(Key, Table) ->
+    Children = ets:match_object(Table, {'_', #type{extends = Key, _ = '_'}}),
+    LowerDescendants = [get_subs(K, Table) || {K, _} <- Children],
+    Children ++ lists:append(LowerDescendants).
 
 get_from_alias(Alias, Tbl) ->
     case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_'}}) of
