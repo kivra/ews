@@ -13,6 +13,8 @@
 
 -include("ews.hrl").
 
+-define(HTTP_OPTS, [{connect_options, [{versions, [tlsv1, sslv3]}]}]).
+
 %% ----------------------------------------------------------------------------
 %% Api
 
@@ -65,7 +67,7 @@ request_cached(SchemaUrl) ->
         {ok, Bin} ->
             {ok, Bin};
         {error, Error} ->
-            case lhttpc:request(SchemaUrl, get, [], 10000) of
+            case lhttpc:request(SchemaUrl, get, [], [], 10000, ?HTTP_OPTS) of
                 {ok, {{200, _}, _, Bin}} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
