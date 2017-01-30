@@ -201,6 +201,9 @@ validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
                end,
     {ok, Result} = lists:foldl(TestType, undefined, Types),
     Result;
+validate_xml({Qname, _, _}=E, #elem{qname=Qname,meta=#meta{max=Max}}=ME, Tbl)
+  when Max > 1 ->
+    validate_xml([E], ME, Tbl);
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
     case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
@@ -209,8 +212,12 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
             Type = ews_model:get(TypeKey, Tbl),
             validate_xml({Qname, As, Cs}, Type, Tbl)
     end;
-validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type={_,_}}=ME, Tbl) ->
-    [validate_xml(E, ME, Tbl) || E <- Es];
+validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,
+                                         type={_,_},
+                                         meta=#meta{max=Max}=Meta}=ME,
+             Tbl) when Max > 1 ->
+    NewME = ME#elem{meta=Meta#meta{max=1}},
+    [validate_xml(E, NewME, Tbl) || E <- Es];
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml({Qname, As, Cs}, Type, Tbl);
 validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
