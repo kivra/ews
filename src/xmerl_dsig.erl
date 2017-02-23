@@ -111,7 +111,6 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
     % now we sign the SignedInfo element...
     SigInfoCanon = xmerl_c14n:c14n(SigInfo),
     Data = unicode:characters_to_binary(SigInfoCanon, unicode, utf8),
-
     Signature = public_key:sign(Data, HashFunction, PrivateKey),
     Sig64 = base64:encode_to_string(Signature),
     Cert64 = base64:encode_to_string(CertBin),
@@ -378,7 +377,7 @@ test_sign_256_key() ->
 sign_and_verify_test() ->
     {Doc, _} = xmerl_scan:string("<x:foo id=\"test\" xmlns:x=\"urn:foo:x:\"><x:name>blah</x:name></x:foo>", [{namespace_conformant, true}]),
     {Key, CertBin} = test_sign_key(),
-    SignedXml = sign(Doc, Key, CertBin),
+    SignedXml = sign(Doc, Key, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
     Doc = strip(SignedXml),
     false = (Doc =:= SignedXml),
     ok = verify(SignedXml, [crypto:hash(sha, CertBin)]).
@@ -386,7 +385,7 @@ sign_and_verify_test() ->
 sign_and_verify_sha256_test() ->
     {Doc, _} = xmerl_scan:string("<x:foo id=\"test\" xmlns:x=\"urn:foo:x:\"><x:name>blah</x:name></x:foo>", [{namespace_conformant, true}]),
     {Key, CertBin} = test_sign_256_key(),
-    SignedXml = sign(Doc, Key, CertBin, rsa_sha256),
+    SignedXml = sign(Doc, Key, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
     Doc = strip(SignedXml),
     false = (Doc =:= SignedXml),
     ok = verify(SignedXml, [crypto:hash(sha, CertBin)]).
@@ -394,7 +393,7 @@ sign_and_verify_sha256_test() ->
 sign_generate_id_test() ->
     {Doc, _} = xmerl_scan:string("<x:foo xmlns:x=\"urn:foo:x:\"><x:name>blah</x:name></x:foo>", [{namespace_conformant, true}]),
     {Key, CertBin} = test_sign_key(),
-    SignedXml = sign(Doc, Key, CertBin),
+    SignedXml = sign(Doc, Key, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
     Ns = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'}],
     [#xmlAttribute{name = 'ID', value = RootId}] = xmerl_xpath:string("@ID", SignedXml, [{namespace, Ns}]),
     [#xmlAttribute{value = "#" ++ RootId}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/@URI", SignedXml, [{namespace, Ns}]).
@@ -406,7 +405,7 @@ utf8_test() ->
     XmlData = <<"<x:foo xmlns:x=\"urn:foo:x#\"><x:name attr=\"",Name/binary,"\">",ThisPerson/binary,"</x:name></x:foo>">>,
     {Doc, _} = xmerl_scan:string(binary_to_list(XmlData), [{namespace_conformant, true}]),
     {Key, CertBin} = test_sign_key(),
-    SignedXml = sign(Doc, Key, CertBin),
+    SignedXml = sign(Doc, Key, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
     Ns = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'}, {"x", 'urn:foo:x#'}],
     [#xmlAttribute{name = 'ID', value = RootId}] = xmerl_xpath:string("@ID", SignedXml, [{namespace, Ns}]),
     [#xmlAttribute{value = "#" ++ RootId}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/@URI", SignedXml, [{namespace, Ns}]),
