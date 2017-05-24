@@ -40,7 +40,7 @@ output_part(#elem{qname=Qname, type=#base{erl_type=Et}, meta=M}, _, _) ->
                {boolean, Max} when Max > 1 ->
                    [tick_word(A), " :: [boolean()]"]
            end,
-    check_min(Base, Min);
+    check_min(check_nillable(Base, M), Min);
 output_part(#elem{qname=Qname, type=#enum{values=Values}=E, meta=M},
             Indent, _) ->
     %% TODO: Save an enum type for -type() emit:ing
@@ -56,7 +56,7 @@ output_part(#elem{qname=Qname, type=#enum{values=Values}=E, meta=M},
                Max when Max > 1; IsList ->
                    [PartLine, ["[", EnumSpec, "]"]]
            end,
-    check_min(Base, Min);
+    check_min(check_nillable(Base, M), Min);
 output_part(#elem{qname=Qname, type={_,_}=Tn, meta=M}, _, Tbl) ->
     #meta{max=Max, min=Min} = M,
     SubTypes = ews_model:get_subs(Tn, Tbl),
@@ -65,7 +65,7 @@ output_part(#elem{qname=Qname, type={_,_}=Tn, meta=M}, _, Tbl) ->
     Atns = [Atn | [ews_alias:get_alias(T) || {T, _} <- SubTypes]],
     Attr = [tick_word(A), " :: "],
     Types = string:join([record_spec(T, Max) || T <- Atns], " | "),
-    check_min([Attr | Types], Min).
+    check_min(check_nillable([Attr | Types], M), Min).
 
 record_spec(T, Max) when Max > 1 ->
     ["[", record_spec(T), "]"];
@@ -81,6 +81,11 @@ tick_word([C|_] = Word) when C >= $A andalso C =< $Z ->
     [$', Word, $'];
 tick_word(Word) ->
     Word.
+
+check_nillable(Base, #meta{nillable = "true"}) ->
+    [Base, " | nil"];
+check_nillable(Base, _) ->
+    Base.
 
 check_min(Base, 0) ->
     [Base, " | undefined"];
