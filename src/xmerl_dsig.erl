@@ -20,7 +20,7 @@
 %% enveloped mode.
 -module(xmerl_dsig).
 
--export([verify/1, verify/2, sign/3, strip/1, digest/1]).
+-export([verify/1, verify/2, sign/3, sign/4, strip/1, digest/1]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include_lib("public_key/include/public_key.hrl").
@@ -37,17 +37,13 @@ strip(#xmlDocument{content = Kids} = Doc) ->
     Doc#xmlDocument{content = NewKids};
 
 strip(#xmlElement{content = Kids} = Elem) ->
-    NewKids = lists:filter(fun(Kid) ->
-        case Kid of
-            #xmlElement{} ->
-                case xmerl_c14n:canon_name(Kid) of
-                    "http://www.w3.org/2000/09/xmldsig#Signature" -> false;
-                    _Name -> true
-                end;
-            _ -> true
-        end
-    end, Kids),
+    NewKids = [Kid || Kid <- Kids, is_valid_kid(Kid)],
     Elem#xmlElement{content = NewKids}.
+
+is_valid_kid(Kid) when is_record(Kid, xmlAttribute); is_record(Kid, xmlElement) ->
+    Canon_Name = xmerl_c14n:canon_name(Kid),
+    Canon_Name =/= "http://www.w3.org/2000/09/xmldsig#Signature";
+is_valid_kid(_Child) -> true.
 
 %% @doc Signs the given XML element by creating a ds:Signature element within it, returning
 %%      the element with the signature added.
@@ -111,6 +107,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
     % now we sign the SignedInfo element...
     SigInfoCanon = xmerl_c14n:c14n(SigInfo),
     Data = unicode:characters_to_binary(SigInfoCanon, unicode, utf8),
+
     Signature = public_key:sign(Data, HashFunction, PrivateKey),
     Sig64 = base64:encode_to_string(Signature),
     Cert64 = base64:encode_to_string(CertBin),
@@ -140,7 +137,8 @@ digest(Element) -> digest(Element, sha256).
 digest(Element, HashFunction) ->
     DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
-    Txs = xmerl_xpath:string("/saml:Assertion/ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
+
+    Txs = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
     InclNs = case Txs of
         [C14nTx = #xmlElement{}] ->
             case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
@@ -149,6 +147,7 @@ digest(Element, HashFunction) ->
             end;
         _ -> []
     end,
+
     CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
     CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
     crypto:hash(HashFunction, CanonXmlUtf8).
@@ -191,18 +190,22 @@ verify(Element, Fingerprints) ->
         [SigInfo] = xmerl_xpath:string("ds:Signature/ds:SignedInfo", Element, [{namespace, DsNs}]),
         SigInfoCanon = xmerl_c14n:c14n(SigInfo),
         Data = list_to_binary(SigInfoCanon),
-        
+
         [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
         Sig = base64:decode(Sig64),
+
         [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
         CertBin = base64:decode(Cert64),
         CertHash = crypto:hash(sha, CertBin),
         CertHash2 = crypto:hash(sha256, CertBin),
 
         Cert = public_key:pkix_decode_cert(CertBin, plain),
-        %{_, KeyBin} = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
-        KeyBin = Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey,
+        KeyBin = case Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey of
+          {_, KeyBin2} -> KeyBin2;
+          KeyBin3 -> KeyBin3
+        end,
         Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
+
         case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
                 case Fingerprints of
@@ -385,7 +388,7 @@ sign_and_verify_test() ->
 sign_and_verify_sha256_test() ->
     {Doc, _} = xmerl_scan:string("<x:foo id=\"test\" xmlns:x=\"urn:foo:x:\"><x:name>blah</x:name></x:foo>", [{namespace_conformant, true}]),
     {Key, CertBin} = test_sign_256_key(),
-    SignedXml = sign(Doc, Key, CertBin, "http://www.w3.org/2000/09/xmldsig#rsa-sha1"),
+    SignedXml = sign(Doc, Key, CertBin, rsa_sha256),
     Doc = strip(SignedXml),
     false = (Doc =:= SignedXml),
     ok = verify(SignedXml, [crypto:hash(sha, CertBin)]).

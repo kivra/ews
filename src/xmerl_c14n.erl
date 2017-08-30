@@ -363,6 +363,12 @@ default_ns_test() ->
     Target2 = "<saml2p:Response xmlns:saml2p=\"urn:oasis:names:tc:SAML:2.0:protocol\" Destination=\"https://10.10.18.25/saml/consume\" ID=\"_83dbf3f1-53c2-4f49-b294-7c19cbf2b77b\" IssueInstant=\"2013-10-30T11:15:47.517Z\" Version=\"2.0\"><Assertion xmlns=\"urn:oasis:names:tc:SAML:2.0:assertion\" ID=\"_debe5f4e-4343-4f95-b997-89db5a483202\" IssueInstant=\"2013-10-30T11:15:47.517Z\" Version=\"2.0\"><Issuer>foo</Issuer><Subject><NameID Format=\"urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified\"></NameID><SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\"><SubjectConfirmationData NotOnOrAfter=\"2013-10-30T12:15:47.517Z\" Recipient=\"https://10.10.18.25/saml/consume\"></SubjectConfirmationData></SubjectConfirmation></Subject></Assertion></saml2p:Response>",
     Target2 = c14n(Doc2, true).
 
+omit_default_ns_test() ->
+    {Doc, _} = xmerl_scan:string("<foo:a xmlns:foo=\"urn:foo\"><bar:b xmlns=\"urn:bar\" xmlns:bar=\"urn:bar\"><bar:c /></bar:b></foo:a>", [{namespace_conformant, true}]),
+
+    Target = "<foo:a xmlns:foo=\"urn:foo\"><bar:b xmlns:bar=\"urn:bar\"><bar:c></bar:c></bar:b></foo:a>",
+    Target = c14n(Doc, true).
+
 c14n_inclns_test() ->
     {Doc, []} = xmerl_scan:string("<foo:a xmlns:foo=\"urn:foo:\" xmlns:bar=\"urn:bar:\"><foo:b bar:nothing=\"something\">foo</foo:b></foo:a>", [{namespace_conformant, true}]),
 
