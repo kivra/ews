@@ -360,7 +360,7 @@ insert_nss([A = #attribute{name=N} | Ts], Ns, Res) ->
 insert_nss([St = #simple_type{name=N} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [St#simple_type{name=qname(N, Ns)}|Res]);
 insert_nss([Ct = #complex_type{name=N, parts=Ps} | Ts], Ns, Res) ->
-    NewPs = [ Pe#element{name=qname(Nm, Ns)} || Pe = #element{name=Nm} <- Ps],
+    NewPs = insert_nss(Ps, Ns, []),
     NewRes = [Ct#complex_type{name=qname(N, Ns), parts=NewPs}|Res],
     insert_nss(Ts, Ns, NewRes);
 insert_nss([_E | Ts], Ns, Res) ->
@@ -379,20 +379,25 @@ to_string(Val) -> Val.
 process(Types) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
-    [ ews_model:put(T, TypeMap) || T <- process(Types, Ts) ],
+    {AllTypes, Elems} = process(Types, Ts, [], []),
+    [ ews_model:put(T, TypeMap) || T <- AllTypes ],
+    [ ews_model:put(E, TypeMap) || E <- Elems ],
     #model{type_map=TypeMap, elems=[]}.
 
-process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts) ->
+process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
+        TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
     Elem = #elem{qname=Qname, type=Qname, meta=Meta},
     #complex_type{extends=Ext, parts=Ps2,
                   abstract=Abstract} = lists:keyfind(complex_type, 1, Ps),
+    {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, []),
     Type = #type{qname=Qname, extends=Ext,
-                 abstract=Abstract, elems=process(Ps2, Ts)},
-    [Elem, Type | process(Rest, Ts) ];
-process([#element{parts=[{doc, _}]} = E | Rest], Ts) ->
-    process([E#element{parts=[]} | Rest], Ts);
-process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts) ->
+                 abstract=Abstract, elems=SubElems},
+    process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc]);
+process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
+    process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc);
+process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
+        TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
     case to_base(T) of
@@ -400,24 +405,27 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts) ->
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
                     Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
-                    [Elem | process(Rest, Ts)];
+                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc]);
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
-                    [Elem | process(Rest, Ts)]
+                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc])
             end;
         #base{} = Base ->
-            [#elem{qname=Qname, type=Base, meta=Meta} | process(Rest, Ts)]
+            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            process(Rest, Ts, TypeAcc, [Elem | ElemAcc])
     end;
-process([#simple_type{} | Rest], Ts) ->
-    process(Rest, Ts);
-process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Ts) ->
-    Type = #type{qname=Qname, extends=Ext, elems=process(Ps, Ts)},
-    [Type | process(Rest, Ts)];
-process([_T | Rest], Ts) ->
+process([#simple_type{} | Rest], Ts, TypeAcc, ElemAcc) ->
+    process(Rest, Ts, TypeAcc, ElemAcc);
+process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Ts,
+        TypeAcc, ElemAcc) ->
+    {AccWithSubTypes, SubElems} = process(Ps, Ts, TypeAcc, []),
+    Type = #type{qname=Qname, extends=Ext, elems=SubElems},
+    process(Rest, Ts, [Type | AccWithSubTypes], ElemAcc);
+process([_T | Rest], Ts, TypeAcc, ElemAcc) ->
     %% io:format("error: unexpected ~p~n", [T]),
-    process(Rest, Ts);
-process([], _) ->
-    [].
+    process(Rest, Ts, TypeAcc, ElemAcc);
+process([], _, TypeAcc, ElemAcc) ->
+    {TypeAcc, lists:reverse(ElemAcc)}.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
     [{Qname, process_simple(S)} | process_all_simple(Rest) ];
