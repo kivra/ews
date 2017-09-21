@@ -4,7 +4,7 @@
 
 {application, ews,
  [{description, "Erlang Web Services Library"},
-  {vsn, "0.4.4"},
+  {vsn, "0.4.6"},
   {registered, []},
   {applications, [kernel,
                   stdlib,
