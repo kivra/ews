@@ -347,6 +347,9 @@ insert_nss([E = #element{name=N, parts=[]} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [E#element{name=qname(N, Ns)}|Res]);
 insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewParts = case Ps of
+                   [#simple_type{}] ->
+                       error({not_implemented, unnamed_simple_type},
+                             [E, Ns, Res]);
                    [#complex_type{parts=CtPs} = Ct] ->
                        [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
