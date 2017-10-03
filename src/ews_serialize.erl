@@ -151,7 +151,7 @@ encode_single_enum(Term, Values) ->
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
-    case has_inherited_type(As, Tbl) of
+    case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
             validate_xml({Qname, As, Cs}, Type, Tbl);
         false ->
@@ -161,7 +161,7 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
 validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
              Tbl) ->
     %% FIXME: Can't assume all element is same type in list
-    case has_inherited_type(As, Tbl) of
+    case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
             validate_xml(Es, Type, Tbl);
         false ->
@@ -179,7 +179,7 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
         true ->
             nil;
         false ->
-            Elems = case has_inherited_type(As, Tbl) of
+            Elems = case has_inherited_type(As, Tbl, Key) of
                         false ->
                             ews_model:get_parts(Key, Tbl);
                         #type{qname=InheritedKey} ->
@@ -284,18 +284,26 @@ is_nil(Attributes) ->
             false
     end.
 
-has_inherited_type(Attributes, Tbl) ->
+has_inherited_type(Attributes, Tbl, TypeKey) ->
     case lists:keyfind({?SCHEMA_INSTANCE_NS, "type"}, 1, Attributes) of
         {_, TypeBase} ->
             case lists:member($:, TypeBase) of
                 true ->
-                    [_,Base] = string:tokens(TypeBase, ":"),
-                    [{_, Type}] = ews_model:get_from_base(Base, Tbl),
-                    Type;
+                    [_, Base] = string:tokens(TypeBase, ":"),
+                    get_from_base(Base, Tbl, TypeKey);
                 false ->
-                    [{_, Type}] = ews_model:get_from_base(TypeBase, Tbl),
-                    Type
+                    get_from_base(TypeBase, Tbl, TypeKey)
             end;
         false ->
+            false
+    end.
+
+get_from_base(Base, Tbl, TypeKey) ->
+    Candidates = [T || {_, T} <- ews_model:get_from_base(Base, Tbl),
+                       T#type.extends == TypeKey],
+    case Candidates of
+        [Type] ->
+            Type;
+        R when R == false; R == [] ->
             false
     end.
