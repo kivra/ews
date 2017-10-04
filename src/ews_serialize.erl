@@ -34,7 +34,7 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
 %%                        validate against
 %%          Model       - The model that describe the types that the elements
 %%                        in the message has.
--spec decode(iolist(), [any()], #model{}) -> tuple().
+-spec decode([any()], [any()], #model{}) -> [any()].
 decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
    [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
 
