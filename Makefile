@@ -1,28 +1,39 @@
 # -*-Make-*-
 #
 # Copyright © Campanja AB 2012. All Rights Reserve.
-ERL ?= erl
-REBAR=bin/rebar
-APP := ews
+REBAR=bin/rebar3
 
-.PHONY: deps
+.PHONY: clean distclean upgrade compile test dialyzer eunit xref
 
-all: deps
-	@${REBAR} -j compile
-
-test: all
-	@${REBAR} -j eunit skip_deps=true
-
-xref: all
-	@${REBAR} -j xref skip_deps=true
-
-deps:
-	@${REBAR} -j get-deps
+default: compile
 
 clean:
-	@${REBAR} -j clean
-	rm -fr logs
+	@${REBAR} clean --all
+	rm -rf _build/*/rel
+	rm -f _build/*/*/*/ebin/*
+	find . -name "erlcinfo" -exec rm {} \;
 
-dist-clean: clean
-	@rm -rf .eunit
-	@${REBAR} -j delete-deps
+distclean: clean
+	rm -rf .eunit
+	rm -rf _build
+	rm -f rebar.lock
+
+upgrade:
+	@${REBAR} upgrade
+
+compile:
+	@${REBAR} compile
+
+test: xref eunit ct dialyzer
+
+dialyzer:
+	@${REBAR} dialyzer
+
+eunit:
+	@${REBAR} eunit
+
+ct:
+	@${REBAR} ct
+
+xref:
+	@${REBAR} xref
