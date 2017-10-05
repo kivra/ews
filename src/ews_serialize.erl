@@ -299,11 +299,14 @@ has_inherited_type(Attributes, Tbl, TypeKey) ->
     end.
 
 get_from_base(Base, Tbl, TypeKey) ->
-    Candidates = [T || {_, T} <- ews_model:get_from_base(Base, Tbl),
-                       T#type.extends == TypeKey],
-    case Candidates of
-        [Type] ->
-            Type;
-        R when R == false; R == [] ->
-            false
+    case ews_model:get_from_base(Base, Tbl) of
+        false ->
+            false;
+        Candidates ->
+            case [T || {_, T} <- Candidates, T#type.extends == TypeKey] of
+                [Type] ->
+                    Type;
+                [] ->
+                    false
+            end
     end.
