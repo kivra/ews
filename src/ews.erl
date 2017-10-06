@@ -10,13 +10,10 @@
 -include("ews.hrl").
 
 start() ->
-    Deps = [crypto, public_key, ssl, inets, lhttpc],
-    [ application:start(A) || A <- Deps ],
-    application:start(ews).
+    application:ensure_all_started(ews).
 
 stop() ->
-    application:stop(ews),
-    application:stop(lhttpc).
+    application:stop(ews).
 
 add_wsdl_to_model(WsdlUrl) ->
     ews_svc:add_wsdl_url(WsdlUrl).

@@ -84,7 +84,7 @@ handle_call({add_wsdl_bin, WsdlDoc}, _, State) ->
     Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = lists:ukeysort(1, Svcs++OldSvcs),
-    NewModel = merge_models(OldModel, Model),
+    NewModel = append_model(OldModel, Model),
     Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
     {reply, {ok, Count}, State#state{services=NewSvcs, model=NewModel}};
 handle_call(list_services, _, #state{services=Svcs} = State) ->
@@ -211,9 +211,8 @@ determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
 
 %% >-----------------------------------------------------------------------< %%
 
-merge_models(undefined, Model) -> Model;
-merge_models(Model, undefined) -> Model;
-merge_models(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
+append_model(undefined, Model) -> Model;
+append_model(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
              #model{type_map=NewMap, elems=E2}) ->
     NewElems = lists:ukeysort(#elem.qname, E1++E2),
     NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),

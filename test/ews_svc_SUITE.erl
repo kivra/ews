@@ -101,7 +101,7 @@ add_model(_Config) ->
 
     %% Mock request
     meck:new(lhttpc),
-    meck:expect(lhttpc, request, 4, {ok, {{200, ignore}, ignore, Bin}}),
+    meck:expect(lhttpc, request, 6, {ok, {{200, ignore}, ignore, Bin}}),
 
     %% Get Wsdl, the actual URL is not important as we mock the lhttpc call
     %% with an already downloaded version
