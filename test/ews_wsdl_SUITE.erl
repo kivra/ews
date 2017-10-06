@@ -27,7 +27,7 @@ all() ->
     [{group, google_v201306_campaignService}].
 
 init_per_group(google_v201306_campaignService, Config) ->
-    application:ensure_all_started(ews),
+    ews:start(),
 
     %% Read file
     application:load(ews),

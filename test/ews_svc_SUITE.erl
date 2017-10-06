@@ -66,7 +66,7 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    application:ensure_all_started(ews),
+    ews:start(),
     Config.
 
 end_per_suite(_Config) ->

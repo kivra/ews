@@ -1,14 +1,12 @@
 # -*-Make-*-
 #
 # Copyright © Campanja AB 2012. All Rights Reserve.
-REBAR=bin/rebar3
-
 .PHONY: clean distclean upgrade compile test dialyzer eunit xref
 
 default: compile
 
 clean:
-	@${REBAR} clean --all
+	rebar3 clean --all
 	rm -rf _build/*/rel
 	rm -f _build/*/*/*/ebin/*
 	find . -name "erlcinfo" -exec rm {} \;
@@ -19,21 +17,21 @@ distclean: clean
 	rm -f rebar.lock
 
 upgrade:
-	@${REBAR} upgrade
+	rebar3 upgrade
 
 compile:
-	@${REBAR} compile
+	rebar3 compile
 
 test: xref eunit ct dialyzer
 
 dialyzer:
-	@${REBAR} dialyzer
+	rebar3 dialyzer
 
 eunit:
-	@${REBAR} eunit
+	rebar3 eunit
 
 ct:
-	@${REBAR} ct
+	rebar3 ct
 
 xref:
-	@${REBAR} xref
+	rebar3 xref
