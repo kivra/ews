@@ -124,7 +124,7 @@ sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_bin
                     #xmlElement{name = 'ds:X509Certificate', content = [#xmlText{value = Cert64} ]}]}]}
         ]
     }),
-    Element#xmlElement{content = lists:reverse([SigElem | Element#xmlElement.content])}.
+    Element#xmlElement{content = [SigElem | Element#xmlElement.content]}.
 
 %% @doc Returns the canonical digest of an (optionally signed) element
 %%
