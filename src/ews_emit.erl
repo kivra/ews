@@ -102,7 +102,7 @@ sort_types(Tbl) ->
 sort_types([{Qn, []}|Types], Overflow, Res) ->
     sort_types(Types, Overflow, [Qn|Res]);
 sort_types([{Qn, Deps}|Types], Overflow, Res) ->
-    case lists:all(fun(D) -> lists:member(D, Res) end, Deps) of
+    case lists:all(fun(D) -> lists:member(D, Res) orelse D == Qn end, Deps) of
         true ->
             sort_types(Types, Overflow, [Qn|Res]);
         false ->
