@@ -65,6 +65,26 @@ encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
                     error({"expected single value: ", element(2, Qname), Terms})
             end
     end;
+encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
+    TestType = fun (Type, undefined) ->
+                       try
+                           {ok, encode_term(Term, E#elem{type=Type}, Tbl)}
+                       catch
+                           _:_ ->
+                               undefined
+                       end;
+                   (_Type, Result) ->
+                       Result
+               end,
+    case lists:foldl(TestType, undefined, Types) of
+        {ok, Result} ->
+            Result;
+        undefined ->
+            Ts = [ews_model:get(Qn, Tbl) || Qn <- Types],
+            Aliases = [[$# | atom_to_list(T#type.alias) ++ "{}"] || T <- Ts],
+            Records = string:join(Aliases, ", "),
+            error({"expected one of " ++ Records, Term})
+    end;
 encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     [Name|_] = tuple_to_list(Term),
     #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
@@ -150,6 +170,20 @@ encode_single_enum(Term, Values) ->
 
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
+validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
+  when is_list(Types) ->
+    TestType = fun (Type, undefined) ->
+                       try
+                           {ok, validate_xml(E, ME#elem{type=Type}, Tbl)}
+                       catch
+                           _:_ ->
+                               undefined
+                       end;
+                   (_Type, Result) ->
+                       Result
+               end,
+    {ok, Result} = lists:foldl(TestType, undefined, Types),
+    Result;
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
     case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->

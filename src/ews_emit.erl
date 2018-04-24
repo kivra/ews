@@ -19,58 +19,46 @@ output_type(#type{qname=Qname, alias=Alias}, Tbl) ->
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
     [Line1, string:join(PartRows, JoinStr), "}).\n"].
 
-output_part(#elem{qname=Qname, type=#base{erl_type=Et}, meta=M}, _, _) ->
+output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl) ->
     A = ews_alias:create(Qname),
-    #meta{max=Max, min=Min} = M,
-    Base = case {Et, Max} of
-               {string, 1} ->
-                   [tick_word(A), " :: string() | binary()"];
-               {string, Max} when Max > 1 ->
-                   [tick_word(A), " :: [string() | binary()]"];
-               {integer, 1} ->
-                   [tick_word(A), " :: integer()"];
-               {integer, Max} when Max > 1 ->
-                   [tick_word(A), " :: [integer()]"];
-               {float, 1} ->
-                   [tick_word(A), " :: float()"];
-               {float, Max} when Max > 1 ->
-                   [tick_word(A), " :: [float()]"];
-               {boolean, 1} ->
-                   [tick_word(A), " :: boolean()"];
-               {boolean, Max} when Max > 1 ->
-                   [tick_word(A), " :: [boolean()]"]
-           end,
-    check_min(check_nillable(Base, M), Min);
-output_part(#elem{qname=Qname, type=#enum{values=Values}=E, meta=M},
-            Indent, _) ->
-    %% TODO: Save an enum type for -type() emit:ing
-    #meta{max=Max, min=Min} = M,
-    #enum{list=IsList} = E,
-    A = ews_alias:create(Qname),
-    PartLine = [tick_word(A), " :: "],
-    SpecIndent = Indent + iolist_size(PartLine),
-    EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
-    Base = case Max of
-               1 when not IsList ->
-                   [PartLine, EnumSpec];
-               Max when Max > 1; IsList ->
-                   [PartLine, ["[", EnumSpec, "]"]]
-           end,
-    check_min(check_nillable(Base, M), Min);
-output_part(#elem{qname=Qname, type={_,_}=Tn, meta=M}, _, Tbl) ->
-    #meta{max=Max, min=Min} = M,
-    SubTypes = ews_model:get_subs(Tn, Tbl),
-    A = ews_alias:create(Qname),
-    Atn = ews_alias:get_alias(Tn),
-    Atns = [Atn | [ews_alias:get_alias(T) || {T, _} <- SubTypes]],
-    Attr = [tick_word(A), " :: "],
-    Types = string:join([record_spec(T, Max) || T <- Atns], " | "),
-    check_min(check_nillable([Attr | Types], M), Min).
+    #meta{min=Min} = M,
+    Base = [tick_word(A), " :: "],
+    SpecIndent = Indent + iolist_size(Base),
+    Ts = output_types(T, M, SpecIndent, Tbl),
+    check_min(check_nillable([Base, Ts], M), Min).
 
-record_spec(T, Max) when Max > 1 ->
-    ["[", record_spec(T), "]"];
-record_spec(T, 1) ->
-    record_spec(T).
+output_types(T, M, SpecIndent, Tbl) when not is_list(T) ->
+    output_single_type(T, M, SpecIndent, Tbl);
+output_types(Types, M, SpecIndent, Tbl) ->
+    lists:join(" | ",
+               [output_single_type(T, M, SpecIndent, Tbl) || T <- Types]).
+
+output_single_type(#base{erl_type=Et}, #meta{max = Max}, _SpecIndent, _Tbl) ->
+    add_list(output_erl_type(Et), Max > 1);
+output_single_type(E = #enum{values=Values}, #meta{max = Max},
+                   SpecIndent, _Tbl) ->
+    #enum{list=IsList} = E,
+    EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
+    add_list(EnumSpec, IsList orelse Max > 1);
+output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl) ->
+    Atn = ews_alias:get_alias(Tn),
+    SubTypes = ews_model:get_subs(Tn, Tbl),
+    Atns = [Atn | [ews_alias:get_alias(T) || {T, _} <- SubTypes]],
+    string:join([add_list(record_spec(T), Max > 1) || T <- Atns], " | ").
+
+output_erl_type(string) ->
+    "string() | binary()";
+output_erl_type(integer) ->
+    "integer()";
+output_erl_type(float) ->
+    "float()";
+output_erl_type(boolean) ->
+    "boolean()".
+
+add_list(Str, true) ->
+    ["[", Str, "]"];
+add_list(Str, false) ->
+    Str.
 
 record_spec(T) ->
     ["#", tick_word(T), "{}"].
@@ -131,7 +119,14 @@ create_graph(Tbl) ->
     Types = ews_model:values(Tbl),
     F = fun(#type{qname=Qn}, D) ->
                 Es = ews_model:get_parts(Qn, Tbl),
-                ElemFun = fun(#elem{type={_,_}=K}, A) -> [K|A]; (_, A) -> A end,
+                ElemFun = fun (#elem{type={_,_}=K}, A) ->
+                                  [K|A];
+                              (#elem{type=[_|_]=Ts}, A) ->
+                                  Keys = [K || {_,_}=K <- Ts],
+                                  Keys ++ A;
+                              (_, A) ->
+                                  A
+                          end,
                 Deps = lists:foldl(ElemFun, [], Es),
                 DepsSubs = lists:append(
                              [ews_model:get_subs(K, Tbl) || K <- Deps]),

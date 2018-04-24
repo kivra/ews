@@ -1,6 +1,6 @@
 -module(ews_model).
 
--export([new/0, put/2, get/2, get_elem/2, get_parts/2,
+-export([new/0, put/2, replace/2, get/2, get_elem/2, get_parts/2,
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
          is_root/2]).
@@ -19,6 +19,11 @@ put(#type{qname=Key} = T, Table) ->
     ets:insert_new(Table, {Key, Type});
 put(#elem{qname=Key} = E, Table) ->
     ets:insert_new(Table, {{Key, root}, E}).
+
+replace(#type{qname=Key} = Type, Table) ->
+    ets:insert(Table, {Key, Type});
+replace(#elem{qname=Key} = E, Table) ->
+    ets:insert(Table, {{Key, root}, E}).
 
 get({_,_} = Key, Table) ->
     case ets:lookup(Table, Key) of
