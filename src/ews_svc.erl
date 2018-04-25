@@ -227,8 +227,11 @@ merge_types(CurrentMap, NewMap, ClashDict) ->
                      Clashes;
                  false ->
                      OldType = ews_model:get(Key, CurrentMap),
-                     case NewType of
+                     case merge_types(OldType, NewType) of
                          OldType ->
+                             Clashes;
+                         MergedType = #type{} ->
+                             ews_model:replace(MergedType, CurrentMap),
                              Clashes;
                          _ ->
                              NewClashes = dict:append(Key, NewType, Clashes),
@@ -243,9 +246,12 @@ merge_types(CurrentMap, NewMap, ClashDict) ->
                     Clashes;
                 false ->
                     OldElem = ews_model:get_elem(Key, CurrentMap),
-                    case NewElem of
+                    case merge_elem(OldElem, NewElem) of
                         OldElem ->
                             Clashes;
+                        MergedElem = #elem{} ->
+                            ews_model:replace(MergedElem, CurrentMap),
+                             Clashes;
                         _ ->
                             NewClashes = dict:append({root, Key},
                                                      NewElem, Clashes),
@@ -257,6 +263,83 @@ merge_types(CurrentMap, NewMap, ClashDict) ->
     ElemKeys = ews_model:elem_keys(NewMap),
     NewClashDict = lists:foldl(TF, ClashDict, TypeKeys),
     lists:foldl(EF, NewClashDict, ElemKeys).
+
+merge_types(T1 = #type{elems = T1Elems, extends = E, abstract = A},
+           #type{elems = T2Elems, extends = E, abstract = A}) ->
+    case merge_elem_lists(T1Elems, T2Elems) of
+        E = {error, _} ->
+            E;
+        MergedElems ->
+            T1#type{elems = MergedElems}
+    end;
+merge_types(T1, T2) ->
+    {error, {incompatible_types, T1, T2}}.
+
+merge_elem_lists(Elems1, Elems2) ->
+    MF = fun (_, E = {error, _}) ->
+                 E;
+             (E1 = #elem{qname = Qn1, meta = #meta{min = Min}}, {Es, E2s}) ->
+                 case lists:splitwith(fun (#elem{qname = Qn2}) ->
+                                              Qn2 /= Qn1
+                                      end, E2s) of
+                     {H, [E2 | T]} ->
+                         case merge_elem(E1, E2) of
+                             E = {error, _} ->
+                                 E;
+                             NewE ->
+                                 {[NewE | Es], H ++ T}
+                         end;
+                     {_, []} when Min == 0 ->
+                         {[E1 | Es], E2s};
+                     _ ->
+                         {error, {unmatched_element, E1, Elems2}}
+                 end
+         end,
+    case lists:foldl(MF, {[], Elems2}, Elems1) of
+        {Res, []} ->
+            lists:reverse(Res);
+        E = {error, _} ->
+            E;
+        {Res, Unmatched} ->
+            case lists:all(fun (#elem{meta = #meta{min = Min}}) ->
+                                   Min == 0
+                           end, Unmatched) of
+                true ->
+                    lists:reverse(Res) ++ Unmatched;
+                false ->
+                    {error, {unmatched_elements, Unmatched}}
+            end
+    end.
+
+merge_elem(E1 = #elem{qname = Qn, type = T1, meta = M1},
+           #elem{qname = Qn, type = T2, meta = M2}) ->
+    E1#elem{type = combine_types(T1, T2), meta = combine_meta(M1, M2)};
+merge_elem(E1, E2) ->
+    {error, {incompatible_elements, E1, E2}}.
+
+combine_types(T, T) ->
+    T;
+combine_types(T1, T2) when is_list(T1), is_list(T2) ->
+    T1 ++ (T2 -- T1);
+combine_types(T1, T2) when is_list(T1) ->
+    combine_types(T1, [T2]);
+combine_types(T1, T2) when is_list(T2) ->
+    combine_types([T1], T2);
+combine_types(T1, T2) ->
+    [T1, T2].
+
+combine_meta(
+  M1 = #meta{nillable = N, default = D, fixed = F, max = Max1, min = Min1},
+  #meta{nillable = N, default = D, fixed = F, max = Max2, min = Min2}) ->
+    M1#meta{min = min2(Min1, Min2), max = max2(Max1, Max2)}.
+
+min2(undefined, M) -> M;
+min2(M, undefined) -> M;
+min2(M1, M2) -> min(M1, M2).
+
+max2(undefined, M) -> M;
+max2(M, undefined) -> M;
+max2(M1, M2) -> max(M1, M2).
 
 %% >-----------------------------------------------------------------------< %%
 

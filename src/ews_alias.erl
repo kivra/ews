@@ -143,10 +143,27 @@ to_underscore(Word) ->
 
 to_underscore([C,D|Word], Stack, Res) when C >= $A, C =< $Z, D >= $a, D =< $z ->
     to_underscore([D|Word], [C], [lists:reverse(Stack)|Res]);
-to_underscore([C,D|Word], Stack, Res) when C >= $a, C =< $z, D >= $A, D =< $Z ->
-    to_underscore([D|Word], [], [lists:reverse([C|Stack])|Res]);
+to_underscore([C,D|Word], Stack, Res) when D >= $A, D =< $Z ->
+    case (C >= $a andalso C =< $z) orelse (C >= $0 andalso C =< $9) of
+        true ->
+            to_underscore([D|Word], [], [lists:reverse([C|Stack])|Res]);
+        false ->
+            to_underscore([D|Word], [C|Stack], Res)
+    end;
+to_underscore([C,D|Word], Stack, Res) ->
+    case is_alnum(C) of
+        true ->
+            to_underscore([D|Word], [C|Stack], Res);
+        false ->
+            to_underscore(Word, [D,C|Stack], Res)
+    end;
 to_underscore([C|Word], Stack, Res) ->
     to_underscore(Word, [C|Stack], Res);
 to_underscore([], Stack, Res) ->
     [ string:to_lower(P) || P <- lists:reverse([lists:reverse(Stack)|Res]),
                             length(P) > 0 ].
+
+is_alnum(C) when C >= $A, C =< $Z -> true;
+is_alnum(C) when C >= $a, C =< $z -> true;
+is_alnum(C) when C >= $0, C =< $9 -> true;
+is_alnum(_) -> false.
