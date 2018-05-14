@@ -154,6 +154,7 @@ clean_attr([], Acc) ->
     lists:reverse(Acc).
 
 %% parses the xml tree from tokens
+
 parse_xml([{[$/ | Tag], _, _} | Rest], Stack, Nss) ->
     Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
     {Element, NewStack} = find_start(Stack, Key),
@@ -161,7 +162,10 @@ parse_xml([{[$/ | Tag], _, _} | Rest], Stack, Nss) ->
     parse_xml(Rest, [Element | NewStack], NewNss);
 parse_xml([{txt, _} = Txt | Rest], Stack, Nss) ->
     parse_xml(Rest, [Txt | Stack], Nss);
-parse_xml([{"!--", _, _} | Rest], Stack, Nss) ->
+parse_xml([{Ignore, _, _} | Rest], Stack, Nss) when Ignore == "!--";
+                                                    Ignore == "?xml";
+                                                    Ignore == "?Xml";
+                                                    Ignore == "?XML" ->
     parse_xml(Rest, Stack, Nss);
 parse_xml([{Tag, Attrs ,_} | Rest], Stack, Nss) ->
     Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
