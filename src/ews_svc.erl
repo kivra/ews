@@ -453,8 +453,8 @@ call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
             end
     end.
 
-try_decode_fault([], _, _) ->
-    error(no_model_matched_fault_detail);
+try_decode_fault([], Detail, _) ->
+    Detail;
 try_decode_fault([F|Faults], Detail, Model) ->
     case catch ews_serialize:decode(Detail, [F], Model) of
         {'EXIT',_} ->
