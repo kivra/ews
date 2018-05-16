@@ -6,18 +6,18 @@
 
 -export([start_link/0]).
 
--export([add_wsdl_url/1, add_wsdl_bin/1,
-         list_services/0, list_service_ops/1, get_op_info/2,
-         get_op/2, get_op_message_details/2, list_types/0, get_type/1,
-         get_model/0, list_simple_clashes/0, list_full_clashes/0, emit_model/1,
-         call/4]).
+-export([add_wsdl_url/2, add_wsdl_bin/2,
+         list_services/1, list_service_ops/2, get_op_info/3,
+         get_op/3, get_op_message_details/3, list_types/1, get_type/2,
+         get_model/1, list_simple_clashes/1, list_full_clashes/1, emit_model/2,
+         call/5]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
 
 -behaviour(gen_server).
 
--record(state, {services=[], model}).
+-record(state, {services=#{}, models=#{}}).
 
 -include("ews.hrl").
 
@@ -26,82 +26,95 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-add_wsdl_url(WsdlUrl) ->
-    gen_server:call(?MODULE, {add_wsdl_url, WsdlUrl}, timer:minutes(1)).
+add_wsdl_url(ModelRef, WsdlUrl) ->
+    gen_server:call(?MODULE, {add_wsdl_url, ModelRef, WsdlUrl},
+                    timer:minutes(1)).
 
-add_wsdl_bin(WsdlBin) ->
-    gen_server:call(?MODULE, {add_wsdl_bin, WsdlBin}, timer:minutes(1)).
+add_wsdl_bin(ModelRef, WsdlBin) ->
+    gen_server:call(?MODULE, {add_wsdl_bin, ModelRef, WsdlBin},
+                    timer:minutes(1)).
 
-list_services() ->
-    gen_server:call(?MODULE, list_services).
+list_services(ModelRef) ->
+    gen_server:call(?MODULE, {list_services, ModelRef}).
 
-list_service_ops(Service) ->
-    gen_server:call(?MODULE, {list_service_ops, Service}).
+list_service_ops(ModelRef, Service) ->
+    gen_server:call(?MODULE, {list_service_ops, ModelRef, Service}).
 
-get_op_info(Service, Op) ->
-    gen_server:call(?MODULE, {get_op_info, Service, Op}).
+get_op_info(ModelRef, Service, Op) ->
+    gen_server:call(?MODULE, {get_op_info, ModelRef, Service, Op}).
 
-get_op(Service, Op) ->
-    gen_server:call(?MODULE, {get_op, Service, Op}).
+get_op(ModelRef, Service, Op) ->
+    gen_server:call(?MODULE, {get_op, ModelRef, Service, Op}).
 
-get_op_message_details(Service, Op) ->
-    gen_server:call(?MODULE, {get_op_message_details, Service, Op}).
+get_op_message_details(ModelRef, Service, Op) ->
+    gen_server:call(?MODULE, {get_op_message_details, ModelRef, Service, Op}).
 
-list_types() ->
-    gen_server:call(?MODULE, list_types).
+list_types(ModelRef) ->
+    gen_server:call(?MODULE, {list_types, ModelRef}).
 
-get_type(TypeKey) ->
-    gen_server:call(?MODULE, {get_type, TypeKey}).
+get_type(ModelRef, TypeKey) ->
+    gen_server:call(?MODULE, {get_type, ModelRef, TypeKey}).
 
-get_model() ->
-    gen_server:call(?MODULE, get_model).
+get_model(ModelRef) ->
+    gen_server:call(?MODULE, {get_model, ModelRef}).
 
-list_full_clashes() ->
-    gen_server:call(?MODULE, list_clashes).
+list_full_clashes(ModelRef) ->
+    gen_server:call(?MODULE, {list_clashes, ModelRef}).
 
-list_simple_clashes() ->
+list_simple_clashes(Model) ->
     F = fun({Ns, N}, D) -> dict:append(N, Ns, D) end,
-    TypeList = dict:to_list(lists:foldl(F, dict:new(), ews_svc:list_types())),
+    TypeList = dict:to_list(lists:foldl(F, dict:new(),
+                                        ews_svc:list_types(Model))),
     [ Qname || Qname = {_, Nss} <- lists:usort(TypeList), length(Nss) > 1 ].
 
-emit_model(File) ->
-    gen_server:call(?MODULE, {emit_model, File}).
+emit_model(ModelRef, File) ->
+    gen_server:call(?MODULE, {emit_model, ModelRef, File}).
 
-call(ServiceName, OpName, HeaderParts, BodyParts) ->
-    Model = gen_server:call(?MODULE, get_model),
-    call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model).
+call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    call_service_op(ModelRef, Model, ServiceName, OpName,
+                    HeaderParts, BodyParts).
 
 %% >-----------------------------------------------------------------------< %%
 
 init([]) ->
     {ok, #state{}}.
 
-handle_call({add_wsdl_url, WsdlUrl}, S, State) ->
+handle_call({add_wsdl_url, ModelRef, WsdlUrl}, S, State) ->
     WsdlDoc = ews_wsdl:fetch(WsdlUrl),
-    handle_call({add_wsdl_bin, WsdlDoc}, S, State);
-handle_call({add_wsdl_bin, WsdlDoc}, _, State) ->
-    #state{services=OldSvcs, model=OldModel} = State,
+    handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, S, State);
+handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
+    #state{services=OldSvcs, models=OldModels} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
     Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc),
     Svcs = compile_wsdl(Wsdl),
-    NewSvcs = lists:ukeysort(1, Svcs++OldSvcs),
-    NewModel = append_model(OldModel, Model),
+    NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewModels = OldModels#{ModelRef => append_model(OldModel, Model)},
     Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
-    {reply, {ok, Count}, State#state{services=NewSvcs, model=NewModel}};
-handle_call(list_services, _, #state{services=Svcs} = State) ->
-    {reply, {ok, [ N || {N, _} <- Svcs ]}, State};
-handle_call({list_service_ops, Svc}, _, #state{services=Svcs} = State) ->
-    case lists:keyfind(Svc, 1, Svcs) of
+    {reply, {ok, Count}, State#state{services=NewSvcs, models=NewModels}};
+handle_call({list_services, ModelRef}, _, #state{services=Svcs} = State) ->
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    {reply, {ok, [ N || {N, _} <- ModelSvcs ]}, State};
+handle_call({list_service_ops, ModelRef, Svc}, _,
+            #state{services=Svcs} = State) ->
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    case lists:keyfind(Svc, 1, ModelSvcs) of
         false ->
             {reply, {error, no_service}, State};
         {Svc, Ops} ->
             Names = [ N || #op{name=N} <- Ops ],
             {reply, {ok, Names}, State}
     end;
-handle_call({get_op_info, SvcName, OpName}, _, State) ->
-    #state{services=Svcs, model=Model} = State,
-    {reply, find_op(SvcName, OpName, Svcs, Model), State};
-handle_call({get_op, SvcName, OpName}, _, #state{services=Svcs} = State) ->
-    case lists:keyfind(SvcName, 1, Svcs) of
+handle_call({get_op_info, ModelRef, SvcName, OpName}, _, State) ->
+    #state{services=Svcs, models=Models} = State,
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    Model = maps:get(ModelRef, Models, undefined),
+    {reply, find_op(SvcName, OpName, ModelSvcs, Model), State};
+handle_call({get_op, ModelRef, SvcName, OpName}, _,
+            #state{services=Svcs} = State) ->
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    case lists:keyfind(SvcName, 1, ModelSvcs) of
         false ->
             {reply, {error, no_service}, State};
         {SvcName, Ops} ->
@@ -112,9 +125,11 @@ handle_call({get_op, SvcName, OpName}, _, #state{services=Svcs} = State) ->
                     {reply, {ok, Op}, State}
             end
     end;
-handle_call({get_op_message_details, SvcName, OpName}, _, State) ->
-    #state{services=Svcs, model=Model} = State,
-    case lists:keyfind(SvcName, 1, Svcs) of
+handle_call({get_op_message_details, ModelRef, SvcName, OpName}, _, State) ->
+    #state{services=Svcs, models=Models} = State,
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    Model = maps:get(ModelRef, Models, undefined),
+    case lists:keyfind(SvcName, 1, ModelSvcs) of
         false ->
             {reply, {error, no_service}, State};
         {SvcName, Ops} ->
@@ -125,22 +140,33 @@ handle_call({get_op_message_details, SvcName, OpName}, _, State) ->
                     {reply, {ok, message_info(Op, Model)}, State}
             end
     end;
-handle_call(list_clashes, _, #state{model=undefined} = State) ->
-    {reply, [], State};
-handle_call(list_clashes, _, #state{model=#model{clashes=Clashes}} = State) ->
-    {reply, dict:to_list(Clashes), State};
-handle_call(list_types, _, #state{model=undefined} = State) ->
-    {reply, [], State};
-handle_call(list_types, _, #state{model=#model{type_map=Map}} = State) ->
-    {reply, ews_model:keys(Map), State};
-handle_call({get_type, Key}, _, #state{model=#model{type_map=Map}} = State) ->
+handle_call({list_clashes, ModelRef}, _, #state{models=Models} = State) ->
+    case maps:get(ModelRef, Models, undefined) of
+        undefined ->
+            {reply, [], State};
+        #model{clashes = Clashes} ->
+            {reply, dict:to_list(Clashes), State}
+    end;
+handle_call({list_types, ModelRef}, _, #state{models=Models} = State) ->
+    case maps:get(ModelRef, Models, undefined) of
+        undefined ->
+            {reply, [], State};
+        #model{type_map = Map} ->
+            {reply, ews_model:keys(Map), State}
+    end;
+handle_call({get_type, ModelRef, Key}, _,
+            #state{models=Models} = State) ->
+    #model{type_map=Map} = maps:get(ModelRef, Models),
     {reply, ews_model:get(Key, Map), State};
-handle_call({emit_model, _File}, _, #state{model=undefined} = State) ->
-    {reply, {error, no_model}, State};
-handle_call({emit_model, File}, _, #state{model=Model} = State) ->
-    {reply, ews_emit:model_to_file(Model, File), State};
-handle_call(get_model, _, #state{model=Model} = State) ->
-    {reply, Model, State};
+handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
+    case maps:get(ModelRef, Models, undefined) of
+        undefined ->
+            {reply, {error, no_model}, State};
+        Model ->
+            {reply, ews_emit:model_to_file(Model, File), State}
+    end;
+handle_call({get_model, ModelRef}, _, #state{models=Models} = State) ->
+    {reply, maps:get(ModelRef, Models, undefined), State};
 handle_call(_, _, State) ->
     {noreply, State}.
 
@@ -427,8 +453,8 @@ find_elem(Qname, #model{type_map=Tbl}) ->
 %%       could/should be done in the verify step
 %% TODO: Serialize headers
 %% TODO: Simplify ews_model module. Maybe use a named ets.
-call_service_op(ServiceName, OpName, HeaderParts, BodyParts, Model) ->
-    case get_op_message_details(ServiceName, OpName) of
+call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
