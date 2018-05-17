@@ -6,7 +6,7 @@
          emit_complete_model_types/1, emit_complete_model_types/2,
          emit_service_types/2, emit_service_types/3,
          emit_service_ops/1, emit_service_ops/2,
-         list_services/0, list_services/1,
+         list_services/0, list_services/1, list_model_services/0,
          get_service_ops/1, get_service_ops/2,
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5]).
@@ -40,9 +40,17 @@ emit_service_ops(_, _) ->
     {error, not_implemented}.
 
 list_services() ->
-    list_services(default).
+    case ews_svc:list_services() of
+        {ok, ModelSvcs} ->
+            {ok, [Name || {_, Name} <- ModelSvcs]};
+        Error ->
+            Error
+    end.
 list_services(Model) ->
     ews_svc:list_services(Model).
+
+list_model_services() ->
+    ews_svc:list_services().
 
 get_service_ops(Service) ->
     get_service_ops(default, Service).
@@ -55,6 +63,6 @@ get_service_op_info(Model, Service, Op) ->
     ews_svc:get_op_info(Model, Service, Op).
 
 call_service_op(Service, Op, Header, Body) ->
-    call_service_op(default, Service, Op, Header, Body).
+    ews_svc:call(Service, Op, Header, Body).
 call_service_op(Model, Service, Op, Header, Body) ->
     ews_svc:call(Model, Service, Op, Header, Body).

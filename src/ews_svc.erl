@@ -7,17 +7,18 @@
 -export([start_link/0]).
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
-         list_services/1, list_service_ops/2, get_op_info/3,
+         list_services/0, list_services/1, list_service_ops/2, get_op_info/3,
          get_op/3, get_op_message_details/3, list_types/1, get_type/2,
-         get_model/1, list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/5]).
+         get_model/1, get_service_models/1,
+         list_simple_clashes/1, list_full_clashes/1, emit_model/2,
+         call/4, call/5]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
 
 -behaviour(gen_server).
 
--record(state, {services=#{}, models=#{}}).
+-record(state, {services=#{}, models=#{}, service_index=#{}}).
 
 -include("ews.hrl").
 
@@ -33,6 +34,9 @@ add_wsdl_url(ModelRef, WsdlUrl) ->
 add_wsdl_bin(ModelRef, WsdlBin) ->
     gen_server:call(?MODULE, {add_wsdl_bin, ModelRef, WsdlBin},
                     timer:minutes(1)).
+
+list_services() ->
+    gen_server:call(?MODULE, list_services).
 
 list_services(ModelRef) ->
     gen_server:call(?MODULE, {list_services, ModelRef}).
@@ -55,6 +59,9 @@ list_types(ModelRef) ->
 get_type(ModelRef, TypeKey) ->
     gen_server:call(?MODULE, {get_type, ModelRef, TypeKey}).
 
+get_service_models(ServiceName) ->
+    gen_server:call(?MODULE, {get_service_models, ServiceName}).
+
 get_model(ModelRef) ->
     gen_server:call(?MODULE, {get_model, ModelRef}).
 
@@ -70,6 +77,17 @@ list_simple_clashes(Model) ->
 emit_model(ModelRef, File) ->
     gen_server:call(?MODULE, {emit_model, ModelRef, File}).
 
+call(ServiceName, OpName, HeaderParts, BodyParts) ->
+    case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
+        [{ModelRef, Model}] ->
+            call_service_op(ModelRef, Model, ServiceName, OpName,
+                            HeaderParts, BodyParts);
+        [] ->
+            {error, no_service};
+        [_ | _] ->
+            {error, ambiguous_service}
+    end.
+
 call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     call_service_op(ModelRef, Model, ServiceName, OpName,
@@ -84,15 +102,24 @@ handle_call({add_wsdl_url, ModelRef, WsdlUrl}, S, State) ->
     WsdlDoc = ews_wsdl:fetch(WsdlUrl),
     handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, S, State);
 handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
-    #state{services=OldSvcs, models=OldModels} = State,
+    #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
     OldModel = maps:get(ModelRef, OldModels, undefined),
     OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
+    OldSvcNames = [N || {N, _} <- OldModelSvcs],
     Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewSvcNames = [N || {N, _} <- Svcs],
     NewModels = OldModels#{ModelRef => append_model(OldModel, Model)},
+    NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
+                                     NewSvcNames -- OldSvcNames),
     Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
-    {reply, {ok, Count}, State#state{services=NewSvcs, models=NewModels}};
+    NewState = State#state{services=NewSvcs, models=NewModels,
+                           service_index=NewSvcIdx},
+    {reply, {ok, Count}, NewState};
+handle_call(list_services, _, #state{services=Svcs} = State) ->
+    MRefs = maps:keys(Svcs),
+    {reply, {ok, [{M, N} || M <- MRefs, {N, _} <- maps:get(M, Svcs)]}, State};
 handle_call({list_services, ModelRef}, _, #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
     {reply, {ok, [ N || {N, _} <- ModelSvcs ]}, State};
@@ -165,6 +192,11 @@ handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
         Model ->
             {reply, ews_emit:model_to_file(Model, File), State}
     end;
+handle_call({get_service_models, ServiceName}, _,
+            #state{models=Models, service_index=SvcIndex} = State) ->
+    ModelRefs = maps:get(ServiceName, SvcIndex, []),
+    RetVal = [{MRef, maps:get(MRef, Models)} || MRef <- ModelRefs],
+    {reply, RetVal, State};
 handle_call({get_model, ModelRef}, _, #state{models=Models} = State) ->
     {reply, maps:get(ModelRef, Models, undefined), State};
 handle_call(_, _, State) ->
@@ -368,6 +400,12 @@ max2(M, undefined) -> M;
 max2(M1, M2) -> max(M1, M2).
 
 %% >-----------------------------------------------------------------------< %%
+
+update_service_index(SvcIdx, ModelRef, NewSvcs) ->
+    lists:foldl(fun (Svc, SI) ->
+                        maps:update_with(Svc, fun (L) -> [ModelRef | L] end,
+                                         [ModelRef], SI)
+                end, SvcIdx, NewSvcs).
 
 find_op(SvcName, OpName, Svcs, Model) ->
     case lists:keyfind(SvcName, 1, Svcs) of
