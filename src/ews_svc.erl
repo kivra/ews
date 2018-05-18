@@ -7,8 +7,12 @@
 -export([start_link/0]).
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
-         list_services/0, list_services/1, list_service_ops/2, get_op_info/3,
-         get_op/3, get_op_message_details/3, list_types/1, get_type/2,
+         list_services/0, list_services/1,
+         list_service_ops/1, list_service_ops/2,
+         get_op_info/2, get_op_info/3,
+         get_op/2, get_op/3,
+         get_op_message_details/2, get_op_message_details/3,
+         list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/4, call/5]).
@@ -41,14 +45,26 @@ list_services() ->
 list_services(ModelRef) ->
     gen_server:call(?MODULE, {list_services, ModelRef}).
 
+list_service_ops(Service) ->
+    gen_server:call(?MODULE, {list_service_ops, Service}).
+
 list_service_ops(ModelRef, Service) ->
     gen_server:call(?MODULE, {list_service_ops, ModelRef, Service}).
+
+get_op_info(Service, Op) ->
+    gen_server:call(?MODULE, {get_op_info, Service, Op}).
 
 get_op_info(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_info, ModelRef, Service, Op}).
 
+get_op(Service, Op) ->
+    gen_server:call(?MODULE, {get_op, Service, Op}).
+
 get_op(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op, ModelRef, Service, Op}).
+
+get_op_message_details(Service, Op) ->
+    gen_server:call(?MODULE, {get_op_message_details, Service, Op}).
 
 get_op_message_details(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_message_details, ModelRef, Service, Op}).
@@ -123,6 +139,15 @@ handle_call(list_services, _, #state{services=Svcs} = State) ->
 handle_call({list_services, ModelRef}, _, #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
     {reply, {ok, [ N || {N, _} <- ModelSvcs ]}, State};
+handle_call({list_service_ops, Svc}, From, State) ->
+    case get_service_models(Svc, State) of
+        [{ModelRef, _}] ->
+            handle_call({list_service_ops, ModelRef, Svc}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({list_service_ops, ModelRef, Svc}, _,
             #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
@@ -133,11 +158,29 @@ handle_call({list_service_ops, ModelRef, Svc}, _,
             Names = [ N || #op{name=N} <- Ops ],
             {reply, {ok, Names}, State}
     end;
+handle_call({get_op_info, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op_info, ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({get_op_info, ModelRef, SvcName, OpName}, _, State) ->
     #state{services=Svcs, models=Models} = State,
     ModelSvcs = maps:get(ModelRef, Svcs, []),
     Model = maps:get(ModelRef, Models, undefined),
     {reply, find_op(SvcName, OpName, ModelSvcs, Model), State};
+handle_call({get_op, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op, ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({get_op, ModelRef, SvcName, OpName}, _,
             #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
@@ -151,6 +194,16 @@ handle_call({get_op, ModelRef, SvcName, OpName}, _,
                 Op ->
                     {reply, {ok, Op}, State}
             end
+    end;
+handle_call({get_op_message_details, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op_message_details,
+                         ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
     end;
 handle_call({get_op_message_details, ModelRef, SvcName, OpName}, _, State) ->
     #state{services=Svcs, models=Models} = State,
@@ -192,11 +245,8 @@ handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
         Model ->
             {reply, ews_emit:model_to_file(Model, File), State}
     end;
-handle_call({get_service_models, ServiceName}, _,
-            #state{models=Models, service_index=SvcIndex} = State) ->
-    ModelRefs = maps:get(ServiceName, SvcIndex, []),
-    RetVal = [{MRef, maps:get(MRef, Models)} || MRef <- ModelRefs],
-    {reply, RetVal, State};
+handle_call({get_service_models, ServiceName}, _, State) ->
+    {reply, get_service_models(ServiceName, State), State};
 handle_call({get_model, ModelRef}, _, #state{models=Models} = State) ->
     {reply, maps:get(ModelRef, Models, undefined), State};
 handle_call(_, _, State) ->
@@ -486,7 +536,12 @@ find_elem(Qname, #model{type_map=Tbl}) ->
     end.
 
 %% >-----------------------------------------------------------------------< %%
+get_service_models(ServiceName,
+                   #state{models=Models, service_index=SvcIndex}) ->
+    ModelRefs = maps:get(ServiceName, SvcIndex, []),
+    [{MRef, maps:get(MRef, Models)} || MRef <- ModelRefs].
 
+%% >-----------------------------------------------------------------------< %%
 %% TODO: Verify that # headers and body parts are same as message parts,
 %%       could/should be done in the verify step
 %% TODO: Serialize headers

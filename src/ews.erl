@@ -53,12 +53,12 @@ list_model_services() ->
     ews_svc:list_services().
 
 get_service_ops(Service) ->
-    get_service_ops(default, Service).
+    ews_svc:list_service_ops(Service).
 get_service_ops(Model, Service) ->
     ews_svc:list_service_ops(Model, Service).
 
 get_service_op_info(Service, Op) ->
-    get_service_op_info(default, Service, Op).
+    ews_svc:get_op_info(Service, Op).
 get_service_op_info(Model, Service, Op) ->
     ews_svc:get_op_info(Model, Service, Op).
 
