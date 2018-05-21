@@ -15,7 +15,9 @@
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/4, call/5]).
+         call/4, call/5,
+         add_pre_hook/2, remove_pre_hook/2,
+         add_post_hook/2, remove_post_hook/2]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -108,6 +110,15 @@ call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     call_service_op(ModelRef, Model, ServiceName, OpName,
                     HeaderParts, BodyParts).
+
+add_pre_hook(ModelRef, Hook) ->
+    gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
+add_post_hook(ModelRef, Hook) ->
+    gen_server:call(?MODULE, {add_post_hook, ModelRef, Hook}).
+remove_pre_hook(ModelRef, HookRef) ->
+    gen_server:call(?MODULE, {remove_pre_hook, ModelRef, HookRef}).
+remove_post_hook(ModelRef, HookRef) ->
+    gen_server:call(?MODULE, {remove_post_hook, ModelRef, HookRef}).
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -249,6 +260,31 @@ handle_call({get_service_models, ServiceName}, _, State) ->
     {reply, get_service_models(ServiceName, State), State};
 handle_call({get_model, ModelRef}, _, #state{models=Models} = State) ->
     {reply, maps:get(ModelRef, Models, undefined), State};
+handle_call({add_pre_hook, ModelRef, Hook}, _, #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_hooks,
+    Ref = make_ref(),
+    NewModel = Model#model{pre_hooks = [{Ref, Hook} | OldHooks]},
+    {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({add_post_hook, ModelRef, Hook}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.post_hooks,
+    Ref = make_ref(),
+    NewModel = Model#model{post_hooks = [{Ref, Hook} | OldHooks]},
+    {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_pre_hook, ModelRef, HookRef}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_hooks,
+    NewModel = Model#model{pre_hooks = proplists:delete(HookRef, OldHooks)},
+    {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_post_hook, ModelRef, HookRef}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.post_hooks,
+    NewModel = Model#model{post_hooks = proplists:delete(HookRef, OldHooks)},
+    {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
 handle_call(_, _, State) ->
     {noreply, State}.
 
@@ -519,12 +555,15 @@ message_info(Op, Model) ->
     Outs = [ E || #part{element=E} <- OutParts ],
     Faults = [ E || #message{parts=Parts} <- FaultMsgs,
                                       #part{element=E} <- Parts ],
+    PreHooks = Model#model.pre_hooks,
+    PostHooks = Model#model.post_hooks,
     [{name, OpName}, {doc, Doc},
      {in, [ find_elem(I, Model) || I <- Ins ]},
      {in_hdr, [ find_elem(I, Model) || I <- InHdrs ]},
      {out, [ find_elem(O, Model) || O <- Outs ]},
      {out_hdr, [ find_elem(O, Model) || O <- OutHdrs ]},
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
+     {pre_hooks, PreHooks}, {post_hooks, PostHooks},
      {endpoint, Endpoint}, {action, Action}].
 
 find_elem(Qname, #model{type_map=Tbl}) ->
@@ -557,12 +596,17 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
-            case ews_soap:call(Endpoint, Action, EncodedHeader, EncodedBody) of
+            PreHooks = proplists:get_value(pre_hooks, Info),
+            PostHooks = proplists:get_value(post_hooks, Info),
+            Args = run_hooks(PreHooks,
+                             [Endpoint, Action, EncodedHeader, EncodedBody]),
+            case apply(ews_soap, call, Args) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     Outs = proplists:get_value(out, Info),
-                    {ok, hd(ews_serialize:decode(ResponseBody, Outs, Model))};
+                    Dec = hd(ews_serialize:decode(ResponseBody, Outs, Model)),
+                    {ok, run_hooks(PostHooks, Dec)};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->
@@ -571,6 +615,9 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
                     {error, Fault#fault{detail=DecodedDetail}}
             end
     end.
+
+run_hooks(Hooks, Init) ->
+    lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
 
 try_decode_fault([], Detail, _) ->
     Detail;

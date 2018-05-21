@@ -42,5 +42,6 @@
 
 %% Service related records
 -record(op, {name, doc, input, output, faults, style, endpoint, action}).
--record(model, {type_map, elems, clashes=dict:new()}).
+-record(model, {type_map, elems, clashes=dict:new(),
+                pre_hooks=[], post_hooks=[]}).
 -record(fault, {code, string, actor, detail}).

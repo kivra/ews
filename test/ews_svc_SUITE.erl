@@ -29,7 +29,10 @@
          one_model_list_types/1,
          one_model_emit_model/1,
          one_model_get_type/1,
-         one_model_call/1
+         one_model_call/1,
+         one_model_pre_hook/1,
+         one_model_post_hook/1,
+         one_model_remove_hook/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -62,7 +65,10 @@ all() ->
     [{group, no_models},
      add_model,
      {group, one_model},
-     one_model_call
+     one_model_call,
+     one_model_pre_hook,
+     one_model_post_hook,
+     one_model_remove_hook
     ].
 
 init_per_suite(Config) ->
@@ -244,6 +250,121 @@ one_model_call(_Config) ->
     EndPoint = "https://adwords.google.com/api/adwords/"
                "cm/v201306/CampaignService",
     [EndPoint, [], encoded, encoded] = CallArgs,
+
+    [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
+     {Pid, {ews_serialize, encode, BodyArgs}, encoded},
+     {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}
+    ] = meck:history(ews_serialize),
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
+    %% body comes from the ews_soap:call response
+    [body, _Outs, Model] = DecodeArgs,
+
+    true = meck:validate(ews_serialize),
+    true = meck:validate(ews_soap),
+    ok = meck:unload(ews_serialize),
+    ok = meck:unload(ews_soap).
+
+one_model_pre_hook(_Config) ->
+    Service = "CampaignService",
+    Op = "get",
+    HeaderParts = [<<"user">>, <<"pass">>],
+    BodyParts = [<<"test_body">>],
+
+    meck:new(ews_soap),
+    meck:expect(ews_soap, call,4, {ok, {header, body}}),
+
+    meck:new(ews_serialize),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
+
+    R1 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a1, b1, c1, d1] end),
+    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1]) -> [a2, b2, c2, d2] end),
+    {ok, decoded} = ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
+    ok = ews:remove_pre_hook(R1),
+    ok = ews:remove_pre_hook(R2),
+
+    [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}
+    ] = meck:history(ews_soap),
+    [a2, b2, c2, d2] = CallArgs,
+
+    [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
+     {Pid, {ews_serialize, encode, BodyArgs}, encoded},
+     {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}
+    ] = meck:history(ews_serialize),
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
+    %% body comes from the ews_soap:call response
+    [body, _Outs, Model] = DecodeArgs,
+
+    true = meck:validate(ews_serialize),
+    true = meck:validate(ews_soap),
+    ok = meck:unload(ews_serialize),
+    ok = meck:unload(ews_soap).
+
+one_model_post_hook(_Config) ->
+    Service = "CampaignService",
+    Op = "get",
+    HeaderParts = [<<"user">>, <<"pass">>],
+    BodyParts = [<<"test_body">>],
+
+    meck:new(ews_soap),
+    meck:expect(ews_soap, call,4, {ok, {header, body}}),
+
+    meck:new(ews_serialize),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
+
+    R = ews:add_post_hook(fun (_) -> hooked_response end),
+    {ok, hooked_response} =
+        ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
+    ews:remove_post_hook(R),
+
+    [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}
+    ] = meck:history(ews_soap),
+    EndPoint = "https://adwords.google.com/api/adwords/"
+               "cm/v201306/CampaignService",
+    [EndPoint, [], encoded, encoded] = CallArgs,
+
+    [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
+     {Pid, {ews_serialize, encode, BodyArgs}, encoded},
+     {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}
+    ] = meck:history(ews_serialize),
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
+    %% body comes from the ews_soap:call response
+    [body, _Outs, Model] = DecodeArgs,
+
+    true = meck:validate(ews_serialize),
+    true = meck:validate(ews_soap),
+    ok = meck:unload(ews_serialize),
+    ok = meck:unload(ews_soap).
+
+one_model_remove_hook(_Config) ->
+    Service = "CampaignService",
+    Op = "get",
+    HeaderParts = [<<"user">>, <<"pass">>],
+    BodyParts = [<<"test_body">>],
+
+    meck:new(ews_soap),
+    meck:expect(ews_soap, call,4, {ok, {header, body}}),
+
+    meck:new(ews_serialize),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
+
+    R1 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a, b, c, d] end),
+    R2 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a1, b1, c1, d1] end),
+    R3 = ews:add_post_hook(fun (_) -> hooked_response end),
+    ok = ews:remove_pre_hook(R2),
+    {ok, hooked_response} =
+        ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
+    ok = ews:remove_post_hook(R1),
+    ok = ews:remove_post_hook(R3),
+
+    [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}
+    ] = meck:history(ews_soap),
+    [a, b, c, d] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
