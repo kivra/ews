@@ -7,11 +7,17 @@
 -export([start_link/0]).
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
-         list_services/0, list_services/1, list_service_ops/2, get_op_info/3,
-         get_op/3, get_op_message_details/3, list_types/1, get_type/2,
+         list_services/0, list_services/1,
+         list_service_ops/1, list_service_ops/2,
+         get_op_info/2, get_op_info/3,
+         get_op/2, get_op/3,
+         get_op_message_details/2, get_op_message_details/3,
+         list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/4, call/5]).
+         call/4, call/5,
+         add_pre_hook/2, remove_pre_hook/2,
+         add_post_hook/2, remove_post_hook/2]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -41,14 +47,26 @@ list_services() ->
 list_services(ModelRef) ->
     gen_server:call(?MODULE, {list_services, ModelRef}).
 
+list_service_ops(Service) ->
+    gen_server:call(?MODULE, {list_service_ops, Service}).
+
 list_service_ops(ModelRef, Service) ->
     gen_server:call(?MODULE, {list_service_ops, ModelRef, Service}).
+
+get_op_info(Service, Op) ->
+    gen_server:call(?MODULE, {get_op_info, Service, Op}).
 
 get_op_info(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_info, ModelRef, Service, Op}).
 
+get_op(Service, Op) ->
+    gen_server:call(?MODULE, {get_op, Service, Op}).
+
 get_op(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op, ModelRef, Service, Op}).
+
+get_op_message_details(Service, Op) ->
+    gen_server:call(?MODULE, {get_op_message_details, Service, Op}).
 
 get_op_message_details(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_message_details, ModelRef, Service, Op}).
@@ -93,6 +111,15 @@ call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
     call_service_op(ModelRef, Model, ServiceName, OpName,
                     HeaderParts, BodyParts).
 
+add_pre_hook(ModelRef, Hook) ->
+    gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
+add_post_hook(ModelRef, Hook) ->
+    gen_server:call(?MODULE, {add_post_hook, ModelRef, Hook}).
+remove_pre_hook(ModelRef, HookRef) ->
+    gen_server:call(?MODULE, {remove_pre_hook, ModelRef, HookRef}).
+remove_post_hook(ModelRef, HookRef) ->
+    gen_server:call(?MODULE, {remove_post_hook, ModelRef, HookRef}).
+
 %% >-----------------------------------------------------------------------< %%
 
 init([]) ->
@@ -123,6 +150,15 @@ handle_call(list_services, _, #state{services=Svcs} = State) ->
 handle_call({list_services, ModelRef}, _, #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
     {reply, {ok, [ N || {N, _} <- ModelSvcs ]}, State};
+handle_call({list_service_ops, Svc}, From, State) ->
+    case get_service_models(Svc, State) of
+        [{ModelRef, _}] ->
+            handle_call({list_service_ops, ModelRef, Svc}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({list_service_ops, ModelRef, Svc}, _,
             #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
@@ -133,11 +169,29 @@ handle_call({list_service_ops, ModelRef, Svc}, _,
             Names = [ N || #op{name=N} <- Ops ],
             {reply, {ok, Names}, State}
     end;
+handle_call({get_op_info, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op_info, ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({get_op_info, ModelRef, SvcName, OpName}, _, State) ->
     #state{services=Svcs, models=Models} = State,
     ModelSvcs = maps:get(ModelRef, Svcs, []),
     Model = maps:get(ModelRef, Models, undefined),
     {reply, find_op(SvcName, OpName, ModelSvcs, Model), State};
+handle_call({get_op, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op, ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
+    end;
 handle_call({get_op, ModelRef, SvcName, OpName}, _,
             #state{services=Svcs} = State) ->
     ModelSvcs = maps:get(ModelRef, Svcs, []),
@@ -151,6 +205,16 @@ handle_call({get_op, ModelRef, SvcName, OpName}, _,
                 Op ->
                     {reply, {ok, Op}, State}
             end
+    end;
+handle_call({get_op_message_details, SvcName, OpName}, From, State) ->
+    case get_service_models(SvcName, State) of
+        [{ModelRef, _}] ->
+            handle_call({get_op_message_details,
+                         ModelRef, SvcName, OpName}, From, State);
+        [] ->
+            {reply, {error, no_service}, State};
+        [_ | _] ->
+            {reply, {error, ambiguous_service}, State}
     end;
 handle_call({get_op_message_details, ModelRef, SvcName, OpName}, _, State) ->
     #state{services=Svcs, models=Models} = State,
@@ -192,13 +256,35 @@ handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
         Model ->
             {reply, ews_emit:model_to_file(Model, File), State}
     end;
-handle_call({get_service_models, ServiceName}, _,
-            #state{models=Models, service_index=SvcIndex} = State) ->
-    ModelRefs = maps:get(ServiceName, SvcIndex, []),
-    RetVal = [{MRef, maps:get(MRef, Models)} || MRef <- ModelRefs],
-    {reply, RetVal, State};
+handle_call({get_service_models, ServiceName}, _, State) ->
+    {reply, get_service_models(ServiceName, State), State};
 handle_call({get_model, ModelRef}, _, #state{models=Models} = State) ->
     {reply, maps:get(ModelRef, Models, undefined), State};
+handle_call({add_pre_hook, ModelRef, Hook}, _, #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_hooks,
+    Ref = make_ref(),
+    NewModel = Model#model{pre_hooks = [{Ref, Hook} | OldHooks]},
+    {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({add_post_hook, ModelRef, Hook}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.post_hooks,
+    Ref = make_ref(),
+    NewModel = Model#model{post_hooks = [{Ref, Hook} | OldHooks]},
+    {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_pre_hook, ModelRef, HookRef}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_hooks,
+    NewModel = Model#model{pre_hooks = proplists:delete(HookRef, OldHooks)},
+    {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_post_hook, ModelRef, HookRef}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.post_hooks,
+    NewModel = Model#model{post_hooks = proplists:delete(HookRef, OldHooks)},
+    {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
 handle_call(_, _, State) ->
     {noreply, State}.
 
@@ -469,12 +555,15 @@ message_info(Op, Model) ->
     Outs = [ E || #part{element=E} <- OutParts ],
     Faults = [ E || #message{parts=Parts} <- FaultMsgs,
                                       #part{element=E} <- Parts ],
+    PreHooks = Model#model.pre_hooks,
+    PostHooks = Model#model.post_hooks,
     [{name, OpName}, {doc, Doc},
      {in, [ find_elem(I, Model) || I <- Ins ]},
      {in_hdr, [ find_elem(I, Model) || I <- InHdrs ]},
      {out, [ find_elem(O, Model) || O <- Outs ]},
      {out_hdr, [ find_elem(O, Model) || O <- OutHdrs ]},
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
+     {pre_hooks, PreHooks}, {post_hooks, PostHooks},
      {endpoint, Endpoint}, {action, Action}].
 
 find_elem(Qname, #model{type_map=Tbl}) ->
@@ -486,7 +575,12 @@ find_elem(Qname, #model{type_map=Tbl}) ->
     end.
 
 %% >-----------------------------------------------------------------------< %%
+get_service_models(ServiceName,
+                   #state{models=Models, service_index=SvcIndex}) ->
+    ModelRefs = maps:get(ServiceName, SvcIndex, []),
+    [{MRef, maps:get(MRef, Models)} || MRef <- ModelRefs].
 
+%% >-----------------------------------------------------------------------< %%
 %% TODO: Verify that # headers and body parts are same as message parts,
 %%       could/should be done in the verify step
 %% TODO: Serialize headers
@@ -502,12 +596,17 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
-            case ews_soap:call(Endpoint, Action, EncodedHeader, EncodedBody) of
+            PreHooks = proplists:get_value(pre_hooks, Info),
+            PostHooks = proplists:get_value(post_hooks, Info),
+            Args = run_hooks(PreHooks,
+                             [Endpoint, Action, EncodedHeader, EncodedBody]),
+            case apply(ews_soap, call, Args) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     Outs = proplists:get_value(out, Info),
-                    {ok, hd(ews_serialize:decode(ResponseBody, Outs, Model))};
+                    Dec = hd(ews_serialize:decode(ResponseBody, Outs, Model)),
+                    {ok, run_hooks(PostHooks, Dec)};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->
@@ -516,6 +615,9 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
                     {error, Fault#fault{detail=DecodedDetail}}
             end
     end.
+
+run_hooks(Hooks, Init) ->
+    lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
 
 try_decode_fault([], Detail, _) ->
     Detail;
