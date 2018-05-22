@@ -32,7 +32,11 @@
          one_model_call/1,
          one_model_pre_hook/1,
          one_model_post_hook/1,
-         one_model_remove_hook/1
+         one_model_remove_hook/1,
+         add_two_models/1,
+         explicit_model/1,
+         unambiguous/1,
+         ambiguous/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -58,6 +62,16 @@ groups() ->
        one_model_list_types,
        one_model_emit_model,
        one_model_get_type
+      ]},
+     {one_model_hooks, [sequence],
+      [one_model_pre_hook,
+       one_model_post_hook,
+       one_model_remove_hook
+      ]},
+     {two_models, [parallel, shuffle],
+      [explicit_model,
+       unambiguous,
+       ambiguous
       ]}
     ].
 
@@ -66,9 +80,9 @@ all() ->
      add_model,
      {group, one_model},
      one_model_call,
-     one_model_pre_hook,
-     one_model_post_hook,
-     one_model_remove_hook
+     {group, one_model_hooks},
+     add_two_models,
+     {group, two_models}
     ].
 
 init_per_suite(Config) ->
@@ -117,7 +131,6 @@ add_model(_Config) ->
 
     true = meck:validate(lhttpc),
     meck:unload(lhttpc).
-
 
 one_model_list_services(_Config) ->
     {ok, ["CampaignService"]} = ews_svc:list_services(default).
@@ -379,3 +392,98 @@ one_model_remove_hook(_Config) ->
     true = meck:validate(ews_soap),
     ok = meck:unload(ews_serialize),
     ok = meck:unload(ews_soap).
+
+add_two_models(_COnfig) ->
+    %% Read file
+    application:load(ews),
+    Dir = filename:join(code:priv_dir(ews), "../test/data"),
+    File1 = filename:join(Dir, "yahoo_v6.5_CampaignService.wsdl"),
+    {ok, Bin1} = file:read_file(File1),
+    File2 = filename:join(Dir, "yahoo_v6.5_LocationService.wsdl"),
+    {ok, Bin2} = file:read_file(File2),
+
+    %% Mock request
+    meck:new(lhttpc),
+
+    %% Get Wsdl, the actual URL is not important as we mock the lhttpc call
+    %% with an already downloaded version
+    meck:expect(lhttpc, request, 6, {ok, {{200, ignore}, ignore, Bin1}}),
+    Url1 = "https://ss.yahooapis.jp/services/V6.5/CampaignService?wsdl",
+    {ok,[{"CampaignService",2}]} = ews_svc:add_wsdl_url(yahoo_campaign, Url1),
+    {ok,[{"LocationService",1}]} = ews_svc:add_wsdl_bin(yahoo_location, Bin2),
+    {ok,Services} = ews_svc:list_services(),
+    Expected =  [{default, "CampaignService"},
+                 {yahoo_campaign, "CampaignService"},
+                 {yahoo_location, "LocationService"}],
+    [] = Services -- Expected,
+    {ok, ["CampaignService"]} = ews_svc:list_services(yahoo_campaign),
+    {ok, ["LocationService"]} = ews_svc:list_services(yahoo_location),
+    {ok, ["CampaignService"]} = ews_svc:list_services(default),
+
+    true = meck:validate(lhttpc),
+    meck:unload(lhttpc).
+
+explicit_model(_Config) ->
+    Service = "CampaignService",
+    Ns1 = "https://adwords.google.com/api/adwords/cm/v201306",
+    Ns2 = "http://ss.yahooapis.jp/V6",
+    EndPoint1 = lists:concat([Ns1, "/", Service]),
+    EndPoint2 = "https://USE_ADDRESS_RETURNED_BY_LOCATION_SERVICE/services/V6.5/CampaignService",
+
+    {ok, GetInfo1} = ews_svc:get_op_info(default, Service, "get"),
+    "get" = proplists:get_value(name, GetInfo1),
+    [{"get", {Ns1, "get"}}] = proplists:get_value(in, GetInfo1),
+    [{"RequestHeader", {Ns1, "SoapHeader"}}] = proplists:get_value(in_hdr,
+                                                                   GetInfo1),
+    [{"getResponse", {Ns1, "getResponse"}}] =
+        proplists:get_value(out, GetInfo1),
+    [{"ResponseHeader", {Ns1, "SoapResponseHeader"}}] = proplists:get_value(
+                                                          out_hdr, GetInfo1),
+    [{"ApiExceptionFault", {Ns1, "ApiException"}}] = proplists:get_value(
+                                                       fault, GetInfo1),
+    EndPoint1 = proplists:get_value(endpoint, GetInfo1),
+    [] = proplists:get_value(action, GetInfo1),
+    GetDocBin1 = proplists:get_value(doc, GetInfo1),
+    true = byte_size(GetDocBin1) > 0,
+    {ok, GetInfo2} = ews_svc:get_op_info(yahoo_campaign, Service, "get"),
+    "get" = proplists:get_value(name, GetInfo2),
+    [{"get", {Ns2, "get"}}] = proplists:get_value(in, GetInfo2),
+    [{"RequestHeader", {Ns2, "SoapHeader"}}] = proplists:get_value(in_hdr,
+                                                                   GetInfo2),
+    [{"getResponse", {Ns2, "getResponse"}}] =
+        proplists:get_value(out, GetInfo2),
+    [{"ResponseHeader", {Ns2, "SoapResponseHeader"}}] = proplists:get_value(
+                                                          out_hdr, GetInfo2),
+    [{"ApiExceptionFault",
+      {base,{"http://www.w3.org/2001/XMLSchema","string"},
+       string,undefined,false,false}}] = proplists:get_value(
+                                           fault, GetInfo2),
+    EndPoint2 = proplists:get_value(endpoint, GetInfo2),
+    [] = proplists:get_value(action, GetInfo2),
+    undefined = proplists:get_value(doc, GetInfo2).
+
+unambiguous(_Config) ->
+    Service = "LocationService",
+    Ns = "http://ss.yahooapis.jp/V6",
+    EndPoint = "https://ss.yahooapis.jp/services/V6.5/LocationService",
+
+    {ok, GetInfo} = ews_svc:get_op_info(Service, "get"),
+    "get" = proplists:get_value(name, GetInfo),
+    [{"get", {Ns, "get"}}] = proplists:get_value(in, GetInfo),
+    [{"RequestHeader", {Ns, "SoapHeader"}}] = proplists:get_value(in_hdr,
+                                                                   GetInfo),
+    [{"getResponse", {Ns, "getResponse"}}] =
+        proplists:get_value(out, GetInfo),
+    [{"ResponseHeader", {Ns, "SoapResponseHeader"}}] = proplists:get_value(
+                                                          out_hdr, GetInfo),
+    [{"ApiExceptionFault",
+      {base,{"http://www.w3.org/2001/XMLSchema","string"},
+       string,undefined,false,false}}] = proplists:get_value(
+                                           fault, GetInfo),
+    EndPoint = proplists:get_value(endpoint, GetInfo),
+    [] = proplists:get_value(action, GetInfo),
+    undefined = proplists:get_value(doc, GetInfo).
+
+ambiguous(_Config) ->
+    Service = "CampaignService",
+    {error, ambiguous_service} = ews_svc:get_op_info(Service, "get").
