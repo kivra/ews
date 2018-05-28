@@ -34,9 +34,10 @@
          one_model_post_hook/1,
          one_model_remove_hook/1,
          add_two_models/1,
-         explicit_model/1,
-         unambiguous/1,
-         ambiguous/1
+         two_models_explicit_model/1,
+         two_models_unambiguous/1,
+         two_models_ambiguous/1,
+         remove_model/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -69,9 +70,9 @@ groups() ->
        one_model_remove_hook
       ]},
      {two_models, [parallel, shuffle],
-      [explicit_model,
-       unambiguous,
-       ambiguous
+      [two_models_explicit_model,
+       two_models_unambiguous,
+       two_models_ambiguous
       ]}
     ].
 
@@ -82,7 +83,8 @@ all() ->
      one_model_call,
      {group, one_model_hooks},
      add_two_models,
-     {group, two_models}
+     {group, two_models},
+     remove_model
     ].
 
 init_per_suite(Config) ->
@@ -423,7 +425,7 @@ add_two_models(_COnfig) ->
     true = meck:validate(lhttpc),
     meck:unload(lhttpc).
 
-explicit_model(_Config) ->
+two_models_explicit_model(_Config) ->
     Service = "CampaignService",
     Ns1 = "https://adwords.google.com/api/adwords/cm/v201306",
     Ns2 = "http://ss.yahooapis.jp/V6",
@@ -462,7 +464,7 @@ explicit_model(_Config) ->
     [] = proplists:get_value(action, GetInfo2),
     undefined = proplists:get_value(doc, GetInfo2).
 
-unambiguous(_Config) ->
+two_models_unambiguous(_Config) ->
     Service = "LocationService",
     Ns = "http://ss.yahooapis.jp/V6",
     EndPoint = "https://ss.yahooapis.jp/services/V6.5/LocationService",
@@ -484,6 +486,25 @@ unambiguous(_Config) ->
     [] = proplists:get_value(action, GetInfo),
     undefined = proplists:get_value(doc, GetInfo).
 
-ambiguous(_Config) ->
+two_models_ambiguous(_Config) ->
     Service = "CampaignService",
     {error, ambiguous_service} = ews_svc:get_op_info(Service, "get").
+
+remove_model(_Config) ->
+    {ok, Services} = ews_svc:list_services(),
+    Expected =  [{default, "CampaignService"},
+                 {yahoo_campaign, "CampaignService"},
+                 {yahoo_location, "LocationService"}],
+    [] = Services -- Expected,
+    {ok, ["CampaignService"]} = ews_svc:list_services(yahoo_campaign),
+    {ok, ["LocationService"]} = ews_svc:list_services(yahoo_location),
+    {ok, ["CampaignService"]} = ews_svc:list_services(default),
+    ews_svc:remove_model(yahoo_campaign),
+    {ok, NewServices} = ews_svc:list_services(),
+    NewExpected =  [{default, "CampaignService"},
+                    {yahoo_location, "LocationService"}],
+    [] = NewServices -- NewExpected,
+    {error, no_service} =
+        ews_svc:get_op_info(yahoo_campaign, "CampaignService", "get"),
+    {ok, _} = ews_svc:get_op_info("CampaignService", "get"),
+    ok.
