@@ -13,7 +13,8 @@
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
          remove_pre_hook/1, remove_pre_hook/2,
-         remove_post_hook/1, remove_post_hook/2]).
+         remove_post_hook/1, remove_post_hook/2,
+         remove_model/1]).
 
 -include("ews.hrl").
 
@@ -90,3 +91,6 @@ remove_post_hook(HookRef) ->
     ews_svc:remove_post_hook(default, HookRef).
 remove_post_hook(Model, HookRef) ->
     ews_svc:remove_post_hook(Model, HookRef).
+
+remove_model(Model) ->
+    ews_svc:remove_model(Model).

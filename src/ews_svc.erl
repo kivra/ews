@@ -17,7 +17,8 @@
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/4, call/5,
          add_pre_hook/2, remove_pre_hook/2,
-         add_post_hook/2, remove_post_hook/2]).
+         add_post_hook/2, remove_post_hook/2,
+         remove_model/1]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -119,6 +120,9 @@ remove_pre_hook(ModelRef, HookRef) ->
     gen_server:call(?MODULE, {remove_pre_hook, ModelRef, HookRef}).
 remove_post_hook(ModelRef, HookRef) ->
     gen_server:call(?MODULE, {remove_post_hook, ModelRef, HookRef}).
+
+remove_model(ModelRef) ->
+    gen_server:call(?MODULE, {remove_model, ModelRef}).
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -285,6 +289,21 @@ handle_call({remove_post_hook, ModelRef, HookRef}, _,
     OldHooks = Model#model.post_hooks,
     NewModel = Model#model{post_hooks = proplists:delete(HookRef, OldHooks)},
     {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_model, ModelRef}, _, State) ->
+    #state{models = Models, services = Svcs, service_index = SvcIdx} = State,
+    NewModels = maps:remove(ModelRef, Models),
+    NewSvcs = maps:remove(ModelRef, Svcs),
+    NewSvcIdx = maps:fold(fun (Svc, ModelRefs, Acc) ->
+                                  case ModelRefs -- [ModelRef] of
+                                      [] ->
+                                          Acc;
+                                      NewModelRefs ->
+                                          Acc#{Svc => NewModelRefs}
+                                  end
+                          end, #{}, SvcIdx),
+    NewState = State#state{models = NewModels, services = NewSvcs,
+                           service_index = NewSvcIdx},
+    {reply, ok, NewState};
 handle_call(_, _, State) ->
     {noreply, State}.
 
