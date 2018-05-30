@@ -26,7 +26,7 @@ stop() ->
 
 add_wsdl_to_model(WsdlUrl) ->
     add_wsdl_to_model(default, WsdlUrl).
-add_wsdl_to_model(Model, WsdlUrl) ->
+add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
     ews_svc:add_wsdl_url(Model, WsdlUrl).
 
 emit_complete_model_types(Filename) ->
