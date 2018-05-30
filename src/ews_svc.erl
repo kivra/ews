@@ -15,7 +15,7 @@
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/4, call/5,
+         call/4, call/5, call/6,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1]).
@@ -97,20 +97,27 @@ emit_model(ModelRef, File) ->
     gen_server:call(?MODULE, {emit_model, ModelRef, File}).
 
 call(ServiceName, OpName, HeaderParts, BodyParts) ->
+    call(ServiceName, OpName, HeaderParts, BodyParts, undefined).
+
+call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts)
+  when is_atom(ModelRef) ->
+    call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, undefined);
+call(ServiceName, OpName, HeaderParts, BodyParts, Opaque)
+  when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
         [{ModelRef, Model}] ->
             call_service_op(ModelRef, Model, ServiceName, OpName,
-                            HeaderParts, BodyParts);
+                            HeaderParts, BodyParts, Opaque);
         [] ->
             {error, no_service};
         [_ | _] ->
             {error, ambiguous_service}
     end.
 
-call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
+call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opaque) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     call_service_op(ModelRef, Model, ServiceName, OpName,
-                    HeaderParts, BodyParts).
+                    HeaderParts, BodyParts, Opaque).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
@@ -604,7 +611,8 @@ get_service_models(ServiceName,
 %%       could/should be done in the verify step
 %% TODO: Serialize headers
 %% TODO: Simplify ews_model module. Maybe use a named ets.
-call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
+call_service_op(ModelRef, Model, ServiceName, OpName,
+                HeaderParts, BodyParts, Opaque) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
@@ -617,15 +625,17 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
             PreHooks = proplists:get_value(pre_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
-            Args = run_hooks(PreHooks,
-                             [Endpoint, Action, EncodedHeader, EncodedBody]),
+            HookArgs = [Opaque, Endpoint, Action, EncodedHeader, EncodedBody],
+            [NewOpaque | Args] = run_hooks(PreHooks, HookArgs),
             case apply(ews_soap, call, Args) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {_ResponseHeader, ResponseBody}} ->
                     Outs = proplists:get_value(out, Info),
                     Dec = hd(ews_serialize:decode(ResponseBody, Outs, Model)),
-                    {ok, run_hooks(PostHooks, Dec)};
+                    [_LastOpaque, Result] =
+                        run_hooks(PostHooks, [NewOpaque, Dec]),
+                    {ok, Result};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->

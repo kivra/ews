@@ -9,7 +9,7 @@
          list_services/0, list_services/1, list_model_services/0,
          get_service_ops/1, get_service_ops/2,
          get_service_op_info/2, get_service_op_info/3,
-         call_service_op/4, call_service_op/5,
+         call_service_op/4, call_service_op/5, call_service_op/6,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
          remove_pre_hook/1, remove_pre_hook/2,
@@ -69,8 +69,12 @@ get_service_op_info(Model, Service, Op) ->
 
 call_service_op(Service, Op, Header, Body) ->
     ews_svc:call(Service, Op, Header, Body).
-call_service_op(Model, Service, Op, Header, Body) ->
+call_service_op(Service, Op, Header, Body, Opaque)  when is_list(Service) ->
+    ews_svc:call(Service, Op, Header, Body, Opaque);
+call_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
     ews_svc:call(Model, Service, Op, Header, Body).
+call_service_op(Model, Service, Op, Header, Body, Opaque) when is_atom(Model) ->
+    ews_svc:call(Model, Service, Op, Header, Body, Opaque).
 
 add_pre_hook(Hook) ->
     ews_svc:add_pre_hook(default, Hook).

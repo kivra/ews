@@ -293,9 +293,10 @@ one_model_pre_hook(_Config) ->
     meck:expect(ews_serialize, encode, 3, encoded),
     meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    R1 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a1, b1, c1, d1] end),
-    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1]) -> [a2, b2, c2, d2] end),
-    {ok, decoded} = ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
+    R1 = ews:add_pre_hook(fun ([1, _, _, _, _]) -> [2, a1, b1, c1, d1] end),
+    R2 = ews:add_pre_hook(fun ([2, a1, b1, c1, d1]) -> [3, a2, b2, c2, d2] end),
+    {ok, decoded} =
+        ews_svc:call(default, Service, Op, HeaderParts, BodyParts, 1),
     ok = ews:remove_pre_hook(R1),
     ok = ews:remove_pre_hook(R2),
 
@@ -330,9 +331,9 @@ one_model_post_hook(_Config) ->
     meck:expect(ews_serialize, encode, 3, encoded),
     meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    R = ews:add_post_hook(fun (_) -> hooked_response end),
-    {ok, hooked_response} =
-        ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
+    R = ews:add_post_hook(fun ([O, _]) -> [O, {hooked_response, O}] end),
+    {ok, {hooked_response, 1}} =
+        ews_svc:call(default, Service, Op, HeaderParts, BodyParts, 1),
     ews:remove_post_hook(R),
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}
@@ -368,9 +369,9 @@ one_model_remove_hook(_Config) ->
     meck:expect(ews_serialize, encode, 3, encoded),
     meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    R1 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a, b, c, d] end),
-    R2 = ews:add_pre_hook(fun ([_, _, _, _]) -> [a1, b1, c1, d1] end),
-    R3 = ews:add_post_hook(fun (_) -> hooked_response end),
+    R1 = ews:add_pre_hook(fun ([O, _, _, _, _]) -> [O, a, b, c, d] end),
+    R2 = ews:add_pre_hook(fun ([O, _, _, _, _]) -> [O, a1, b1, c1, d1] end),
+    R3 = ews:add_post_hook(fun ([O, _]) -> [O, hooked_response] end),
     ok = ews:remove_pre_hook(R2),
     {ok, hooked_response} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts),
