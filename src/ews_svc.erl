@@ -630,12 +630,12 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             case apply(ews_soap, call, Args) of
                 {error, Error} ->
                     {error, Error};
-                {ok, {_ResponseHeader, ResponseBody}} ->
+                {ok, {ResponseHeader, ResponseBody}} ->
+                    PostHookArgs = [NewOpaque, ResponseHeader, ResponseBody],
+                    [_LastOpaque, _NewHeader, NewBody] =
+                        run_hooks(PostHooks, PostHookArgs),
                     Outs = proplists:get_value(out, Info),
-                    Dec = hd(ews_serialize:decode(ResponseBody, Outs, Model)),
-                    [_LastOpaque, Result] =
-                        run_hooks(PostHooks, [NewOpaque, Dec]),
-                    {ok, Result};
+                    {ok, hd(ews_serialize:decode(NewBody, Outs, Model))};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->
