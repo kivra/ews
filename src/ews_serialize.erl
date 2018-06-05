@@ -192,16 +192,8 @@ validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
             Type = ews_model:get(TypeKey, Tbl),
             validate_xml({Qname, As, Cs}, Type, Tbl)
     end;
-validate_xml([{Qname, As, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey},
-             Tbl) ->
-    %% FIXME: Can't assume all element is same type in list
-    case has_inherited_type(As, Tbl, TypeKey) of
-        #type{} = Type ->
-            validate_xml(Es, Type, Tbl);
-        false ->
-            Type = ews_model:get(TypeKey, Tbl),
-            validate_xml(Es, Type, Tbl)
-    end;
+validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type={_,_}}=ME, Tbl) ->
+    [validate_xml(E, ME, Tbl) || E <- Es];
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml({Qname, As, Cs}, Type, Tbl);
 validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
