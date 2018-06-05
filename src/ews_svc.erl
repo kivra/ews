@@ -382,11 +382,11 @@ determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
 %% >-----------------------------------------------------------------------< %%
 
 append_model(undefined, Model) -> Model;
-append_model(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
+append_model(CM = #model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
              #model{type_map=NewMap, elems=E2}) ->
     NewElems = lists:ukeysort(#elem.qname, E1++E2),
     NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),
-    #model{type_map=CurrentMap, elems=NewElems, clashes=NewClashes}.
+    CM#model{elems=NewElems, clashes=NewClashes}.
 
 %% FIXME: Seems broken. Somewhere we lose types.
 merge_types(CurrentMap, NewMap, ClashDict) ->
