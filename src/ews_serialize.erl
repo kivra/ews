@@ -1,6 +1,6 @@
 -module(ews_serialize).
 
--export([encode/3, decode/3]).
+-export([encode/3, decode/3, record_to_map/2]).
 
 -include("ews.hrl").
 
@@ -37,6 +37,23 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
 -spec decode([any()], [any()], #model{}) -> [any()].
 decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
    [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
+
+%% @doc Converts a term represented by a tuple to a map where the keys
+%%      are the same as the record field names. Any value that is undefined
+%%      is not included in the returned map.
+%%          Term        - Record representing a valid term
+%%          Model       - The model that describes the type that the term
+%%                        has.
+-spec record_to_map(tuple(), #model{}) -> map().
+record_to_map(Term, M = #model{type_map = Tbl}) ->
+    [Alias | Values] = tuple_to_list(Term),
+    Parts = ews_model:get_parts(Alias, Tbl),
+    FieldNames = [ews_alias:create(QN) || #elem{qname = QN} <- Parts],
+    MapValues = lists:map(fun (V) ->
+                                  field_to_map(V, M)
+                          end, Values),
+    maps:from_list([{K, V} ||  {K, V} <- lists:zip(FieldNames, MapValues),
+                               V /= undefined]).
 
 %% Internal -------------------------------------------------------------------
 
@@ -336,3 +353,10 @@ get_from_base(Base, Tbl, TypeKey) ->
                     false
             end
     end.
+
+field_to_map(V, M) when is_tuple(V) ->
+    record_to_map(V, M);
+field_to_map(V, M) when is_list(V) ->
+    [field_to_map(E, M) || E <- V];
+field_to_map(V, _M) ->
+    V.

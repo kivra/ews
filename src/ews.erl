@@ -10,6 +10,7 @@
          get_service_ops/1, get_service_ops/2,
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5, call_service_op/6,
+         record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
          remove_pre_hook/1, remove_pre_hook/2,
@@ -82,6 +83,12 @@ call_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
     ews_svc:call(Model, Service, Op, Header, Body).
 call_service_op(Model, Service, Op, Header, Body, Opaque) when is_atom(Model) ->
     ews_svc:call(Model, Service, Op, Header, Body, Opaque).
+
+%% Convert a record representation of a term to a map.
+record_to_map(R) ->
+    record_to_map(R, default).
+record_to_map(R, ModelRef) ->
+    ews_serialize:record_to_map(R, ews_svc:get_model(ModelRef)).
 
 %% Add a pre-call hook which is called just before making the actual
 %% SOAP call. A pre hook is a function of one argument, which will be
