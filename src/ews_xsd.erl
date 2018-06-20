@@ -7,7 +7,7 @@
 
 -module(ews_xsd).
 
--export([parse_schema/1]).
+-export([parse_schema/2]).
 
 -export([print_schema_stats/1]).
 
@@ -18,13 +18,14 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
-parse_schema(Schema) ->
+parse_schema(Schema, Acc) ->
     Schemas = get_all_schemas(Schema),
 %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
-    process(propagate_namespaces(PrSchemas)).
+    NewTypes = process(propagate_namespaces(PrSchemas)),
+    ews_model:append_model(Acc, NewTypes).
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
@@ -41,9 +42,11 @@ get_all_schemas({Ns, Base, Schema}, Acc) ->
             [{Ns, Base, Schema} | Acc];
         Imports ->
             ImpSchemas = [ {ImpNs, Url, import_schema(Url)} ||
-                           {ImpNs, Url} <- Imports,
-                           not lists:keymember(ImpNs, 1, Acc) ],
-            [ get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]
+                             {ImpNs, Url} <- Imports,
+                             Url /= undefined,
+                             not lists:keymember(ImpNs, 1, Acc) ],
+            [{Ns, Base, Schema} |
+             [ get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
     end.
 
 find_imports(Schema) ->

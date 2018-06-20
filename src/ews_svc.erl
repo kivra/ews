@@ -15,7 +15,7 @@
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/4, call/5,
+         call/4, call/5, call/6,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1]).
@@ -97,20 +97,27 @@ emit_model(ModelRef, File) ->
     gen_server:call(?MODULE, {emit_model, ModelRef, File}).
 
 call(ServiceName, OpName, HeaderParts, BodyParts) ->
+    call(ServiceName, OpName, HeaderParts, BodyParts, undefined).
+
+call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts)
+  when is_atom(ModelRef) ->
+    call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, undefined);
+call(ServiceName, OpName, HeaderParts, BodyParts, Opaque)
+  when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
         [{ModelRef, Model}] ->
             call_service_op(ModelRef, Model, ServiceName, OpName,
-                            HeaderParts, BodyParts);
+                            HeaderParts, BodyParts, Opaque);
         [] ->
             {error, no_service};
         [_ | _] ->
             {error, ambiguous_service}
     end.
 
-call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
+call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opaque) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     call_service_op(ModelRef, Model, ServiceName, OpName,
-                    HeaderParts, BodyParts).
+                    HeaderParts, BodyParts, Opaque).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
@@ -141,7 +148,7 @@ handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
     NewSvcNames = [N || {N, _} <- Svcs],
-    NewModels = OldModels#{ModelRef => append_model(OldModel, Model)},
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model)},
     NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
                                      NewSvcNames -- OldSvcNames),
     Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
@@ -374,138 +381,6 @@ determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
 
 %% >-----------------------------------------------------------------------< %%
 
-append_model(undefined, Model) -> Model;
-append_model(#model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
-             #model{type_map=NewMap, elems=E2}) ->
-    NewElems = lists:ukeysort(#elem.qname, E1++E2),
-    NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),
-    #model{type_map=CurrentMap, elems=NewElems, clashes=NewClashes}.
-
-%% FIXME: Seems broken. Somewhere we lose types.
-merge_types(CurrentMap, NewMap, ClashDict) ->
-    TF = fun(Key, Clashes) ->
-             NewType = ews_model:get(Key, NewMap),
-             case ews_model:put(NewType, CurrentMap) of
-                 true ->
-                     Clashes;
-                 false ->
-                     OldType = ews_model:get(Key, CurrentMap),
-                     case merge_types(OldType, NewType) of
-                         OldType ->
-                             Clashes;
-                         MergedType = #type{} ->
-                             ews_model:replace(MergedType, CurrentMap),
-                             Clashes;
-                         _ ->
-                             NewClashes = dict:append(Key, NewType, Clashes),
-                             dict:append(Key, OldType, NewClashes)
-                     end
-             end
-         end,
-    EF = fun(Key, Clashes) ->
-             NewElem = ews_model:get_elem(Key, NewMap),
-             case ews_model:put(NewElem, CurrentMap) of
-                true ->
-                    Clashes;
-                false ->
-                    OldElem = ews_model:get_elem(Key, CurrentMap),
-                    case merge_elem(OldElem, NewElem) of
-                        OldElem ->
-                            Clashes;
-                        MergedElem = #elem{} ->
-                            ews_model:replace(MergedElem, CurrentMap),
-                             Clashes;
-                        _ ->
-                            NewClashes = dict:append({root, Key},
-                                                     NewElem, Clashes),
-                            dict:append({root, Key}, OldElem, NewClashes)
-                    end
-             end
-         end,
-    TypeKeys = ews_model:keys(NewMap),
-    ElemKeys = ews_model:elem_keys(NewMap),
-    NewClashDict = lists:foldl(TF, ClashDict, TypeKeys),
-    lists:foldl(EF, NewClashDict, ElemKeys).
-
-merge_types(T1 = #type{elems = T1Elems, extends = E, abstract = A},
-           #type{elems = T2Elems, extends = E, abstract = A}) ->
-    case merge_elem_lists(T1Elems, T2Elems) of
-        E = {error, _} ->
-            E;
-        MergedElems ->
-            T1#type{elems = MergedElems}
-    end;
-merge_types(T1, T2) ->
-    {error, {incompatible_types, T1, T2}}.
-
-merge_elem_lists(Elems1, Elems2) ->
-    MF = fun (_, E = {error, _}) ->
-                 E;
-             (E1 = #elem{qname = Qn1, meta = #meta{min = Min}}, {Es, E2s}) ->
-                 case lists:splitwith(fun (#elem{qname = Qn2}) ->
-                                              Qn2 /= Qn1
-                                      end, E2s) of
-                     {H, [E2 | T]} ->
-                         case merge_elem(E1, E2) of
-                             E = {error, _} ->
-                                 E;
-                             NewE ->
-                                 {[NewE | Es], H ++ T}
-                         end;
-                     {_, []} when Min == 0 ->
-                         {[E1 | Es], E2s};
-                     _ ->
-                         {error, {unmatched_element, E1, Elems2}}
-                 end
-         end,
-    case lists:foldl(MF, {[], Elems2}, Elems1) of
-        {Res, []} ->
-            lists:reverse(Res);
-        E = {error, _} ->
-            E;
-        {Res, Unmatched} ->
-            case lists:all(fun (#elem{meta = #meta{min = Min}}) ->
-                                   Min == 0
-                           end, Unmatched) of
-                true ->
-                    lists:reverse(Res) ++ Unmatched;
-                false ->
-                    {error, {unmatched_elements, Unmatched}}
-            end
-    end.
-
-merge_elem(E1 = #elem{qname = Qn, type = T1, meta = M1},
-           #elem{qname = Qn, type = T2, meta = M2}) ->
-    E1#elem{type = combine_types(T1, T2), meta = combine_meta(M1, M2)};
-merge_elem(E1, E2) ->
-    {error, {incompatible_elements, E1, E2}}.
-
-combine_types(T, T) ->
-    T;
-combine_types(T1, T2) when is_list(T1), is_list(T2) ->
-    T1 ++ (T2 -- T1);
-combine_types(T1, T2) when is_list(T1) ->
-    combine_types(T1, [T2]);
-combine_types(T1, T2) when is_list(T2) ->
-    combine_types([T1], T2);
-combine_types(T1, T2) ->
-    [T1, T2].
-
-combine_meta(
-  M1 = #meta{nillable = N, default = D, fixed = F, max = Max1, min = Min1},
-  #meta{nillable = N, default = D, fixed = F, max = Max2, min = Min2}) ->
-    M1#meta{min = min2(Min1, Min2), max = max2(Max1, Max2)}.
-
-min2(undefined, M) -> M;
-min2(M, undefined) -> M;
-min2(M1, M2) -> min(M1, M2).
-
-max2(undefined, M) -> M;
-max2(M, undefined) -> M;
-max2(M1, M2) -> max(M1, M2).
-
-%% >-----------------------------------------------------------------------< %%
-
 update_service_index(SvcIdx, ModelRef, NewSvcs) ->
     lists:foldl(fun (Svc, SI) ->
                         maps:update_with(Svc, fun (L) -> [ModelRef | L] end,
@@ -604,7 +479,8 @@ get_service_models(ServiceName,
 %%       could/should be done in the verify step
 %% TODO: Serialize headers
 %% TODO: Simplify ews_model module. Maybe use a named ets.
-call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
+call_service_op(ModelRef, Model, ServiceName, OpName,
+                HeaderParts, BodyParts, Opaque) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
@@ -617,15 +493,17 @@ call_service_op(ModelRef, Model, ServiceName, OpName, HeaderParts, BodyParts) ->
             EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
             PreHooks = proplists:get_value(pre_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
-            Args = run_hooks(PreHooks,
-                             [Endpoint, Action, EncodedHeader, EncodedBody]),
+            HookArgs = [Opaque, Endpoint, Action, EncodedHeader, EncodedBody],
+            [NewOpaque | Args] = run_hooks(PreHooks, HookArgs),
             case apply(ews_soap, call, Args) of
                 {error, Error} ->
                     {error, Error};
-                {ok, {_ResponseHeader, ResponseBody}} ->
+                {ok, {ResponseHeader, ResponseBody}} ->
+                    PostHookArgs = [NewOpaque, ResponseHeader, ResponseBody],
+                    [_LastOpaque, _NewHeader, NewBody] =
+                        run_hooks(PostHooks, PostHookArgs),
                     Outs = proplists:get_value(out, Info),
-                    Dec = hd(ews_serialize:decode(ResponseBody, Outs, Model)),
-                    {ok, run_hooks(PostHooks, Dec)};
+                    {ok, hd(ews_serialize:decode(NewBody, Outs, Model))};
                 {fault, #fault{detail=undefined} = Fault} ->
                     {error, Fault};
                 {fault, #fault{detail=Detail} = Fault} ->

@@ -3,7 +3,7 @@
 -export([new/0, put/2, replace/2, get/2, get_elem/2, get_parts/2,
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
-         is_root/2]).
+         is_root/2, append_model/2]).
 
 -include("ews.hrl").
 
@@ -66,7 +66,7 @@ get_super({_, _} = Key, Table) ->
             Super
     end;
 get_super(Key, Table) when is_atom(Key) ->
-    case ews_model:get_from_alias(Key, Table) of
+    case get_from_alias(Key, Table) of
         false ->
             Key;
         #type{extends=undefined} ->
@@ -100,6 +100,14 @@ is_root(#elem{qname=Key}, Table) ->
     is_root(Key, Table);
 is_root(Key, Table) ->
     length(ets:match(Table, {{Key, root}, '_'})) > 0.
+
+append_model(undefined, Model) -> Model;
+append_model(Model, undefined) -> Model;
+append_model(CM = #model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
+             #model{type_map=NewMap, elems=E2}) ->
+    NewElems = lists:ukeysort(#elem.qname, E1++E2),
+    NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),
+    CM#model{elems=NewElems, clashes=NewClashes}.
 
 %% ----------------------------------------------------------------------------
 
@@ -136,3 +144,126 @@ elem_values(Tbl) ->
     end.
 
 %% ----------------------------------------------------------------------------
+
+%% FIXME: Seems broken. Somewhere we lose types.
+merge_types(CurrentMap, NewMap, ClashDict) ->
+    TF = fun(Key, Clashes) ->
+             NewType = ews_model:get(Key, NewMap),
+             case ews_model:put(NewType, CurrentMap) of
+                 true ->
+                     Clashes;
+                 false ->
+                     OldType = ews_model:get(Key, CurrentMap),
+                     case merge_types(OldType, NewType) of
+                         OldType ->
+                             Clashes;
+                         MergedType = #type{} ->
+                             replace(MergedType, CurrentMap),
+                             Clashes;
+                         _ ->
+                             NewClashes = dict:append(Key, NewType, Clashes),
+                             dict:append(Key, OldType, NewClashes)
+                     end
+             end
+         end,
+    EF = fun(Key, Clashes) ->
+             NewElem = get_elem(Key, NewMap),
+             case ews_model:put(NewElem, CurrentMap) of
+                true ->
+                    Clashes;
+                false ->
+                    OldElem = get_elem(Key, CurrentMap),
+                    case merge_elem(OldElem, NewElem) of
+                        OldElem ->
+                            Clashes;
+                        MergedElem = #elem{} ->
+                            replace(MergedElem, CurrentMap),
+                             Clashes;
+                        _ ->
+                            NewClashes = dict:append({root, Key},
+                                                     NewElem, Clashes),
+                            dict:append({root, Key}, OldElem, NewClashes)
+                    end
+             end
+         end,
+    TypeKeys = keys(NewMap),
+    ElemKeys = elem_keys(NewMap),
+    NewClashDict = lists:foldl(TF, ClashDict, TypeKeys),
+    lists:foldl(EF, NewClashDict, ElemKeys).
+
+merge_types(T1 = #type{elems = T1Elems, extends = E, abstract = A},
+           #type{elems = T2Elems, extends = E, abstract = A}) ->
+    case merge_elem_lists(T1Elems, T2Elems) of
+        E = {error, _} ->
+            E;
+        MergedElems ->
+            T1#type{elems = MergedElems}
+    end;
+merge_types(T1, T2) ->
+    {error, {incompatible_types, T1, T2}}.
+
+merge_elem_lists(Elems1, Elems2) ->
+    MF = fun (_, E = {error, _}) ->
+                 E;
+             (E1 = #elem{qname = Qn1, meta = #meta{min = Min}}, {Es, E2s}) ->
+                 case lists:splitwith(fun (#elem{qname = Qn2}) ->
+                                              Qn2 /= Qn1
+                                      end, E2s) of
+                     {H, [E2 | T]} ->
+                         case merge_elem(E1, E2) of
+                             E = {error, _} ->
+                                 E;
+                             NewE ->
+                                 {[NewE | Es], H ++ T}
+                         end;
+                     {_, []} when Min == 0 ->
+                         {[E1 | Es], E2s};
+                     _ ->
+                         {error, {unmatched_element, E1, Elems2}}
+                 end
+         end,
+    case lists:foldl(MF, {[], Elems2}, Elems1) of
+        {Res, []} ->
+            lists:reverse(Res);
+        E = {error, _} ->
+            E;
+        {Res, Unmatched} ->
+            case lists:all(fun (#elem{meta = #meta{min = Min}}) ->
+                                   Min == 0
+                           end, Unmatched) of
+                true ->
+                    lists:reverse(Res) ++ Unmatched;
+                false ->
+                    {error, {unmatched_elements, Unmatched}}
+            end
+    end.
+
+merge_elem(E1 = #elem{qname = Qn, type = T1, meta = M1},
+           #elem{qname = Qn, type = T2, meta = M2}) ->
+    E1#elem{type = combine_types(T1, T2), meta = combine_meta(M1, M2)};
+merge_elem(E1, E2) ->
+    {error, {incompatible_elements, E1, E2}}.
+
+combine_types(T, T) ->
+    T;
+combine_types(T1, T2) when is_list(T1), is_list(T2) ->
+    T1 ++ (T2 -- T1);
+combine_types(T1, T2) when is_list(T1) ->
+    combine_types(T1, [T2]);
+combine_types(T1, T2) when is_list(T2) ->
+    combine_types([T1], T2);
+combine_types(T1, T2) ->
+    [T1, T2].
+
+combine_meta(
+  M1 = #meta{nillable = N, default = D, fixed = F, max = Max1, min = Min1},
+  #meta{nillable = N, default = D, fixed = F, max = Max2, min = Min2}) ->
+    M1#meta{min = min2(Min1, Min2), max = max2(Max1, Max2)}.
+
+min2(undefined, M) -> M;
+min2(M, undefined) -> M;
+min2(M1, M2) -> min(M1, M2).
+
+max2(undefined, M) -> M;
+max2(M, undefined) -> M;
+max2(M1, M2) -> max(M1, M2).

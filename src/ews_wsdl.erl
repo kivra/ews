@@ -176,7 +176,7 @@ determine_message_exchange_pattern(#xmlElement{content=Children}) ->
 
 parse_types(WsdlDoc) ->
     Types = wh:get_child(WsdlDoc, "types"),
-    Schema = wh:get_child(Types, "schema"),
-    ews_xsd:parse_schema(Schema).
+    Schemas = wh:get_children(Types, "schema"),
+    lists:foldl(fun ews_xsd:parse_schema/2, undefined, Schemas).
 
 %% >-----------------------------------------------------------------------< %%
