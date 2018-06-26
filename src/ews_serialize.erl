@@ -185,6 +185,9 @@ encode_single_enum(Term, Values) ->
 
 %% ---------------------------------------------------------------------------
 
+validate_xml(undefined, #elem{meta=#meta{min=0, max=Max}}, _)
+  when Max > 1 ->
+    [];
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
 validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
