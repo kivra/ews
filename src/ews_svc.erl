@@ -383,8 +383,12 @@ determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
 
 update_service_index(SvcIdx, ModelRef, NewSvcs) ->
     lists:foldl(fun (Svc, SI) ->
-                        maps:update_with(Svc, fun (L) -> [ModelRef | L] end,
-                                         [ModelRef], SI)
+                        case SI of
+                            #{Svc := L} ->
+                                SI#{Svc => [ModelRef | L]};
+                            _ ->
+                                SI#{Svc => [ModelRef]}
+                        end
                 end, SvcIdx, NewSvcs).
 
 find_op(SvcName, OpName, Svcs, Model) ->
