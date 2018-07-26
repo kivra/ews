@@ -65,24 +65,13 @@ record_spec(T) ->
 
 tick_word(Word) when is_atom(Word) ->
     tick_word(atom_to_list(Word));
-tick_word(Word = [C | _]) ->
-    case C >= $a andalso C =< $z andalso lists:all(fun atom_char/1, Word) of
-        true ->
+tick_word(Word) ->
+    case erl_scan:string(Word) of
+        {ok, [{atom, _, _}], _} ->
             Word;
-        false ->
+        _ ->
             [$', Word, $']
     end.
-
-atom_char(C) when C >= $a, C =< $z ->
-    true;
-atom_char(C) when C >= $A, C =< $Z ->
-    true;
-atom_char(C) when C >= $0, C =< $9 ->
-    true;
-atom_char(C) when C == $_; C == $@ ->
-    true;
-atom_char(_C) ->
-    false.
 
 check_nillable(Base, #meta{nillable = "true"}) ->
     [Base, " | nil"];
