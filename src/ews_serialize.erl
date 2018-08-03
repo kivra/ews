@@ -45,6 +45,12 @@ decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
 %%          Model       - The model that describes the type that the term
 %%                        has.
 -spec record_to_map(tuple(), #model{}) -> map().
+record_to_map(Term, _M) when is_record(Term, fault) ->
+    %% Should probably be handled by having fault in a model...
+    FieldNames = record_info(fields, fault),
+    Fields = tl(tuple_to_list(Term)),
+    maps:from_list([{K, V} || {K, V} <- lists:zip(FieldNames, Fields),
+                              V /= undefined]);
 record_to_map(Term, M = #model{type_map = Tbl}) ->
     [Alias | Values] = tuple_to_list(Term),
     Parts = ews_model:get_parts(Alias, Tbl),
