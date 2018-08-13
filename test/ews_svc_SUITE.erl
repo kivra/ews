@@ -223,8 +223,8 @@ one_model_list_types(_Config) ->
 
 one_model_emit_model(_Config) ->
     meck:new(ews_emit),
-    meck:expect(ews_emit, model_to_file, 2,
-                fun(_Model, File) -> {model_emitted, File} end),
+    meck:expect(ews_emit, model_to_file, 3,
+                fun(_Model, File, _) -> {model_emitted, File} end),
 
     {model_emitted, "test_file"} = ews_svc:emit_model(default, "test_file"),
     true = meck:validate(ews_emit),

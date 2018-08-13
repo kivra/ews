@@ -8,7 +8,7 @@
 
 -module(ews_wsdl).
 
--export([parse/1, fetch/1, fetch_and_parse/1]).
+-export([parse/2, fetch/1, fetch_and_parse/2]).
 
 -include("ews.hrl").
 
@@ -26,7 +26,7 @@ fetch(WsdlUrl) ->
             {error, Error}
     end.
 
-parse(WsdlBin) ->
+parse(WsdlBin, Model) when is_atom(Model) ->
     {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -36,7 +36,7 @@ parse(WsdlBin) ->
     Bindings = parse_bindings(WsdlDoc, TargetNs),
     PortTypes = parse_port_types(WsdlDoc, TargetNs),
     Services = parse_services(WsdlDoc),
-    Types = parse_types(WsdlDoc),
+    Types = parse_types(WsdlDoc, Model),
     #wsdl{target_ns=TargetNs,
           services=Services,
           bindings=Bindings,
@@ -44,8 +44,8 @@ parse(WsdlBin) ->
           messages=Messages,
           types=Types}.
 
-fetch_and_parse(WsdlUrl) ->
-    parse(fetch(WsdlUrl)).
+fetch_and_parse(WsdlUrl, Model) when is_atom(Model) ->
+    parse(fetch(WsdlUrl), Model).
 
 %% ---------------------------------------------------------------------------
 
@@ -174,9 +174,11 @@ determine_message_exchange_pattern(#xmlElement{content=Children}) ->
         OpChildren -> {unknown, OpChildren}
     end.
 
-parse_types(WsdlDoc) ->
+parse_types(WsdlDoc, Model) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
-    lists:foldl(fun ews_xsd:parse_schema/2, undefined, Schemas).
+    {Res, _} =
+        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model}, Schemas),
+    Res.
 
 %% >-----------------------------------------------------------------------< %%

@@ -27,7 +27,7 @@ init_per_testcase(empty_table, Config) ->
     Table = ets:new(empty_table, []),
     Model = #model{type_map=Table},
     Filename = file_in_test_priv_dir,
-    ews_emit:model_to_file(Model, Filename),
+    ews_emit:model_to_file(Model, Filename, test),
     [{filename, Filename} | Config].
 
 end_per_testcase(_TestCase, Config) ->
