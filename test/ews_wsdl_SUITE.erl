@@ -43,7 +43,7 @@ init_per_group(google_v201306_campaignService, Config) ->
     %% with an already downloaded version
     Url = "https://adwords.google.com/api/adwords/cm/"
           "v201306/CampaignService?wsdl",
-    Wsdl = ews_wsdl:fetch_and_parse(Url),
+    Wsdl = ews_wsdl:fetch_and_parse(Url, test),
 
     meck:unload(lhttpc),
     ews:stop(),

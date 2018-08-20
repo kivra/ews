@@ -18,14 +18,14 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
-parse_schema(Schema, Acc) ->
+parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema),
 %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
-    NewTypes = process(propagate_namespaces(PrSchemas)),
-    ews_model:append_model(Acc, NewTypes).
+    NewTypes = process(propagate_namespaces(PrSchemas), Model),
+    {ews_model:append_model(Acc, NewTypes, Model), Model}.
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
@@ -382,12 +382,12 @@ to_string(Val) -> Val.
 
 %% ----------------------------------------------------------------------------
 
-process(Types) ->
+process(Types, Model) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     {AllTypes, Elems} = process(Types, Ts, [], []),
-    [ ews_model:put(T, TypeMap) || T <- AllTypes ],
-    [ ews_model:put(E, TypeMap) || E <- Elems ],
+    [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
+    [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
     #model{type_map=TypeMap, elems=[]}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,

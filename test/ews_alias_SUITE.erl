@@ -41,9 +41,9 @@ create_alias_capitals(_Config) ->
 
 create_unique_alias(_Config) ->
     Qname = {"namespace", "name"},
-    Alias = ews_alias:create_unique(Qname),
-    Qname = ews_alias:get_qname(Alias).
+    Alias = ews_alias:create_unique(Qname, test),
+    Qname = ews_alias:get_qname(Alias, test).
 
 create_unique_alias_duplicates(_Config) ->
-    name = ews_alias:create_unique({"namespace", "name"}),
-    name_1 = ews_alias:create_unique({"namespace2", "name"}).
+    name = ews_alias:create_unique({"namespace", "name"}, test),
+    name_1 = ews_alias:create_unique({"namespace2", "name"}, test).

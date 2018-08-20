@@ -1,49 +1,50 @@
 -module(ews_emit).
 
--export([model_to_file/2, output_type/2]).
+-export([model_to_file/3, output_type/3]).
 
 -include("ews.hrl").
 
-model_to_file(#model{type_map=Tbl}, Filename) ->
-    AllTypes = [ output_type(T, Tbl) || T <- sort_types(Tbl) ],
+model_to_file(#model{type_map=Tbl}, Filename, ModelRef) ->
+    AllTypes = [ output_type(T, Tbl, ModelRef) || T <- sort_types(Tbl) ],
     io:format("emitting ~p records~n", [length(AllTypes)]),
     {ok, Fd} = file:open(Filename, [write]),
     [ ok = file:write(Fd, [T, $\n]) || T <- AllTypes ],
     file:close(Fd).
 
-output_type(#type{qname=Qname, alias=Alias}, Tbl) ->
+output_type(#type{qname=Qname, alias=Alias}, Tbl, ModelRef) ->
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
-    PartRows = [ output_part(P, Indent, Tbl) ||
+    PartRows = [ output_part(P, Indent, Tbl, ModelRef) ||
                  P <- ews_model:get_parts(Qname, Tbl) ],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
     [Line1, string:join(PartRows, JoinStr), "}).\n"].
 
-output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl) ->
+output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl, ModelRef) ->
     A = ews_alias:create(Qname),
     #meta{min=Min} = M,
     Base = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(Base),
-    Ts = output_types(T, M, SpecIndent, Tbl),
+    Ts = output_types(T, M, SpecIndent, Tbl, ModelRef),
     check_min(check_nillable([Base, Ts], M), Min).
 
-output_types(T, M, SpecIndent, Tbl) when not is_list(T) ->
-    output_single_type(T, M, SpecIndent, Tbl);
-output_types(Types, M, SpecIndent, Tbl) ->
+output_types(T, M, SpecIndent, Tbl, ModelRef) when not is_list(T) ->
+    output_single_type(T, M, SpecIndent, Tbl, ModelRef);
+output_types(Types, M, SpecIndent, Tbl, MR) ->
     lists:join(" | ",
-               [output_single_type(T, M, SpecIndent, Tbl) || T <- Types]).
+               [output_single_type(T, M, SpecIndent, Tbl, MR) || T <- Types]).
 
-output_single_type(#base{erl_type=Et}, #meta{max = Max}, _SpecIndent, _Tbl) ->
+output_single_type(#base{erl_type=Et}, #meta{max = Max}, _SpecIndent, _Tbl,
+                   _ModelRef) ->
     add_list(output_erl_type(Et), Max > 1);
 output_single_type(E = #enum{values=Values}, #meta{max = Max},
-                   SpecIndent, _Tbl) ->
+                   SpecIndent, _Tbl, _ModelRef) ->
     #enum{list=IsList} = E,
     EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
     add_list(EnumSpec, IsList orelse Max > 1);
-output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl) ->
-    Atn = ews_alias:get_alias(Tn),
+output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl, ModelRef) ->
+    Atn = ews_alias:get_alias(Tn, ModelRef),
     SubTypes = ews_model:get_subs(Tn, Tbl),
-    Atns = [Atn | [ews_alias:get_alias(T) || {T, _} <- SubTypes]],
+    Atns = [Atn | [ews_alias:get_alias(T, ModelRef) || {T, _} <- SubTypes]],
     string:join([add_list(record_spec(T), Max > 1) || T <- Atns], " | ").
 
 output_erl_type(string) ->

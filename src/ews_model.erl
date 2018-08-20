@@ -1,9 +1,9 @@
 -module(ews_model).
 
--export([new/0, put/2, replace/2, get/2, get_elem/2, get_parts/2,
+-export([new/0, put/3, replace/2, get/2, get_elem/2, get_parts/2,
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
-         is_root/2, append_model/2]).
+         is_root/2, append_model/3]).
 
 -include("ews.hrl").
 
@@ -14,10 +14,10 @@
 new() ->
     ets:new(types, []).
 
-put(#type{qname=Key} = T, Table) ->
-    Type = T#type{alias=ews_alias:create_unique(Key)},
+put(#type{qname=Key} = T, Model, Table) when is_atom(Model) ->
+    Type = T#type{alias=ews_alias:create_unique(Key, Model)},
     ets:insert_new(Table, {Key, Type});
-put(#elem{qname=Key} = E, Table) ->
+put(#elem{qname=Key} = E, _Model, Table) ->
     ets:insert_new(Table, {{Key, root}, E}).
 
 replace(#type{qname=Key} = Type, Table) ->
@@ -101,12 +101,12 @@ is_root(#elem{qname=Key}, Table) ->
 is_root(Key, Table) ->
     length(ets:match(Table, {{Key, root}, '_'})) > 0.
 
-append_model(undefined, Model) -> Model;
-append_model(Model, undefined) -> Model;
+append_model(undefined, Model, _) -> Model;
+append_model(Model, undefined, _) -> Model;
 append_model(CM = #model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
-             #model{type_map=NewMap, elems=E2}) ->
+             #model{type_map=NewMap, elems=E2}, ModelName) ->
     NewElems = lists:ukeysort(#elem.qname, E1++E2),
-    NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes),
+    NewClashes = merge_types(CurrentMap, NewMap, CurrentClashes, ModelName),
     CM#model{elems=NewElems, clashes=NewClashes}.
 
 %% ----------------------------------------------------------------------------
@@ -146,10 +146,10 @@ elem_values(Tbl) ->
 %% ----------------------------------------------------------------------------
 
 %% FIXME: Seems broken. Somewhere we lose types.
-merge_types(CurrentMap, NewMap, ClashDict) ->
+merge_types(CurrentMap, NewMap, ClashDict, ModelName) ->
     TF = fun(Key, Clashes) ->
              NewType = ews_model:get(Key, NewMap),
-             case ews_model:put(NewType, CurrentMap) of
+             case ews_model:put(NewType, ModelName, CurrentMap) of
                  true ->
                      Clashes;
                  false ->
@@ -168,7 +168,7 @@ merge_types(CurrentMap, NewMap, ClashDict) ->
          end,
     EF = fun(Key, Clashes) ->
              NewElem = get_elem(Key, NewMap),
-             case ews_model:put(NewElem, CurrentMap) of
+             case ews_model:put(NewElem, ModelName, CurrentMap) of
                 true ->
                     Clashes;
                 false ->

@@ -144,11 +144,12 @@ handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     OldModel = maps:get(ModelRef, OldModels, undefined),
     OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
     OldSvcNames = [N || {N, _} <- OldModelSvcs],
-    Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc),
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc, ModelRef),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
     NewSvcNames = [N || {N, _} <- Svcs],
-    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model)},
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
     NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
                                      NewSvcNames -- OldSvcNames),
     Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
@@ -265,7 +266,7 @@ handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
         undefined ->
             {reply, {error, no_model}, State};
         Model ->
-            {reply, ews_emit:model_to_file(Model, File), State}
+            {reply, ews_emit:model_to_file(Model, File, ModelRef), State}
     end;
 handle_call({get_service_models, ServiceName}, _, State) ->
     {reply, get_service_models(ServiceName, State), State};
@@ -383,8 +384,12 @@ determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
 
 update_service_index(SvcIdx, ModelRef, NewSvcs) ->
     lists:foldl(fun (Svc, SI) ->
-                        maps:update_with(Svc, fun (L) -> [ModelRef | L] end,
-                                         [ModelRef], SI)
+                        case SI of
+                            #{Svc := L} ->
+                                SI#{Svc => [ModelRef | L]};
+                            _ ->
+                                SI#{Svc => [ModelRef]}
+                        end
                 end, SvcIdx, NewSvcs).
 
 find_op(SvcName, OpName, Svcs, Model) ->
