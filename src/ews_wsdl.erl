@@ -19,7 +19,7 @@
 fetch(WsdlUrl) ->
     case lhttpc:request(WsdlUrl, get, [], [], 10000, ?HTTP_OPTS) of
         {ok, {{200, _},_,Bin}} ->
-            Bin;
+            {ok, Bin};
         {ok, {_, _, Error}} ->
             {error, Error};
         {error, Error} ->
@@ -45,7 +45,8 @@ parse(WsdlBin, Model) when is_atom(Model) ->
           types=Types}.
 
 fetch_and_parse(WsdlUrl, Model) when is_atom(Model) ->
-    parse(fetch(WsdlUrl), Model).
+    {ok, WsdlBin} = fetch(WsdlUrl),
+    parse(WsdlBin, Model).
 
 %% ---------------------------------------------------------------------------
 
