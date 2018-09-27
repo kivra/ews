@@ -12,7 +12,7 @@
 
 -include("ews.hrl").
 
--define(HTTP_OPTS, [{connect_options, [{versions, [tlsv1, sslv3]}]}]).
+-define(HTTP_OPTS, []).
 
 %% ----------------------------------------------------------------------------
 
