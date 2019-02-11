@@ -375,10 +375,12 @@ compile_op(PortOp, EndPoint, Style, Messages, BindingOps) ->
         style=Style, endpoint=EndPoint, action=SoapAction}.
 
 determine_headers(#binding_op{input=Input, output=Output}, Messages) ->
-    #binding_op_msg{headers=[#op_part{message=InputHdrMsg}|_]} = Input,
-    #binding_op_msg{headers=[#op_part{message=OutputHdrMsg}|_]} = Output,
-    {lists:keyfind(InputHdrMsg, #message.name, Messages),
-     lists:keyfind(OutputHdrMsg, #message.name, Messages)}.
+    {get_header(Input, Messages), get_header(Output, Messages)}.
+
+get_header(#binding_op_msg{headers=[#op_part{message=HdrMsg}|_]}, Messages) ->
+    lists:keyfind(HdrMsg, #message.name, Messages);
+get_header(_, _) ->
+    undefined.
 
 %% >-----------------------------------------------------------------------< %%
 
