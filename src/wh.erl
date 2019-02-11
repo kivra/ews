@@ -87,7 +87,7 @@ get_docs(ParentElem) ->
         undefined ->
             undefined;
         Child ->
-            iolist_to_binary(get_text(Child))
+            unicode:characters_to_binary(get_text(Child))
     end.
 
 stripns(Name) when is_atom(Name) ->
