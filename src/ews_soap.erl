@@ -1,6 +1,6 @@
 -module(ews_soap).
 
--export([call/4, call/5]).
+-export([call/5]).
 
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
 
@@ -8,14 +8,12 @@
 
 %% ----------------------------------------------------------------------------
 
-call(Endpoint, SoapAction, Header, Body) ->
-    {ok, Timeout} = application:get_env(ews, soap_timeout),
-    call(Endpoint, SoapAction, Header, Body, Timeout).
-
-%% TODO: Handle http-headers like gzip etc.
-call(Endpoint, SoapAction, Header, Body, Timeout) ->
+call(Endpoint, SoapAction, Header, Body, Opts) ->
+    {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
+    Timeout = maps:get(timeout, Opts, DefaultTimeout),
+    ExtraHeaders = maps:get(http_headers, Opts, []),
     Hdrs = [{"SOAPAction", SoapAction},
-            {"Content-Type", "text/xml"}],
+            {"Content-Type", "text/xml"}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
     BodyIoList = ews_xml:encode(Envelope),
     Log = init_log(),

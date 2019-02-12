@@ -51,7 +51,9 @@ lhttpc_error(_Config) ->
     SoapAction = soap_action,
     Header = {"Hdr", [], []},
     Body = {"Bdy", [], []},
-    {error, test_error} = ews_soap:call(Endpoint, SoapAction, Header, Body).
+    Opts = #{},
+    {error, test_error} =
+        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
 
 no_header_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -65,7 +67,9 @@ no_header_response(_Config) ->
     SoapAction = soap_action,
     Header = [],
     Body = [{"Res", [], []}],
-    {ok, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header, Body).
+    Opts = #{},
+    {ok, {Header, Body}} =
+        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
 
 full_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -82,8 +86,9 @@ full_response(_Config) ->
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = [{"Res", [], []}],
-    {ok, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header,
-                                             Body).
+    Opts = #{},
+    {ok, {Header, Body}} =
+        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
 
 fault_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -100,8 +105,9 @@ fault_response(_Config) ->
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = #fault{},
+    Opts = #{},
     {fault, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header,
-                                             [{"", [], []}]).
+                                             [{"", [], []}], Opts).
 
 not_an_envelope(_Config) ->
     %% TODO We should not get a {fault | ok, _} tuple back if the response is
@@ -113,4 +119,6 @@ not_an_envelope(_Config) ->
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = [{"Res", [], []}],
-    {error, not_envelope} = ews_soap:call(Endpoint, SoapAction, Header, Body).
+    Opts = #{},
+    {error, not_envelope} =
+        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
