@@ -505,14 +505,19 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
                         run_hooks(PostHooks, PostHookArgs),
                     Outs = proplists:get_value(out, Info),
                     {ok, hd(ews_serialize:decode(NewBody, Outs, Model))};
-                {fault, #fault{detail=undefined} = Fault} ->
-                    {error, Fault};
-                {fault, #fault{detail=Detail} = Fault} ->
-                    Faults = proplists:get_value(faults, Info),
-                    DecodedDetail = try_decode_fault(Faults, Detail, Model),
-                    {error, Fault#fault{detail=DecodedDetail}}
+                {fault, Fault} ->
+                    {error, parse_fault(Fault, Info, Model)}
             end
     end.
+
+parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
+    parse_fault(Fault, Info, Model);
+parse_fault(Fault = #fault{detail=undefined} = Fault, _Info, _Model) ->
+    Fault;
+parse_fault(#fault{detail=Detail} = Fault, Info, Model) ->
+    Faults = proplists:get_value(faults, Info),
+    DecodedDetail = try_decode_fault(Faults, Detail, Model),
+    Fault#fault{detail=DecodedDetail}.
 
 run_hooks(Hooks, Init) ->
     lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
