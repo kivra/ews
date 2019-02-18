@@ -1,6 +1,6 @@
 -module(ews_serialize).
 
--export([encode/3, decode/3, record_to_map/2]).
+-export([encode/4, decode/4, record_to_map/2]).
 
 -include("ews.hrl").
 
@@ -16,15 +16,19 @@
 %%                        validate against
 %%          Model       - The model that describe the types that the elements
 %%                        in the message has.
--spec encode([any()], [any()], #model{}) -> iolist().
-encode(Terms, MsgElems, #model{type_map=Tbl}) ->
+%%          Opts        - Option map. Currently supported options:
+%%                          #{enum_values => string | atom} default atom
+%%                            enum values are given as srings (lists) or atoms
+-spec encode([any()], [any()], #model{}, map()) -> iolist().
+encode(Terms, MsgElems, #model{type_map=Tbl}, Opts) ->
     case lists:all(fun(E) -> ews_model:is_root(E, Tbl) end, MsgElems) of
         false ->
             error({error, {all_not_root, MsgElems}});
         true ->
+            NewOpts = maps:merge(#{enum_values => atom}, Opts),
             BaseElems = [ ews_model:get_elem(E, Tbl) || E <- MsgElems ],
             Zipped = lists:zip(Terms, BaseElems),
-            [ encode_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
+            [ encode_term(Term, Elem, Tbl, NewOpts) || {Term, Elem} <- Zipped ]
     end.
 
 %% @doc Decodes and validates an xml string that represents a soap message.
@@ -34,9 +38,13 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
 %%                        validate against
 %%          Model       - The model that describe the types that the elements
 %%                        in the message has.
--spec decode([any()], [any()], #model{}) -> [any()].
-decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
-   [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
+%%          Opts        - Option map. Currently supported options:
+%%                          #{enum_values => string | atom} default atom
+%%                          enum values are returned as srings (lists) or atoms
+-spec decode([any()], [any()], #model{}, map()) -> [any()].
+decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}, Opts) ->
+    NewOpts = maps:merge(#{enum_values => atom}, Opts),
+    [validate_xml(T, E, Tbl, NewOpts) || {T, E} <- lists:zip(Terms, Elems)].
 
 %% @doc Converts a term represented by a tuple to a map where the keys
 %%      are the same as the record field names. Any value that is undefined
@@ -65,33 +73,33 @@ record_to_map(Term, M = #model{type_map = Tbl}) ->
 
 %% TODO: handle list of Terms -> check if #meta{max=M}, M > 1
 %% TODO: check meta on undefined to see if zero elems is ok
-encode_term(Terms, Types, Tbl) when is_list(Terms), is_list(Types) ->
-    [ encode_term(Term, Type, Tbl) ||
+encode_term(Terms, Types, Tbl, Opts) when is_list(Terms), is_list(Types) ->
+    [ encode_term(Term, Type, Tbl, Opts) ||
       {Term, Type} <- lists:zip(Terms, Types) ];
-encode_term(undefined, _, _) ->
+encode_term(undefined, _, _, _) ->
     undefined;
-encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=true}}, _) ->
+encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=true}}, _, _) ->
     {Qname, [{{?SCHEMA_INSTANCE_NS, "nil"}, "true"}], []};
-encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=false}}, _) ->
+encode_term(nil, #elem{qname=Qname, meta=#meta{nillable=false}}, _, _) ->
     error({"non-nillable type nilled", Qname});
-encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
+encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl, Opts) ->
     case M of
         #meta{max=Max} when Max > 1 ->
-            [ encode_term(T, E, Tbl) || T <- Terms ];
+            [ encode_term(T, E, Tbl, Opts) || T <- Terms ];
         _ ->
             case Type of
                 #base{list=true} ->
-                    {Qname, [], encode_term(Terms, Type, Tbl)};
+                    {Qname, [], encode_term(Terms, Type, Tbl, Opts)};
                 #enum{list=true} ->
-                    {Qname, [], encode_term(Terms, Type, Tbl)};
+                    {Qname, [], encode_term(Terms, Type, Tbl, Opts)};
                 _ ->
                     error({"expected single value: ", element(2, Qname), Terms})
             end
     end;
-encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
+encode_term(Term, #elem{type=Types}=E, Tbl, Opts) when is_list(Types) ->
     TestType = fun (Type, undefined) ->
                        try
-                           {ok, encode_term(Term, E#elem{type=Type}, Tbl)}
+                           {ok, encode_term(Term, E#elem{type=Type}, Tbl, Opts)}
                        catch
                            _:_ ->
                                undefined
@@ -108,33 +116,33 @@ encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
             Records = string:join(Aliases, ", "),
             error({"expected one of " ++ Records, Term})
     end;
-encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl, Opts) ->
     [Name|_] = tuple_to_list(Term),
     #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
     SuperKey = ews_model:get_super(Name, Tbl),
     case TypeKey of
         InheritedTypeKey ->
-            {Qname, [], encode_term(Term, InheritedType, Tbl)};
+            {Qname, [], encode_term(Term, InheritedType, Tbl, Opts)};
         SuperKey ->
             TypeDecl = {{?SCHEMA_INSTANCE_NS, "type"}, InheritedTypeKey},
             Super = ews_model:get(SuperKey, Tbl),
-            {Qname, [TypeDecl], encode_term(Term, Super, Tbl)}
+            {Qname, [TypeDecl], encode_term(Term, Super, Tbl, Opts)}
     end;
-encode_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
-    {Qname, [], encode_term(Term, Type, Tbl)};
-encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
+encode_term(Term, #elem{qname=Qname, type=Type}, Tbl, Opts) ->
+    {Qname, [], encode_term(Term, Type, Tbl, Opts)};
+encode_term(Term, #type{qname=Key, alias=A}, Tbl, Opts) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
     Super = ews_model:get_super(Name, Tbl),
     case ews_model:get(Name, Tbl) of
         #type{qname=InheritedKey} when Super == Key ->
             Elems = ews_model:get_parts(InheritedKey, Tbl),
             Parts = lists:zip(Values, Elems),
-            lists:flatten([ encode_term(V, E, Tbl) ||
+            lists:flatten([ encode_term(V, E, Tbl, Opts) ||
                             {V, E} <- Parts, V /= undefined ]);
         #type{qname=Key} ->
             Elems = ews_model:get_parts(Key, Tbl),
             Parts = lists:zip(Values, Elems),
-            lists:flatten([ encode_term(V, E, Tbl) ||
+            lists:flatten([ encode_term(V, E, Tbl, Opts) ||
                             {V, E} <- Parts, V /= undefined ]);
         #type{qname=_Qname} ->
             #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
@@ -142,31 +150,31 @@ encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
         false ->
             error({"expected #"++atom_to_list(A)++"{}", Term})
     end;
-encode_term(Term, #type{qname={_, N}}, _) ->
+encode_term(Term, #type{qname={_, N}}, _, _) ->
     error({"expected #"++N++"{}", Term});
-encode_term(Term, #base{erl_type=Type, list=IsList}, _) ->
+encode_term(Term, #base{erl_type=Type, list=IsList}, _, Opts) ->
     case is_list(Term) of
         false ->
-            [{txt, encode_single_base(Term, Type)}];
+            [{txt, encode_single_base(Term, Type, Opts)}];
         true when IsList ->
-            ListParts = [ encode_single_base(T, Type) || T <- Term ],
+            ListParts = [ encode_single_base(T, Type, Opts) || T <- Term ],
             [{txt, string:join(ListParts, " ")}];
         true ->
             error({"expected non-list "++atom_to_list(Type), Term})
     end;
-encode_term(Term, #enum{values=Values, list=IsList}, _) ->
+encode_term(Term, #enum{values=Values, list=IsList}, _, Opts) ->
     case is_list(Term) of
         true when IsList ->
-            ListParts = [ encode_single_enum(T, Values) || T <- Term ],
+            ListParts = [ encode_single_enum(T, Values, Opts) || T <- Term ],
             [{txt, string:join(ListParts, " ")}];
         true ->
             Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
             error({"expected non-list "++Accept, Term});
         false ->
-            [{txt, encode_single_enum(Term, Values)}]
+            [{txt, encode_single_enum(Term, Values, Opts)}]
     end.
 
-encode_single_base(Term, BaseType) ->
+encode_single_base(Term, BaseType, _Opts) ->
     case BaseType of
         string when is_binary(Term) ->
             Term;
@@ -180,8 +188,9 @@ encode_single_base(Term, BaseType) ->
             error({"expected "++atom_to_list(BaseType), Term})
     end.
 
-encode_single_enum(Term, Values) ->
-    case lists:keyfind(Term, 1, Values) of
+encode_single_enum(Term, Values, #{enum_values := EnumValueType}) ->
+    Idx = enum_value_index(EnumValueType),
+    case lists:keyfind(Term, Idx, Values) of
         false ->
             Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
             error({bad_term, Term, "expected one of: " ++ Accept});
@@ -189,18 +198,29 @@ encode_single_enum(Term, Values) ->
             Value
     end.
 
+enum_value_index(atom) -> 1;
+enum_value_index(string) -> 2.
+
+enum_value({Atom, _Str}, atom) -> Atom;
+enum_value({_Atom, Str}, string) -> Str.
+
+to_list(A) when is_atom(A) ->
+    atom_to_list(A);
+to_list(L) ->
+    [$" | L ++ "\""].
+
 %% ---------------------------------------------------------------------------
 
-validate_xml(undefined, #elem{meta=#meta{min=0, max=Max}}, _)
+validate_xml(undefined, #elem{meta=#meta{min=0, max=Max}}, _, _)
   when Max > 1 ->
     [];
-validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
+validate_xml(undefined, #elem{meta=#meta{min=0}}, _, _) ->
     undefined;
-validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
+validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl, Opts)
   when is_list(Types) ->
     TestType = fun (Type, undefined) ->
                        try
-                           {ok, validate_xml(E, ME#elem{type=Type}, Tbl)}
+                           {ok, validate_xml(E, ME#elem{type=Type}, Tbl, Opts)}
                        catch
                            _:_ ->
                                undefined
@@ -210,30 +230,31 @@ validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
                end,
     {ok, Result} = lists:foldl(TestType, undefined, Types),
     Result;
-validate_xml({Qname, _, _}=E, #elem{qname=Qname,meta=#meta{max=Max}}=ME, Tbl)
-  when Max > 1 ->
-    validate_xml([E], ME, Tbl);
-validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
+validate_xml({Qname, _, _}=E, #elem{qname=Qname,meta=#meta{max=Max}}=ME,
+             Tbl, Opts) when Max > 1 ->
+    validate_xml([E], ME, Tbl, Opts);
+validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey},
+             Tbl, Opts) ->
     case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
-            validate_xml({Qname, As, Cs}, Type, Tbl);
+            validate_xml({Qname, As, Cs}, Type, Tbl, Opts);
         false ->
             Type = ews_model:get(TypeKey, Tbl),
-            validate_xml({Qname, As, Cs}, Type, Tbl)
+            validate_xml({Qname, As, Cs}, Type, Tbl, Opts)
     end;
 validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,
                                          type={_,_},
                                          meta=#meta{max=Max}=Meta}=ME,
-             Tbl) when Max > 1 ->
+             Tbl, Opts) when Max > 1 ->
     NewME = ME#elem{meta=Meta#meta{max=1}},
-    [validate_xml(E, NewME, Tbl) || E <- Es];
-validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
-    validate_xml({Qname, As, Cs}, Type, Tbl);
-validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
-    validate_xml(Es, Type, Tbl);
-validate_xml(Es, Type, Tbl) when is_list(Es) ->
-    [ validate_xml(E, Type, Tbl) || E <- Es ];
-validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
+    [validate_xml(E, NewME, Tbl, Opts) || E <- Es];
+validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl, Opts) ->
+    validate_xml({Qname, As, Cs}, Type, Tbl, Opts);
+validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl, Opts) ->
+    validate_xml(Es, Type, Tbl, Opts);
+validate_xml(Es, Type, Tbl, Opts) when is_list(Es) ->
+    [ validate_xml(E, Type, Tbl, Opts) || E <- Es ];
+validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl, Opts) ->
     case is_nil(As) of
         true ->
             nil;
@@ -245,37 +266,38 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
                             ews_model:get_parts(InheritedKey, Tbl)
                     end,
             Pairs = match_children_elems(Cs, Elems, [], []),
-            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            ValidatedXml =[ validate_xml(T, E, Tbl, Opts) || {T, E} <- Pairs ],
             list_to_tuple([Alias | ValidatedXml])
     end;
-validate_xml({_Qname, As, []}, #base{}, _) ->
+validate_xml({_Qname, As, []}, #base{}, _, _) ->
     case is_nil(As) of
         true ->
             nil;
         false ->
             undefined
     end;
-validate_xml({_Qname, _, [{txt, Txt}]}, #base{erl_type=Type}, _) ->
-    case catch to_base(Txt, Type) of
+validate_xml({_Qname, _, [{txt, Txt}]}, #base{erl_type=Type}, _, Opts) ->
+    case catch to_base(Txt, Type, Opts) of
         {'EXIT', _Reason} ->
             error({"failed to convert base", {Txt, Type}});
         Term ->
             Term
     end;
-validate_xml({_Qname, As, []}, #enum{}, _) ->
+validate_xml({_Qname, As, []}, #enum{}, _, _) ->
     case is_nil(As) of
         true ->
             nil;
         false ->
             undefined
     end;
-validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
+validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _,
+             #{enum_values := EnumValueType}) ->
     Str = binary_to_list(Txt),
     case lists:keyfind(Str, 2, Vs) of
-        {Value, Str} ->
-            Value;
         false ->
-            error({"failed to convert enum", {Txt, Vs}})
+            error({"failed to convert enum", {Txt, Vs}});
+        EnumValue ->
+            enum_value(EnumValue, EnumValueType)
     end.
 
 %% TODO: Fix Max > 1 terms are bunched into a list
@@ -307,18 +329,18 @@ match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
 match_children_elems([], [], Acc, Res) ->
     [lists:reverse(Acc) | lists:reverse(Res)].
 
-to_base(Txt, string) when is_binary(Txt) -> Txt;
-to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
-to_base(Txt, integer) -> list_to_integer(binary_to_list(Txt));
-to_base(Txt, float) -> try_cast_float(binary_to_list(Txt));
-to_base(<<"true">>, boolean) -> true;
-to_base(<<"false">>, boolean) -> false;
-to_base(<<"TRUE">>, boolean) -> true;
-to_base(<<"FALSE">>, boolean) -> false;
-to_base(<<"True">>, boolean) -> true;
-to_base(<<"False">>, boolean) -> false;
-to_base(<<"1">>, boolean) -> true;
-to_base(<<"0">>, boolean) -> false.
+to_base(Txt, string, _) when is_binary(Txt) -> Txt;
+to_base(Txt, string, _) when is_list(Txt) -> list_to_binary(Txt);
+to_base(Txt, integer, _) -> list_to_integer(binary_to_list(Txt));
+to_base(Txt, float, _) -> try_cast_float(binary_to_list(Txt));
+to_base(<<"true">>, boolean, _) -> true;
+to_base(<<"false">>, boolean, _) -> false;
+to_base(<<"TRUE">>, boolean, _) -> true;
+to_base(<<"FALSE">>, boolean, _) -> false;
+to_base(<<"True">>, boolean, _) -> true;
+to_base(<<"False">>, boolean, _) -> false;
+to_base(<<"1">>, boolean, _) -> true;
+to_base(<<"0">>, boolean, _) -> false.
 
 try_cast_float(Str) ->
     case catch list_to_float(Str) of

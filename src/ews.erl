@@ -4,6 +4,7 @@
 
 -export([add_wsdl_to_model/1, add_wsdl_to_model/2,
          emit_complete_model_types/1, emit_complete_model_types/2,
+         emit_complete_model_types/3,
          emit_service_types/2, emit_service_types/3,
          emit_service_ops/1, emit_service_ops/2,
          list_services/0, list_services/1, list_model_services/0,
@@ -33,9 +34,13 @@ add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
     ews_svc:add_wsdl_url(Model, WsdlUrl).
 
 emit_complete_model_types(Filename) ->
-    emit_complete_model_types(default, Filename).
+    emit_complete_model_types(default, Filename, #{}).
+emit_complete_model_types(Filename, Opts) when is_map(Opts) ->
+    ews_svc:emit_model(default, Filename, Opts);
 emit_complete_model_types(Model, Filename) ->
-    ews_svc:emit_model(Model, Filename).
+    ews_svc:emit_model(Model, Filename, #{}).
+emit_complete_model_types(Model, Filename, Opts) ->
+    ews_svc:emit_model(Model, Filename, Opts).
 
 emit_service_types(_, _) ->
     {error, not_implemented}.
@@ -73,8 +78,15 @@ get_service_op_info(Model, Service, Op) ->
 %% Call a service operation.
 %% If the service only exists in one model, the model arg is not
 %% necessary.
-%% Opts is a map and is used to set http options as well ass pass information
+%% Opts is a map and is used to set http options as well as pass information
 %% to any hooks that are defined. By default an empty map will be used.
+%% Options that affect ews are:
+%%  http_headers :: proplists:proplist()          (default [])
+%%       Extra headers that are added to the http call
+%%  timeout :: integer()                          (default 1 minute)
+%%       Timeout for SOAP call in msecs
+%%  include_http_response_headers :: boolean()    (default false)
+%%       If true, HTTP response headers are included in the returned headers
 call_service_op(Service, Op, Header, Body) ->
     ews_svc:call(Service, Op, Header, Body, #{}).
 

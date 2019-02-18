@@ -11,6 +11,7 @@
 call(Endpoint, SoapAction, Header, Body, Opts) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
     Timeout = maps:get(timeout, Opts, DefaultTimeout),
+    IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
     Hdrs = [{"SOAPAction", SoapAction},
             {"Content-Type", "text/xml"}] ++ ExtraHeaders,
@@ -19,14 +20,16 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     Log = init_log(),
     log_request(Log, BodyIoList),
     Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
-                   {ok, {{200,_}, _, RespEnv}} ->
+                   {ok, {{200,_}, HttpHdr, RespEnv}} ->
                        log_response(Log, RespEnv),
                        XmlTerm = ews_xml:decode(RespEnv),
-                       parse_envelope(XmlTerm);
-                   {ok, {_Code, _, FaultEnv}} ->
+                       Resp = parse_envelope(XmlTerm),
+                       fix_header(Resp, HttpHdr, IncludeHttpHdr);
+                   {ok, {_Code, HttpHdr, FaultEnv}} ->
                        log_response(Log, FaultEnv),
                        XmlTerm = ews_xml:decode(FaultEnv),
-                       parse_envelope(XmlTerm);
+                       Resp = parse_envelope(XmlTerm),
+                       fix_header(Resp, HttpHdr, IncludeHttpHdr);
                    {error, Error} ->
                        {error, Error}
                end,
@@ -63,7 +66,7 @@ parse_envelope([{{?SOAPNS, "Envelope"}, _, [Body]}]) ->
     {{?SOAPNS, "Body"}, _, BodyFields} = Body,
     case BodyFields of
         [{{?SOAPNS, "Fault"}, _, Faults}] ->
-            {fault, parse_fault(Faults)};
+            {fault, {[], parse_fault(Faults)}};
         _ ->
             {ok, {[], BodyFields}}
     end;
@@ -103,6 +106,13 @@ log_request(Fd, Body) ->
 
 log_response(Fd, Body) ->
     file:write(Fd, ["\nresponse:\n", Body]).
+
+fix_header(Response, _HttpHdr, false) ->
+    Response;
+fix_header({error, E}, _HttpHdr, _) ->
+    {error, E};
+fix_header({Code, {SoapHdr, SoapResp}}, HttpHdr, true) ->
+    {Code, {[{http_response_headers, HttpHdr} | SoapHdr], SoapResp}}.
 
 cleanup_log(Fd) ->
     file:close(Fd).

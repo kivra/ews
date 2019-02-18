@@ -14,7 +14,7 @@
          get_op_message_details/2, get_op_message_details/3,
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
-         list_simple_clashes/1, list_full_clashes/1, emit_model/2,
+         list_simple_clashes/1, list_full_clashes/1, emit_model/3,
          call/5, call/6,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -93,8 +93,8 @@ list_simple_clashes(Model) ->
                                         ews_svc:list_types(Model))),
     [ Qname || Qname = {_, Nss} <- lists:usort(TypeList), length(Nss) > 1 ].
 
-emit_model(ModelRef, File) ->
-    gen_server:call(?MODULE, {emit_model, ModelRef, File}).
+emit_model(ModelRef, File, Opts) ->
+    gen_server:call(?MODULE, {emit_model, ModelRef, File, Opts}).
 
 call(ServiceName, OpName, HeaderParts, BodyParts, Opts)
   when is_list(ServiceName) ->
@@ -255,12 +255,13 @@ handle_call({get_type, ModelRef, Key}, _,
             #state{models=Models} = State) ->
     #model{type_map=Map} = maps:get(ModelRef, Models),
     {reply, ews_model:get(Key, Map), State};
-handle_call({emit_model, ModelRef, File}, _, #state{models=Models} = State) ->
+handle_call({emit_model, ModelRef, File, Opts}, _,
+            #state{models=Models} = State) ->
     case maps:get(ModelRef, Models, undefined) of
         undefined ->
             {reply, {error, no_model}, State};
         Model ->
-            {reply, ews_emit:model_to_file(Model, File, ModelRef), State}
+            {reply, ews_emit:model_to_file(Model, File, ModelRef, Opts), State}
     end;
 handle_call({get_service_models, ServiceName}, _, State) ->
     {reply, get_service_models(ServiceName, State), State};
@@ -487,11 +488,12 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             {error, Error};
         {ok, Info} ->
             InHdrs = proplists:get_value(in_hdr, Info),
-            EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
+            EncodedHeader =
+                ews_serialize:encode(HeaderParts, InHdrs, Model, Opts),
             Ins = proplists:get_value(in, Info),
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
-            EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
+            EncodedBody = ews_serialize:encode(BodyParts, Ins, Model, Opts),
             PreHooks = proplists:get_value(pre_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
             HookArgs = [Endpoint, Action, EncodedHeader, EncodedBody, Opts],
@@ -504,30 +506,30 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
                     [_NewHeader, NewBody, _LastOpts] =
                         run_hooks(PostHooks, PostHookArgs),
                     Outs = proplists:get_value(out, Info),
-                    {ok, hd(ews_serialize:decode(NewBody, Outs, Model))};
+                    {ok, hd(ews_serialize:decode(NewBody, Outs, Model, Opts))};
                 {fault, Fault} ->
-                    {error, parse_fault(Fault, Info, Model)}
+                    {error, parse_fault(Fault, Info, Model, Opts)}
             end
     end.
 
-parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
-    parse_fault(Fault, Info, Model);
-parse_fault(Fault = #fault{detail=undefined} = Fault, _Info, _Model) ->
+parse_fault({_Header, #fault{} = Fault}, Info, Model, Opts) ->
+    parse_fault(Fault, Info, Model, Opts);
+parse_fault(Fault = #fault{detail=undefined} = Fault, _Info, _Model, _Opts) ->
     Fault;
-parse_fault(#fault{detail=Detail} = Fault, Info, Model) ->
+parse_fault(#fault{detail=Detail} = Fault, Info, Model, Opts) ->
     Faults = proplists:get_value(faults, Info),
-    DecodedDetail = try_decode_fault(Faults, Detail, Model),
+    DecodedDetail = try_decode_fault(Faults, Detail, Model, Opts),
     Fault#fault{detail=DecodedDetail}.
 
 run_hooks(Hooks, Init) ->
     lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
 
-try_decode_fault([], Detail, _) ->
+try_decode_fault([], Detail, _, _) ->
     Detail;
-try_decode_fault([F|Faults], Detail, Model) ->
-    case catch ews_serialize:decode(Detail, [F], Model) of
+try_decode_fault([F|Faults], Detail, Model, Opts) ->
+    case catch ews_serialize:decode(Detail, [F], Model, Opts) of
         {'EXIT',_} ->
-            try_decode_fault(Faults, Detail, Model);
+            try_decode_fault(Faults, Detail, Model, Opts);
         DecodedDetail ->
             DecodedDetail
     end.
