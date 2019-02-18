@@ -15,7 +15,7 @@
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/3,
-         call/5, call/6,
+         call/5, call/6, encode/5, encode/6,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1]).
@@ -112,6 +112,23 @@ call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     call_service_op(ModelRef, Model, ServiceName, OpName,
                     HeaderParts, BodyParts, Opts).
+
+encode(ServiceName, OpName, HeaderParts, BodyParts, Opts)
+  when is_list(ServiceName) ->
+    case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
+        [{ModelRef, Model}] ->
+            encode_service_op(ModelRef, Model, ServiceName, OpName,
+                              HeaderParts, BodyParts, Opts);
+        [] ->
+            {error, no_service};
+        [_ | _] ->
+            {error, ambiguous_service}
+    end.
+
+encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    encode_service_op(ModelRef, Model, ServiceName, OpName,
+                      HeaderParts, BodyParts, Opts).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
@@ -410,8 +427,10 @@ op_info(Op, Model) ->
         faults=FaultMsgs,
         endpoint=Endpoint,
         action=Action} = Op,
-    {#message{parts=InHdrParts}, #message{parts=InParts}} = InputMsg,
-    {#message{parts=OutHdrParts}, #message{parts=OutParts}} = OutputMsg,
+    {InHdrMsg, #message{parts=InParts}} = InputMsg,
+    InHdrParts = get_hdr_parts(InHdrMsg),
+    {OutHdrMsg, #message{parts=OutParts}} = OutputMsg,
+    OutHdrParts = get_hdr_parts(OutHdrMsg),
     InHdrs = [ type_info(E, Model) || #part{element=E} <- InHdrParts ],
     OutHdrs = [ type_info(E, Model) || #part{element=E} <- OutHdrParts ],
     Ins = [ type_info(E, Model) || #part{element=E} <- InParts ],
@@ -422,6 +441,11 @@ op_info(Op, Model) ->
      {in, Ins}, {in_hdr, InHdrs},
      {out, Outs}, {out_hdr, OutHdrs}, {fault, Faults},
      {endpoint, Endpoint}, {action, Action}].
+
+get_hdr_parts(undefined) ->
+    [];
+get_hdr_parts(#message{parts=HdrParts}) ->
+    HdrParts.
 
 type_info(ElemName, #model{type_map=Tbl}) ->
     case ews_model:get_elem(ElemName, Tbl) of
@@ -487,13 +511,10 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            InHdrs = proplists:get_value(in_hdr, Info),
-            EncodedHeader =
-                ews_serialize:encode(HeaderParts, InHdrs, Model, Opts),
-            Ins = proplists:get_value(in, Info),
+            {ok, {EncodedHeader, EncodedBody}} =
+                encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts),
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
-            EncodedBody = ews_serialize:encode(BodyParts, Ins, Model, Opts),
             PreHooks = proplists:get_value(pre_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
             HookArgs = [Endpoint, Action, EncodedHeader, EncodedBody, Opts],
@@ -511,6 +532,23 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
                     {error, parse_fault(Fault, Info, Model, Opts)}
             end
     end.
+
+encode_service_op(ModelRef, Model, ServiceName, OpName,
+                  HeaderParts, BodyParts, Opts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts)
+    end.
+
+encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts) ->
+    InHdrs = proplists:get_value(in_hdr, Info),
+    EncodedHeader =
+        ews_serialize:encode(HeaderParts, InHdrs, Model, Opts),
+    Ins = proplists:get_value(in, Info),
+    EncodedBody = ews_serialize:encode(BodyParts, Ins, Model, Opts),
+    {ok, {EncodedHeader, EncodedBody}}.
 
 parse_fault({_Header, #fault{} = Fault}, Info, Model, Opts) ->
     parse_fault(Fault, Info, Model, Opts);
