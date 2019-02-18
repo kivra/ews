@@ -3,6 +3,7 @@
 -export([call/5]).
 
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
+-define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
 
 -include("ews.hrl").
 
@@ -16,7 +17,7 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     Hdrs = [{"SOAPAction", SoapAction},
             {"Content-Type", "text/xml"}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
-    BodyIoList = ews_xml:encode(Envelope),
+    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
     Log = init_log(),
     log_request(Log, BodyIoList),
     Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
