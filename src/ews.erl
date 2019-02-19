@@ -12,6 +12,8 @@
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5, call_service_op/6,
          encode_service_op/4, encode_service_op/5, encode_service_op/6,
+         decode_service_op_result/3, decode_service_op_result/4,
+         decode_service_op_result/5,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
@@ -107,6 +109,19 @@ encode_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
     ews_svc:encode(Model, Service, Op, Header, Body, #{}).
 encode_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
     ews_svc:encode(Model, Service, Op, Header, Body, Opts).
+
+decode_service_op_result(Service, Op, Body) ->
+    ews_svc:decode(Service, Op, Body, #{}).
+
+decode_service_op_result(Service, Op, Body, Opts)
+  when is_list(Service) ->
+    ews_svc:decode(Service, Op, Body, Opts);
+decode_service_op_result(Model, Service, Op, Body)
+  when is_atom(Model) ->
+    ews_svc:decode(Model, Service, Op, Body, #{}).
+decode_service_op_result(Model, Service, Op, Body, Opts)
+  when is_atom(Model) ->
+    ews_svc:decode(Model, Service, Op, Body, Opts).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->
