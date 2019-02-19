@@ -1,15 +1,14 @@
 -module(ews_emit).
 
--export([model_to_file/4]).
+-export([model_to_file/3]).
 
 -include("ews.hrl").
 
-model_to_file(#model{type_map=Tbl}, Filename, ModelRef, Opts) ->
-    NewOpts = maps:merge(#{enum_value_string => false}, Opts),
+model_to_file(#model{type_map=Tbl}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl),
     io:format("emitting ~p records~n", [length(Unresolved) + length(Resolved)]),
     UnresolvedTypeDefs = [output_typedef(T) || T <- Unresolved],
-    ResolvedTypes = [output_type(T, Tbl, ModelRef, Unresolved, NewOpts) ||
+    ResolvedTypes = [output_type(T, Tbl, ModelRef, Unresolved) ||
                         T <- Resolved ++ Unresolved],
     {ok, Fd} = file:open(Filename, [write]),
     [ok = file:write(Fd, [T, $\n]) || T <- UnresolvedTypeDefs],
@@ -20,55 +19,55 @@ output_typedef(#type{alias=Alias}) ->
     ["-type '#", atom_to_list(Alias), "'() :: tuple().  "
      "%% Needed due to circular type definition\n"].
 
-output_type(#type{qname=Qname, alias=Alias}, Tbl, ModelRef, Unresolved, Opts) ->
+output_type(#type{qname=Qname, alias=Alias}, Tbl, ModelRef, Unresolved) ->
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
-    PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved, Opts) ||
+    PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
     [Line1, string:join(PartRows, JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
-            ModelRef, Unresolved, Opts) ->
+            ModelRef, Unresolved) ->
     A = ews_alias:create(Qname),
     #meta{min=Min} = M,
     Base = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(Base),
-    Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved, Opts),
+    Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved),
     check_min(check_nillable([Base, Ts], M), Min).
 
-output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved, Opts)
+output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved)
   when not is_list(T) ->
-    output_single_type(T, M, SpecIndent, Tbl, ModelRef, Unresolved, Opts);
-output_types(Types, M, SpecIndent, Tbl, MR, Unresolved, Opts) ->
+    output_single_type(T, M, SpecIndent, Tbl, ModelRef, Unresolved);
+output_types(Types, M, SpecIndent, Tbl, MR, Unresolved) ->
     lists:join(" | ",
-               [output_single_type(T, M, SpecIndent, Tbl, MR, Unresolved, Opts)
+               [output_single_type(T, M, SpecIndent, Tbl, MR, Unresolved)
                 || T <- Types]).
 
 output_single_type(#base{erl_type=Et}, #meta{max = Max}, _SpecIndent, _Tbl,
-                   _ModelRef, _Unresolved, Opts) ->
-    add_list(output_erl_type(Et, Opts), Max > 1);
+                   _ModelRef, _Unresolved) ->
+    add_list(output_erl_type(Et), Max > 1);
 output_single_type(E = #enum{values=Values}, #meta{max = Max},
-                   SpecIndent, _Tbl, _ModelRef, _Unresolved, Opts) ->
+                   SpecIndent, _Tbl, _ModelRef, _Unresolved) ->
     #enum{list=IsList} = E,
-    EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent, Opts),
+    EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
     add_list(EnumSpec, IsList orelse Max > 1);
 output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl,
-                   ModelRef, Unresolved, Opts) ->
+                   ModelRef, Unresolved) ->
     Atn = ews_alias:get_alias(Tn, ModelRef),
     SubTypes = ews_model:get_subs(Tn, Tbl),
     Atns = [Atn | [ews_alias:get_alias(T, ModelRef) || {T, _} <- SubTypes]],
     string:join(
-      [add_list(record_spec(T, Unresolved, Opts), Max > 1) || T <- Atns],
+      [add_list(record_spec(T, Unresolved), Max > 1) || T <- Atns],
       " | ").
 
-output_erl_type(string, _) ->
+output_erl_type(string) ->
     "string() | binary()";
-output_erl_type(integer, _) ->
+output_erl_type(integer) ->
     "integer()";
-output_erl_type(float, _) ->
+output_erl_type(float) ->
     "float()";
-output_erl_type(boolean, _) ->
+output_erl_type(boolean) ->
     "boolean()".
 
 add_list(Str, true) ->
@@ -76,7 +75,7 @@ add_list(Str, true) ->
 add_list(Str, false) ->
     Str.
 
-record_spec(T, Unresolved, _Opts) ->
+record_spec(T, Unresolved) ->
     case lists:keymember(T, #type.alias, Unresolved) of
         false ->
             ["#", tick_word(T), "{}"];
@@ -166,12 +165,7 @@ create_graph(Tbl) ->
         end,
     dict:to_list(lists:foldl(F, dict:new(), Types)).
 
-emit_enum(Values, Indent, #{enum_value_string := AllowString}) ->
+emit_enum(Values, Indent) ->
     TickedValues = [tick_word(V) || V <- Values],
     JoinStr = [$\n,  lists:duplicate(Indent-2, $ ), $|, $ ],
-    string:join(add_string(TickedValues, AllowString), lists:flatten(JoinStr)).
-
-add_string(Values, true) ->
-    ["string()" | Values];
-add_string(Values, false) ->
-    Values.
+    string:join(TickedValues, lists:flatten(JoinStr)).

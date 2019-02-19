@@ -47,7 +47,7 @@ empty_table(_Config) ->
     Table = ets:new(empty_table, []),
     Model = #model{type_map=Table},
     Filename = file_in_test_priv_dir,
-    ews_emit:model_to_file(Model, Filename, test, #{}),
+    ews_emit:model_to_file(Model, Filename, test),
     {ok, <<>>} = file:read_file(Filename),
     file:delete(foo).
 
@@ -65,7 +65,7 @@ simple_graph(_Config) ->
                                        meta = meta("true", 0, 1)}]}}),
     Model = #model{type_map=Table},
     Filename = file_in_test_priv_dir,
-    ews_emit:model_to_file(Model, Filename, test, #{}),
+    ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
     <<"-record(t1, {e1 :: integer() | undefined,\n"
       "             e2 :: string() | binary() | nil | undefined}).\n\n">> =
@@ -84,7 +84,7 @@ simple_circular_graph(_Config) ->
                                        meta = meta(undefined, 0, 1)}]}}),
     Model = #model{type_map=Table},
     Filename = file_in_test_priv_dir,
-    ews_emit:model_to_file(Model, Filename, test, #{}),
+    ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
     <<"-record(t1, {e1 :: #t1{} | undefined}).\n\n">> =
         Bin,
@@ -110,7 +110,7 @@ circular_graph(_Config) ->
                                        meta = meta(undefined, 0, 1)}]}}),
     Model = #model{type_map=Table},
     Filename = file_in_test_priv_dir,
-    ews_emit:model_to_file(Model, Filename, test, #{}),
+    ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
     B1 = <<"-type '#t1'() :: tuple().  %% Needed due to circular type definition\n\n"
            "-record(t2, {t2e1 :: '#t1'() | undefined}).\n\n"

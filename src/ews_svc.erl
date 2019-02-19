@@ -14,7 +14,7 @@
          get_op_message_details/2, get_op_message_details/3,
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
-         list_simple_clashes/1, list_full_clashes/1, emit_model/3,
+         list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/5, call/6, encode/5, encode/6, decode/4, decode/5,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -93,8 +93,8 @@ list_simple_clashes(Model) ->
                                         ews_svc:list_types(Model))),
     [ Qname || Qname = {_, Nss} <- lists:usort(TypeList), length(Nss) > 1 ].
 
-emit_model(ModelRef, File, Opts) ->
-    gen_server:call(?MODULE, {emit_model, ModelRef, File, Opts}).
+emit_model(ModelRef, File) ->
+    gen_server:call(?MODULE, {emit_model, ModelRef, File}).
 
 call(ServiceName, OpName, HeaderParts, BodyParts, Opts)
   when is_list(ServiceName) ->
@@ -113,22 +113,22 @@ call(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     call_service_op(ModelRef, Model, ServiceName, OpName,
                     HeaderParts, BodyParts, Opts).
 
-encode(ServiceName, OpName, HeaderParts, BodyParts, Opts)
+encode(ServiceName, OpName, HeaderParts, BodyParts, _Opts)
   when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
         [{ModelRef, Model}] ->
             encode_service_op(ModelRef, Model, ServiceName, OpName,
-                              HeaderParts, BodyParts, Opts);
+                              HeaderParts, BodyParts);
         [] ->
             {error, no_service};
         [_ | _] ->
             {error, ambiguous_service}
     end.
 
-encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
+encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     encode_service_op(ModelRef, Model, ServiceName, OpName,
-                      HeaderParts, BodyParts, Opts).
+                      HeaderParts, BodyParts).
 
 decode(ServiceName, OpName, BodyParts, Opts)
   when is_list(ServiceName) ->
@@ -289,13 +289,13 @@ handle_call({get_type, ModelRef, Key}, _,
             #state{models=Models} = State) ->
     #model{type_map=Map} = maps:get(ModelRef, Models),
     {reply, ews_model:get(Key, Map), State};
-handle_call({emit_model, ModelRef, File, Opts}, _,
+handle_call({emit_model, ModelRef, File}, _,
             #state{models=Models} = State) ->
     case maps:get(ModelRef, Models, undefined) of
         undefined ->
             {reply, {error, no_model}, State};
         Model ->
-            {reply, ews_emit:model_to_file(Model, File, ModelRef, Opts), State}
+            {reply, ews_emit:model_to_file(Model, File, ModelRef), State}
     end;
 handle_call({get_service_models, ServiceName}, _, State) ->
     {reply, get_service_models(ServiceName, State), State};
@@ -529,7 +529,7 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             {error, Error};
         {ok, Info} ->
             {ok, {EncodedHeader, EncodedBody}} =
-                encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts),
+                encode_service_ins(HeaderParts, BodyParts, Info, Model),
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
             PreHooks = proplists:get_value(pre_hooks, Info),
@@ -541,29 +541,29 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
                     {error, Error};
                 {ok, {ResponseHeader, ResponseBody}} ->
                     PostHookArgs = [ResponseHeader, ResponseBody, NewOpts],
-                    [_NewHeader, NewBody, _LastOpts] =
+                    [NewHeader, NewBody, LastOpts] =
                         run_hooks(PostHooks, PostHookArgs),
-                    decode_service_out(NewBody, Info, Model, Opts);
+                    decode_service_out(NewHeader, NewBody, Info, Model,
+                                       LastOpts);
                 {fault, Fault} ->
-                    {error, parse_fault(Fault, Info, Model, Opts)}
+                    {error, parse_fault(Fault, Info, Model)}
             end
     end.
 
 encode_service_op(ModelRef, Model, ServiceName, OpName,
-                  HeaderParts, BodyParts, Opts) ->
+                  HeaderParts, BodyParts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts)
+            encode_service_ins(HeaderParts, BodyParts, Info, Model)
     end.
 
-encode_service_ins(HeaderParts, BodyParts, Info, Model, Opts) ->
+encode_service_ins(HeaderParts, BodyParts, Info, Model) ->
     InHdrs = proplists:get_value(in_hdr, Info),
-    EncodedHeader =
-        ews_serialize:encode(HeaderParts, InHdrs, Model, Opts),
+    EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
     Ins = proplists:get_value(in, Info),
-    EncodedBody = ews_serialize:encode(BodyParts, Ins, Model, Opts),
+    EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
     {ok, {EncodedHeader, EncodedBody}}.
 
 decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
@@ -571,31 +571,49 @@ decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            decode_service_out(Body, Info, Model, Opts)
+            decode_service_out(undefined, Body, Info, Model, Opts)
     end.
 
-decode_service_out(Body, Info, Model, Opts) ->
+decode_service_out(Headers, Body, Info, Model, Opts) ->
     Outs = proplists:get_value(out, Info),
-    {ok, hd(ews_serialize:decode(Body, Outs, Model, Opts))}.
+    OutHdrs = proplists:get_value(out_hdr, Info),
+    DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
+    [DecodedBody] = ews_serialize:decode(Body, Outs, Model),
+    make_return(DecodedHeaders, DecodedBody, Opts).
 
-parse_fault({_Header, #fault{} = Fault}, Info, Model, Opts) ->
-    parse_fault(Fault, Info, Model, Opts);
-parse_fault(Fault = #fault{detail=undefined} = Fault, _Info, _Model, _Opts) ->
+decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->
+    undefined;
+decode_headers(Headers, OutHdrs, Model, #{include_headers := true}) ->
+    case Headers of
+        [{http_response_headers, _} = HttpHdr | SoapHeaders] ->
+            [HttpHdr | ews_serialize:decode(SoapHeaders, OutHdrs, Model)];
+        SoapHeaders ->
+            ews_serialize:decode(SoapHeaders, OutHdrs, Model)
+    end.
+
+make_return(Headers, Body, #{include_headers := true}) ->
+    {ok, Headers, Body};
+make_return(_Headers, Body, #{include_headers := false}) ->
+    {ok, Body}.
+
+parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
+    parse_fault(Fault, Info, Model);
+parse_fault(Fault = #fault{detail=undefined} = Fault, _Info, _Model) ->
     Fault;
-parse_fault(#fault{detail=Detail} = Fault, Info, Model, Opts) ->
+parse_fault(#fault{detail=Detail} = Fault, Info, Model) ->
     Faults = proplists:get_value(faults, Info),
-    DecodedDetail = try_decode_fault(Faults, Detail, Model, Opts),
+    DecodedDetail = try_decode_fault(Faults, Detail, Model),
     Fault#fault{detail=DecodedDetail}.
 
 run_hooks(Hooks, Init) ->
     lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
 
-try_decode_fault([], Detail, _, _) ->
+try_decode_fault([], Detail, _) ->
     Detail;
-try_decode_fault([F|Faults], Detail, Model, Opts) ->
-    case catch ews_serialize:decode(Detail, [F], Model, Opts) of
+try_decode_fault([F|Faults], Detail, Model) ->
+    case catch ews_serialize:decode(Detail, [F], Model) of
         {'EXIT',_} ->
-            try_decode_fault(Faults, Detail, Model, Opts);
+            try_decode_fault(Faults, Detail, Model);
         DecodedDetail ->
             DecodedDetail
     end.

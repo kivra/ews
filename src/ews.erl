@@ -4,7 +4,6 @@
 
 -export([add_wsdl_to_model/1, add_wsdl_to_model/2,
          emit_complete_model_types/1, emit_complete_model_types/2,
-         emit_complete_model_types/3,
          emit_service_types/2, emit_service_types/3,
          emit_service_ops/1, emit_service_ops/2,
          list_services/0, list_services/1, list_model_services/0,
@@ -37,13 +36,9 @@ add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
     ews_svc:add_wsdl_url(Model, WsdlUrl).
 
 emit_complete_model_types(Filename) ->
-    emit_complete_model_types(default, Filename, #{}).
-emit_complete_model_types(Filename, Opts) when is_map(Opts) ->
-    ews_svc:emit_model(default, Filename, Opts);
+    emit_complete_model_types(default, Filename).
 emit_complete_model_types(Model, Filename) ->
-    ews_svc:emit_model(Model, Filename, #{}).
-emit_complete_model_types(Model, Filename, Opts) ->
-    ews_svc:emit_model(Model, Filename, Opts).
+    ews_svc:emit_model(Model, Filename).
 
 emit_service_types(_, _) ->
     {error, not_implemented}.
@@ -91,14 +86,16 @@ get_service_op_info(Model, Service, Op) ->
 %%  include_http_response_headers :: boolean()    (default false)
 %%       If true, HTTP response headers are included in the returned headers
 call_service_op(Service, Op, Header, Body) ->
-    ews_svc:call(Service, Op, Header, Body, #{}).
+    ews_svc:call(Service, Op, Header, Body, default_call_opts()).
 
 call_service_op(Service, Op, Header, Body, Opts)  when is_list(Service) ->
-    ews_svc:call(Service, Op, Header, Body, Opts);
+    ews_svc:call(Service, Op, Header, Body,
+                 maps:merge(default_call_opts(), Opts));
 call_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
-    ews_svc:call(Model, Service, Op, Header, Body, #{}).
+    ews_svc:call(Model, Service, Op, Header, Body, default_call_opts()).
 call_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
-    ews_svc:call(Model, Service, Op, Header, Body, Opts).
+    ews_svc:call(Model, Service, Op, Header, Body,
+                 maps:merge(default_call_opts(), Opts)).
 
 encode_service_op(Service, Op, Header, Body) ->
     ews_svc:encode(Service, Op, Header, Body, #{}).
@@ -175,3 +172,8 @@ remove_post_hook(Model, HookRef) ->
 
 remove_model(Model) ->
     ews_svc:remove_model(Model).
+
+default_call_opts() ->
+    #{include_http_response_headers => false,
+      include_headers => false,
+      enum_values => atom}.

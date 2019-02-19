@@ -111,7 +111,7 @@ empty_list_simple_clashes(_Config) ->
     [] = ews_svc:list_simple_clashes(default).
 
 empty_emit_model(_Config) ->
-    {error, no_model} = ews_svc:emit_model(default, "test_file", #{}).
+    {error, no_model} = ews_svc:emit_model(default, "test_file").
 
 % One model added testing -------------------------------------------
 add_model(_Config) ->
@@ -223,11 +223,11 @@ one_model_list_types(_Config) ->
 
 one_model_emit_model(_Config) ->
     meck:new(ews_emit),
-    meck:expect(ews_emit, model_to_file, 4,
-                fun(_Model, File, _, _) -> {model_emitted, File} end),
+    meck:expect(ews_emit, model_to_file,
+                fun(_Model, File, _) -> {model_emitted, File} end),
 
     {model_emitted, "test_file"} =
-        ews_svc:emit_model(default, "test_file", #{}),
+        ews_svc:emit_model(default, "test_file"),
     true = meck:validate(ews_emit),
     ok = meck:unload(ews_emit).
 
@@ -251,14 +251,14 @@ one_model_call(_Config) ->
     Op = "get",
     HeaderParts = [<<"user">>, <<"pass">>],
     BodyParts = [<<"test_body">>],
-    Opts = #{},
+    Opts = #{include_headers => false},
 
     meck:new(ews_soap),
     meck:expect(ews_soap, call, 5, {ok, {header, body}}),
 
     meck:new(ews_serialize),
-    meck:expect(ews_serialize, encode, 4, encoded),
-    meck:expect(ews_serialize, decode, 4, [decoded]),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
 
     {ok, decoded} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts, Opts),
@@ -273,10 +273,10 @@ one_model_call(_Config) ->
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
      {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}
     ] = meck:history(ews_serialize),
-    [HeaderParts, _InHdrs, Model, Opts] = HeaderArgs,
-    [BodyParts, _Ins, Model, Opts] = BodyArgs,
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
     %% body comes from the ews_soap:call response
-    [body, _Outs, Model, Opts] = DecodeArgs,
+    [body, _Outs, Model] = DecodeArgs,
 
     true = meck:validate(ews_serialize),
     true = meck:validate(ews_soap),
@@ -288,20 +288,20 @@ one_model_pre_hook(_Config) ->
     Op = "get",
     HeaderParts = [<<"user">>, <<"pass">>],
     BodyParts = [<<"test_body">>],
-    Opts = #{x => 1},
+    Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
     meck:expect(ews_soap, call, 5, {ok, {header, body}}),
 
     meck:new(ews_serialize),
-    meck:expect(ews_serialize, encode, 4, encoded),
-    meck:expect(ews_serialize, decode, 4, [decoded]),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    R1 = ews:add_pre_hook(fun ([_, _, _, _, #{x := 1}]) ->
-                                  [a1, b1, c1, d1, #{x => 2}]
+    R1 = ews:add_pre_hook(fun ([_, _, _, _, O = #{x := 1}]) ->
+                                  [a1, b1, c1, d1, O#{x => 2}]
                           end),
-    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, #{x := 2}]) ->
-                                  [a2, b2, c2, d2, #{x => 3}]
+    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, O = #{x := 2}]) ->
+                                  [a2, b2, c2, d2, O#{x => 3}]
                           end),
     {ok, decoded} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts, Opts),
@@ -316,10 +316,10 @@ one_model_pre_hook(_Config) ->
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
      {Pid, {ews_serialize, decode, DecodeArgs}, [decoded]}] =
         meck:history(ews_serialize),
-    [HeaderParts, _InHdrs, Model, Opts] = HeaderArgs,
-    [BodyParts, _Ins, Model, Opts] = BodyArgs,
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
     %% body comes from the ews_soap:call response
-    [body, _Outs, Model, Opts] = DecodeArgs,
+    [body, _Outs, Model] = DecodeArgs,
 
     true = meck:validate(ews_serialize),
     true = meck:validate(ews_soap),
@@ -331,14 +331,14 @@ one_model_post_hook(_Config) ->
     Op = "get",
     HeaderParts = [<<"user">>, <<"pass">>],
     BodyParts = [<<"test_body">>],
-    Opts = #{x => 1},
+    Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
     meck:expect(ews_soap, call, 5, {ok, {header, body}}),
 
     meck:new(ews_serialize),
-    meck:expect(ews_serialize, encode, 4, encoded),
-    meck:expect(ews_serialize, decode, fun (B,_,_,_) -> [B] end),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, fun (B,_,_) -> [B] end),
 
     R = ews:add_post_hook(
           fun ([header, body, O]) ->
@@ -359,10 +359,10 @@ one_model_post_hook(_Config) ->
      {Pid, {ews_serialize, decode, DecodeArgs},
       [{hooked_response, #{x := 1, y := 1}}]}] =
         meck:history(ews_serialize),
-    [HeaderParts, _InHdrs, Model, Opts] = HeaderArgs,
-    [BodyParts, _Ins, Model, Opts] = BodyArgs,
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
     %% body comes from the ews_soap:call response
-    [{hooked_response, #{x := 1, y := 1}}, _Outs, Model, Opts] = DecodeArgs,
+    [{hooked_response, #{x := 1, y := 1}}, _Outs, Model] = DecodeArgs,
 
     true = meck:validate(ews_serialize),
     true = meck:validate(ews_soap),
@@ -374,37 +374,36 @@ one_model_remove_hook(_Config) ->
     Op = "get",
     HeaderParts = [<<"user">>, <<"pass">>],
     BodyParts = [<<"test_body">>],
-    Opts = #{},
+    Opts = #{include_headers => false},
 
     meck:new(ews_soap),
     meck:expect(ews_soap, call, 5, {ok, {header, body}}),
 
     meck:new(ews_serialize),
-    meck:expect(ews_serialize, encode, 4, encoded),
-    meck:expect(ews_serialize, decode, fun (B,_,_,_) -> [B] end),
+    meck:expect(ews_serialize, encode, 3, encoded),
+    meck:expect(ews_serialize, decode, fun (B,_,_) -> [B] end),
 
     R1 = ews:add_pre_hook(fun ([_, _, _, _, O]) -> [a, b, c, d, O] end),
     R2 = ews:add_pre_hook(fun ([_, _, _, _, O]) -> [a1, b1, c1, d1, O] end),
     R3 = ews:add_post_hook(fun ([H, _, O]) -> [H, {hooked_response, O}, O] end),
     ok = ews:remove_pre_hook(R2),
-    EmptyMap = #{},
-    {ok, {hooked_response, EmptyMap}} =
+    {ok, {hooked_response, Opts}} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts, Opts),
     ok = ews:remove_post_hook(R1),
     ok = ews:remove_post_hook(R3),
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a, b, c, d, EmptyMap] = CallArgs,
+    [a, b, c, d, Opts] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
-     {Pid, {ews_serialize, decode, DecodeArgs}, [{hooked_response, EmptyMap}]}] =
+     {Pid, {ews_serialize, decode, DecodeArgs}, [{hooked_response, Opts}]}] =
         meck:history(ews_serialize),
-    [HeaderParts, _InHdrs, Model, Opts] = HeaderArgs,
-    [BodyParts, _Ins, Model, Opts] = BodyArgs,
+    [HeaderParts, _InHdrs, Model] = HeaderArgs,
+    [BodyParts, _Ins, Model] = BodyArgs,
     %% body comes from the ews_soap:call response
-    [{hooked_response, EmptyMap}, _Outs, Model, Opts] = DecodeArgs,
+    [{hooked_response, Opts}, _Outs, Model] = DecodeArgs,
 
     true = meck:validate(ews_serialize),
     true = meck:validate(ews_soap),
