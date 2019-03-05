@@ -184,7 +184,7 @@ encode_single_enum(Term, Values) ->
     case lists:keyfind(Term, 1, Values) of
         false ->
             Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
-            error({"expected "++Accept, Term});
+            error({bad_term, Term, "expected one of: " ++ Accept});
         {Term, Value} ->
             Value
     end.
