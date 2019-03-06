@@ -137,7 +137,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({add_wsdl_url, ModelRef, WsdlUrl}, S, State) ->
-    WsdlDoc = ews_wsdl:fetch(WsdlUrl),
+    {ok, WsdlDoc} = ews_wsdl:fetch(WsdlUrl),
     handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, S, State);
 handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
