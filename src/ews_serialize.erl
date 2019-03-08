@@ -80,6 +80,8 @@ encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
             case Type of
                 #base{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
+                #base{erl_type=string} ->
+                    {Qname, [], [{txt, list_to_binary(Terms)}]};
                 #enum{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
                 _ ->
@@ -166,7 +168,7 @@ encode_term(Term, #enum{values=Values, list=IsList}, _) ->
 
 encode_single_base(Term, BaseType) ->
     case BaseType of
-        string when is_binary(Term) ->
+        string when is_binary(Term); is_list(Term) ->
             Term;
         integer when is_integer(Term) ->
             integer_to_list(Term);
