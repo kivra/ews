@@ -10,6 +10,9 @@
          get_service_ops/1, get_service_ops/2,
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5, call_service_op/6,
+         encode_service_op/4, encode_service_op/5, encode_service_op/6,
+         decode_service_op_result/3, decode_service_op_result/4,
+         decode_service_op_result/5,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
@@ -73,16 +76,49 @@ get_service_op_info(Model, Service, Op) ->
 %% Call a service operation.
 %% If the service only exists in one model, the model arg is not
 %% necessary.
-%% Opaque can be any term, and is used to pass information into
-%% any hooks that are defined. By default the atom undefined will be used.
+%% Opts is a map and is used to set http options as well as pass information
+%% to any hooks that are defined. By default an empty map will be used.
+%% Options that affect ews are:
+%%  http_headers :: proplists:proplist()          (default [])
+%%       Extra headers that are added to the http call
+%%  timeout :: integer()                          (default 1 minute)
+%%       Timeout for SOAP call in msecs
+%%  include_http_response_headers :: boolean()    (default false)
+%%       If true, HTTP response headers are included in the returned headers
 call_service_op(Service, Op, Header, Body) ->
-    ews_svc:call(Service, Op, Header, Body).
-call_service_op(Service, Op, Header, Body, Opaque)  when is_list(Service) ->
-    ews_svc:call(Service, Op, Header, Body, Opaque);
+    ews_svc:call(Service, Op, Header, Body, default_call_opts()).
+
+call_service_op(Service, Op, Header, Body, Opts)  when is_list(Service) ->
+    ews_svc:call(Service, Op, Header, Body,
+                 maps:merge(default_call_opts(), Opts));
 call_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
-    ews_svc:call(Model, Service, Op, Header, Body).
-call_service_op(Model, Service, Op, Header, Body, Opaque) when is_atom(Model) ->
-    ews_svc:call(Model, Service, Op, Header, Body, Opaque).
+    ews_svc:call(Model, Service, Op, Header, Body, default_call_opts()).
+call_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
+    ews_svc:call(Model, Service, Op, Header, Body,
+                 maps:merge(default_call_opts(), Opts)).
+
+encode_service_op(Service, Op, Header, Body) ->
+    ews_svc:encode(Service, Op, Header, Body, #{}).
+
+encode_service_op(Service, Op, Header, Body, Opts)  when is_list(Service) ->
+    ews_svc:encode(Service, Op, Header, Body, Opts);
+encode_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
+    ews_svc:encode(Model, Service, Op, Header, Body, #{}).
+encode_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
+    ews_svc:encode(Model, Service, Op, Header, Body, Opts).
+
+decode_service_op_result(Service, Op, Body) ->
+    ews_svc:decode(Service, Op, Body, #{}).
+
+decode_service_op_result(Service, Op, Body, Opts)
+  when is_list(Service) ->
+    ews_svc:decode(Service, Op, Body, Opts);
+decode_service_op_result(Model, Service, Op, Body)
+  when is_atom(Model) ->
+    ews_svc:decode(Model, Service, Op, Body, #{}).
+decode_service_op_result(Model, Service, Op, Body, Opts)
+  when is_atom(Model) ->
+    ews_svc:decode(Model, Service, Op, Body, Opts).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->
@@ -92,12 +128,12 @@ record_to_map(R, ModelRef) ->
 
 %% Add a pre-call hook which is called just before making the actual
 %% SOAP call. A pre hook is a function of one argument, which will be
-%% a list [Opaque, EndPoint, Action, EncodedHeader, EncodedBody] where:
-%%  Opaque:        Term supplied in the call_service_op call
+%% a list [EndPoint, Action, EncodedHeader, EncodedBody, Options] where:
 %%  Endpoint:      The service endpoint that will be used for the call
 %%  Action:        SOAP action
 %%  EncodedHeader: Header after XML encoding
 %%  EncodedBody:   Body after XML encoding
+%%  Options:       Map supplied in the call_service_op call
 %% It should return a list of the same kind, with potentially updated
 %% values that are to be used in the call.
 %% Hooks are called in the order they were added, each hook being passed
@@ -110,10 +146,10 @@ add_pre_hook(Model, Hook) ->
 %% Add a post-call hook which is called after making the actual
 %% SOAP call. A post hook is a function of one argument, which will be
 %% a list [Opaque, EncodedBody] where:
-%%  Opaque:        Term supplied in the call_service_op call, possibly
-%%                 transformed by pre-hooks.
 %%  EncodedHeader: The header of the returned value
 %%  EncodedBody:   The body of the returned value
+%%  Options:       Map supplied in the call_service_op call, possibly changed
+%%                 by pre-call hooks
 %% It should return a list of the same kind, with potentially updated
 %% values. The call_service_op will only decode and return the tranformed
 %% EncodedBody, the header and opaque args are provided for the hooks only.
@@ -136,3 +172,8 @@ remove_post_hook(Model, HookRef) ->
 
 remove_model(Model) ->
     ews_svc:remove_model(Model).
+
+default_call_opts() ->
+    #{include_http_response_headers => false,
+      include_headers => false,
+      enum_values => atom}.

@@ -16,6 +16,7 @@
 %%                        validate against
 %%          Model       - The model that describe the types that the elements
 %%                        in the message has.
+
 -spec encode([any()], [any()], #model{}) -> iolist().
 encode(Terms, MsgElems, #model{type_map=Tbl}) ->
     case lists:all(fun(E) -> ews_model:is_root(E, Tbl) end, MsgElems) of
@@ -36,7 +37,7 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
 %%                        in the message has.
 -spec decode([any()], [any()], #model{}) -> [any()].
 decode(Terms, Elems, #model{elems=_Elems, type_map=Tbl}) ->
-   [ validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems) ].
+    [validate_xml(T, E, Tbl) || {T, E} <- lists:zip(Terms, Elems)].
 
 %% @doc Converts a term represented by a tuple to a map where the keys
 %%      are the same as the record field names. Any value that is undefined
@@ -54,13 +55,10 @@ record_to_map(Term, _M) when is_record(Term, fault) ->
 record_to_map(Term, M = #model{type_map = Tbl}) ->
     [Alias | Values] = tuple_to_list(Term),
     Parts = ews_model:get_parts(Alias, Tbl),
-    FieldNames = [ews_alias:create(QN) || #elem{qname = QN} <- Parts],
-    MapValues = lists:map(fun (V) ->
-                                  field_to_map(V, M)
-                          end, Values),
+    FieldNames = field_names(Parts),
+    MapValues = lists:map(fun (V) -> field_to_map(V, M) end, Values),
     maps:from_list([{K, V} ||  {K, V} <- lists:zip(FieldNames, MapValues),
                                V /= undefined]).
-
 %% Internal -------------------------------------------------------------------
 
 %% TODO: handle list of Terms -> check if #meta{max=M}, M > 1
@@ -82,6 +80,8 @@ encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
             case Type of
                 #base{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
+                #base{erl_type=string} ->
+                    {Qname, [], [{txt, list_to_binary(Terms)}]};
                 #enum{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
                 _ ->
@@ -168,7 +168,7 @@ encode_term(Term, #enum{values=Values, list=IsList}, _) ->
 
 encode_single_base(Term, BaseType) ->
     case BaseType of
-        string when is_binary(Term) ->
+        string when is_binary(Term); is_list(Term) ->
             Term;
         integer when is_integer(Term) ->
             integer_to_list(Term);
@@ -272,10 +272,10 @@ validate_xml({_Qname, As, []}, #enum{}, _) ->
 validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
     Str = binary_to_list(Txt),
     case lists:keyfind(Str, 2, Vs) of
-        {Value, Str} ->
-            Value;
         false ->
-            error({"failed to convert enum", {Txt, Vs}})
+            error({"failed to convert enum", {Txt, Vs}});
+        {V, _} ->
+            V
     end.
 
 %% TODO: Fix Max > 1 terms are bunched into a list
@@ -376,3 +376,6 @@ field_to_map(V, M) when is_list(V) ->
     [field_to_map(E, M) || E <- V];
 field_to_map(V, _M) ->
     V.
+
+field_names(Parts) ->
+    [ews_alias:create(QN) || #elem{qname = QN} <- Parts].
