@@ -122,15 +122,15 @@ decode_service_op_result(Model, Service, Op, Body, Opts)
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->
-    record_to_map(R, default).
-record_to_map(R, ModelRef) ->
-    ews_serialize:record_to_map(R, ews_svc:get_model(ModelRef)).
+    record_to_map(default, R).
+record_to_map(Model, R) ->
+    ews_serialize:record_to_map(R, ews_svc:get_model(Model)).
 
 %% Add a pre-call hook which is called just before making the actual
 %% SOAP call. A pre hook is a function of one argument, which will be
-%% a list [EndPoint, Action, EncodedHeader, EncodedBody, Options] where:
+%% a list [EndPoint, Operation, EncodedHeader, EncodedBody, Options] where:
 %%  Endpoint:      The service endpoint that will be used for the call
-%%  Action:        SOAP action
+%%  Operation:     Service operation
 %%  EncodedHeader: Header after XML encoding
 %%  EncodedBody:   Body after XML encoding
 %%  Options:       Map supplied in the call_service_op call
@@ -145,7 +145,7 @@ add_pre_hook(Model, Hook) ->
 
 %% Add a post-call hook which is called after making the actual
 %% SOAP call. A post hook is a function of one argument, which will be
-%% a list [Opaque, EncodedBody] where:
+%% a list [EncodedHeader, EncodedBody, Options] where:
 %%  EncodedHeader: The header of the returned value
 %%  EncodedBody:   The body of the returned value
 %%  Options:       Map supplied in the call_service_op call, possibly changed
@@ -175,5 +175,4 @@ remove_model(Model) ->
 
 default_call_opts() ->
     #{include_http_response_headers => false,
-      include_headers => false,
-      enum_values => atom}.
+      include_headers => false}.
