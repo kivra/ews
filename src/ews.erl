@@ -4,8 +4,6 @@
 
 -export([add_wsdl_to_model/1, add_wsdl_to_model/2,
          emit_complete_model_types/1, emit_complete_model_types/2,
-         emit_service_types/2, emit_service_types/3,
-         emit_service_ops/1, emit_service_ops/2,
          list_services/0, list_services/1, list_model_services/0,
          get_service_ops/1, get_service_ops/2,
          get_service_op_info/2, get_service_op_info/3,
@@ -39,16 +37,6 @@ emit_complete_model_types(Filename) ->
     emit_complete_model_types(default, Filename).
 emit_complete_model_types(Model, Filename) ->
     ews_svc:emit_model(Model, Filename).
-
-emit_service_types(_, _) ->
-    {error, not_implemented}.
-emit_service_types(_, _, _) ->
-    {error, not_implemented}.
-
-emit_service_ops(_) ->
-    {error, not_implemented}.
-emit_service_ops(_, _) ->
-    {error, not_implemented}.
 
 list_services() ->
     case ews_svc:list_services() of
