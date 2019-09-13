@@ -18,24 +18,18 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
             {"Content-Type", "text/xml"}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
     BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
-    Log = init_log(),
-    log_request(Log, BodyIoList),
-    Response = case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
-                   {ok, {{200,_}, HttpHdr, RespEnv}} ->
-                       log_response(Log, RespEnv),
-                       XmlTerm = ews_xml:decode(RespEnv),
-                       Resp = parse_envelope(XmlTerm),
-                       fix_header(Resp, HttpHdr, IncludeHttpHdr);
-                   {ok, {_Code, HttpHdr, FaultEnv}} ->
-                       log_response(Log, FaultEnv),
-                       XmlTerm = ews_xml:decode(FaultEnv),
-                       Resp = parse_envelope(XmlTerm),
-                       fix_header(Resp, HttpHdr, IncludeHttpHdr);
-                   {error, Error} ->
-                       {error, Error}
-               end,
-    cleanup_log(Log),
-    Response.
+    case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
+        {ok, {{200,_}, HttpHdr, RespEnv}} ->
+            XmlTerm = ews_xml:decode(RespEnv),
+            Resp = parse_envelope(XmlTerm),
+            fix_header(Resp, HttpHdr, IncludeHttpHdr);
+        {ok, {_Code, HttpHdr, FaultEnv}} ->
+            XmlTerm = ews_xml:decode(FaultEnv),
+            Resp = parse_envelope(XmlTerm),
+            fix_header(Resp, HttpHdr, IncludeHttpHdr);
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %% ----------------------------------------------------------------------------
 
@@ -89,31 +83,9 @@ parse_fault_field(Name, Fields) ->
         false ->
             undefined
     end.
-
-init_log() ->
-    {ok, Dir} = application:get_env(ews, soap_log_dir),
-    Filename = get_filename(),
-    FilePath = filename:join([Dir, Filename]),
-    filelib:ensure_dir(FilePath),
-    {ok, Fd} = file:open(FilePath, [write]),
-    Fd.
-
-get_filename() ->
-    %%TODO filename should include request id and timestamp
-    "rand.soap".
-
-log_request(Fd, Body) ->
-    file:write(Fd, ["request:\n", Body, 10, 10]).
-
-log_response(Fd, Body) ->
-    file:write(Fd, ["\nresponse:\n", Body]).
-
 fix_header(Response, _HttpHdr, false) ->
     Response;
 fix_header({error, E}, _HttpHdr, _) ->
     {error, E};
 fix_header({Code, {SoapHdr, SoapResp}}, HttpHdr, true) ->
     {Code, {[{http_response_headers, HttpHdr} | SoapHdr], SoapResp}}.
-
-cleanup_log(Fd) ->
-    file:close(Fd).

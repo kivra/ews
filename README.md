@@ -106,3 +106,15 @@ Returns and encoding of the specified service operation providing the given head
 `ews:decode_service_op_result(Model :: atom(), Service :: list(), Op :: list(), Body :: term(), Options :: map()) -> {ok, term()} | {error, term()}`
 
 Returns the Erlang representation of the provided result of calling the specified operation.
+
+## Environment
+
+The ews application uses the following application environment variables:
+
+`soap_timeout`
+
+Timeout for SOAP calls in milliseconds (default: 6000).
+
+`cache_base_dir`
+
+Base directory under which ews stores cached xsds (default: `code:priv_dir(ews)`).

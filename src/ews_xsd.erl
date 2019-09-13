@@ -63,7 +63,7 @@ import_schema(SchemaUrl) ->
     Schema.
 
 request_cached(SchemaUrl) ->
-    CacheDir = application:get_env(ews, cache_base_dir, "priv"),
+    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
     case file:read_file(File) of
