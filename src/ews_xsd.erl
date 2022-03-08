@@ -20,12 +20,22 @@
 
 parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema),
-%%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+    %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+    PrSchemas = [ #schema{namespace=Ns,
+                          url=Url,
+                          types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
+    NewTypes = process(propagate_namespaces(PrSchemas), Model),
+    {ews_model:append_model(Acc, NewTypes, Model), Model};
+parse_schema(Schema, {Acc, Model, BaseUrl}) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schema, BaseUrl),
+    %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model}.
+
+
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
@@ -33,10 +43,16 @@ parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
 get_all_schemas(TopSchema) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
     Input = {Namespace, undefined, TopSchema},
-    AllSchemas = lists:flatten(get_all_schemas(Input, [])),
+    AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas).
 
-get_all_schemas({Ns, Base, Schema}, Acc) ->
+get_all_schemas(TopSchema, BaseUrl) ->
+    Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    Input = {Namespace, undefined, TopSchema},
+    AllSchemas = lists:flatten(do_get_all_schemas(Input, [], BaseUrl)),
+    lists:ukeysort(1, AllSchemas).
+
+do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
         [] ->
             [{Ns, Base, Schema} | Acc];
@@ -46,7 +62,20 @@ get_all_schemas({Ns, Base, Schema}, Acc) ->
                              Url /= undefined,
                              not lists:keymember(ImpNs, 1, Acc) ],
             [{Ns, Base, Schema} |
-             [ get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+             [ do_get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+    end.
+
+do_get_all_schemas({Ns, Base, Schema}, Acc, BaseUrl) ->
+    case find_imports(Schema) of
+        [] ->
+            [{Ns, Base, Schema} | Acc];
+        Imports ->
+            ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseUrl)} ||
+                             {ImpNs, Url} <- Imports,
+                             Url /= undefined,
+                             not lists:keymember(ImpNs, 1, Acc) ],
+            [{Ns, Base, Schema} |
+             [ do_get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
     end.
 
 find_imports(Schema) ->
@@ -56,6 +85,14 @@ find_imports(Schema) ->
 
 import_schema(SchemaUrl) ->
     {ok, Bin} = request_cached(SchemaUrl),
+    {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
+    Schema.
+
+import_schema(SchemaUrl, BaseUrl) ->
+    {ok, Bin} = request_cached(SchemaUrl, BaseUrl),
     {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
                                     [{space, normalize},
                                      {namespace_conformant, true},
@@ -79,6 +116,34 @@ request_cached(SchemaUrl) ->
                 {error, Error} ->
                     {error, Error}
             end
+    end.
+
+request_cached(SchemaUrl, BaseUrl) ->
+    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
+    ok = filelib:ensure_dir(File),
+    Url = ensure_url(SchemaUrl, BaseUrl),
+    case file:read_file(File) of
+        {ok, Bin} ->
+            {ok, Bin};
+        {error, Error} ->
+            case lhttpc:request(Url, get, [], [], 400000, ?HTTP_OPTS) of
+                {ok, {{200, _}, _, Bin}} ->
+                    ok = file:write_file(File, Bin),
+                    {ok, Bin};
+                {ok, {{_, _}, _, Bin}} ->
+                    {error, Bin};
+                {error, Error} ->
+                    {error, Error}
+            end
+    end.
+
+ensure_url(SchemaUrl, BaseUrl) ->
+    case uri_string:parse(SchemaUrl) of
+        #{ host := _ } ->
+            SchemaUrl;
+        _ ->
+            lists:flatten(lists:join($/, [BaseUrl, SchemaUrl]))
     end.
 
 escape_slash([]) -> [];
@@ -350,9 +415,8 @@ insert_nss([E = #element{name=N, parts=[]} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [E#element{name=qname(N, Ns)}|Res]);
 insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewParts = case Ps of
-                   [#simple_type{}] ->
-                       error({not_implemented, unnamed_simple_type},
-                             [E, Ns, Res]);
+                   [#simple_type{} = St] ->
+                       [St#simple_type{name=qname(N, Ns)}];
                    [#complex_type{parts=CtPs} = Ct] ->
                        [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
@@ -475,6 +539,41 @@ to_base({"http://www.w3.org/2001/XMLSchema", N} = Qn) ->
                     #base{xsd_type=Qn, erl_type=string}
             end
     end;
-to_base(_) -> false.
+to_base({_, "boolean"} = Qn) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base({_, N} = Qn) ->
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end;
+to_base("boolean" = Qn) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base(N = Qn) ->
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end.
 
 %% ----------------------------------------------------------------------------

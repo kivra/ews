@@ -164,9 +164,25 @@ remove_model(ModelRef) ->
 init([]) ->
     {ok, #state{}}.
 
-handle_call({add_wsdl_url, ModelRef, WsdlUrl}, S, State) ->
+handle_call({add_wsdl_url, ModelRef, WsdlUrl}, _S, State) ->
+    BaseUrl = filename:dirname(WsdlUrl),
     {ok, WsdlDoc} = ews_wsdl:fetch(WsdlUrl),
-    handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, S, State);
+    #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
+    OldSvcNames = [N || {N, _} <- OldModelSvcs],
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc, ModelRef, BaseUrl),
+    Svcs = compile_wsdl(Wsdl),
+    NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewSvcNames = [N || {N, _} <- Svcs],
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
+                                     NewSvcNames -- OldSvcNames),
+    Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
+    NewState = State#state{services=NewSvcs, models=NewModels,
+                           service_index=NewSvcIdx},
+    {reply, {ok, Count}, NewState};
 handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
     OldModel = maps:get(ModelRef, OldModels, undefined),
