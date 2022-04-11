@@ -165,63 +165,69 @@ verify(Element, Fingerprints) ->
     DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
 
-    [#xmlAttribute{value = SignatureMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]),
-    {HashFunction, _, _} = signature_props(SignatureMethodAlgorithm),
+    case xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]) of
+        [] ->
+            {error, no_signature};
+        [#xmlAttribute{value = SignatureMethodAlgorithm}] ->
+            {HashFunction, _, _} = signature_props(SignatureMethodAlgorithm),
 
-    [#xmlAttribute{value = "http://www.w3.org/2001/10/xml-exc-c14n#"}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:CanonicalizationMethod/@Algorithm", Element, [{namespace, DsNs}]),
-    [#xmlAttribute{value = SignatureMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]),
-    [C14nTx = #xmlElement{}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
-    InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
-        [] -> [];
-        [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
-    end,
+            [#xmlAttribute{value = "http://www.w3.org/2001/10/xml-exc-c14n#"}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:CanonicalizationMethod/@Algorithm", Element, [{namespace, DsNs}]),
+            [#xmlAttribute{value = SignatureMethodAlgorithm}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:SignatureMethod/@Algorithm", Element, [{namespace, DsNs}]),
+            [C14nTx = #xmlElement{}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
+            InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
+                [] -> [];
+                [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
+            end,
 
-    CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
-    CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
-    CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
+            CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
+            CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
+            CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
 
-    [#xmlText{value = Sha64}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestValue/text()", Element, [{namespace, DsNs}]),
-    CanonSha2 = base64:decode(Sha64),
+            [#xmlText{value = Sha64}] = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:DigestValue/text()", Element, [{namespace, DsNs}]),
+            CanonSha2 = base64:decode(Sha64),
 
-    if not (CanonSha =:= CanonSha2) ->
-        {error, bad_digest};
+            if not (CanonSha =:= CanonSha2) ->
+                {error, bad_digest};
 
-    true ->
-        [SigInfo] = xmerl_xpath:string("ds:Signature/ds:SignedInfo", Element, [{namespace, DsNs}]),
-        SigInfoCanon = xmerl_c14n:c14n(SigInfo),
-        Data = list_to_binary(SigInfoCanon),
-
-        [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
-        Sig = base64:decode(Sig64),
-
-        [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
-        CertBin = base64:decode(Cert64),
-        CertHash = crypto:hash(sha, CertBin),
-        CertHash2 = crypto:hash(sha256, CertBin),
-
-        Cert = public_key:pkix_decode_cert(CertBin, plain),
-        KeyBin = case Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey of
-          {_, KeyBin2} -> KeyBin2;
-          KeyBin3 -> KeyBin3
-        end,
-        Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
-
-        case public_key:verify(Data, HashFunction, Sig, Key) of
             true ->
-                case Fingerprints of
-                    any ->
-                        ok;
-                    _ ->
-                        case lists:any(fun(X) -> lists:member(X, Fingerprints) end, [CertHash, {sha,CertHash}, {sha256,CertHash2}]) of
-                            true ->
+                [SigInfo] = xmerl_xpath:string("ds:Signature/ds:SignedInfo", Element, [{namespace, DsNs}]),
+                SigInfoCanon = xmerl_c14n:c14n(SigInfo),
+                Data = list_to_binary(SigInfoCanon),
+
+                [#xmlText{value = Sig64}] = xmerl_xpath:string("ds:Signature//ds:SignatureValue/text()", Element, [{namespace, DsNs}]),
+                Sig = base64:decode(Sig64),
+
+                [#xmlText{value = Cert64}] = xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()", Element, [{namespace, DsNs}]),
+                CertBin = base64:decode(Cert64),
+                CertHash = crypto:hash(sha, CertBin),
+                CertHash2 = crypto:hash(sha256, CertBin),
+
+                Cert = public_key:pkix_decode_cert(CertBin, plain),
+                KeyBin = case Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey of
+                  {_, KeyBin2} -> KeyBin2;
+                  KeyBin3 -> KeyBin3
+                end,
+                Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
+
+                case public_key:verify(Data, HashFunction, Sig, Key) of
+                    true ->
+                        case Fingerprints of
+                            any ->
                                 ok;
-                            false ->
-                                {error, cert_not_accepted}
-                        end
-                end;
-            false ->
-                {error, bad_signature}
-        end
+                            _ ->
+                                case lists:any(fun(X) -> lists:member(X, Fingerprints) end, [CertHash, {sha,CertHash}, {sha256,CertHash2}]) of
+                                    true ->
+                                        ok;
+                                    false ->
+                                        {error, cert_not_accepted}
+                                end
+                        end;
+                    false ->
+                        {error, bad_signature}
+                end
+            end;
+        _ ->
+            {error, multiple_signatures}
     end.
 
 %% @doc Verifies an XML digital signature, trusting any valid certificate.
