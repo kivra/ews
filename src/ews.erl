@@ -28,10 +28,16 @@ stop() ->
 
 add_wsdl_to_model(Wsdl) ->
     add_wsdl_to_model(default, Wsdl).
+
 add_wsdl_to_model(Model, Wsdl) when is_atom(Model), is_binary(Wsdl) ->
     ews_svc:add_wsdl_bin(Model, Wsdl);
 add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
-    ews_svc:add_wsdl_url(Model, WsdlUrl).
+    case uri_string:parse(WsdlUrl) of
+        #{scheme := _} ->
+            ews_svc:add_wsdl_url(Model, WsdlUrl);
+        #{} ->
+            ews_svc:add_wsdl_local(Model, WsdlUrl)
+    end.
 
 emit_complete_model_types(Filename) ->
     emit_complete_model_types(default, Filename).

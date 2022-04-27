@@ -20,18 +20,18 @@
 
 parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema),
-    %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+    [ print_schema_stats(S) || {_, _, S} <- Schemas ],
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model};
-parse_schema(Schema, {Acc, Model, BaseUrl}) when is_atom(Model) ->
-    Schemas = get_all_schemas(Schema, BaseUrl),
-    %%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+parse_schema(Schema, {Acc, Model, BaseDir}) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schema, BaseDir),
+    [ print_schema_stats(S) || {_, _, S, _} <- Schemas ],
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
-                          types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
+                          types=parse_types(S)} || {Ns, Url, S, _} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model}.
 
@@ -46,10 +46,11 @@ get_all_schemas(TopSchema) ->
     AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas).
 
-get_all_schemas(TopSchema, BaseUrl) ->
+get_all_schemas(TopSchema, BaseDir) ->
+    io:format("APA!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!~n"),
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    Input = {Namespace, undefined, TopSchema},
-    AllSchemas = lists:flatten(do_get_all_schemas(Input, [], BaseUrl)),
+    Input = {Namespace, undefined, TopSchema, BaseDir},
+    AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
     lists:ukeysort(1, AllSchemas).
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
@@ -65,17 +66,29 @@ do_get_all_schemas({Ns, Base, Schema}, Acc) ->
              [ do_get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
     end.
 
-do_get_all_schemas({Ns, Base, Schema}, Acc, BaseUrl) ->
+do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
     case find_imports(Schema) of
         [] ->
-            [{Ns, Base, Schema} | Acc];
+            [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
-            ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseUrl)} ||
+            io:format("Imports: ~p~n", [Imports]),
+            ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
+                            basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
                              Url /= undefined,
                              not lists:keymember(ImpNs, 1, Acc) ],
-            [{Ns, Base, Schema} |
-             [ do_get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+            [{Ns, Base, Schema, BaseDir} |
+             [ do_get_all_schemas_local(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+    end.
+
+basedir(Url, BaseDir) ->
+    case {uri_string:parse(Url), filename:dirname(Url)} of
+        {#{scheme := _}, _} ->
+            BaseDir;
+        {#{}, "."} ->
+            BaseDir;
+        {#{}, DirName} ->
+            filename:join(BaseDir, DirName)
     end.
 
 find_imports(Schema) ->
@@ -91,8 +104,8 @@ import_schema(SchemaUrl) ->
                                      {validation, schema}]),
     Schema.
 
-import_schema(SchemaUrl, BaseUrl) ->
-    {ok, Bin} = request_cached(SchemaUrl, BaseUrl),
+import_schema(SchemaUrl, BaseDir) ->
+    {ok, Bin} = request_cached(SchemaUrl, BaseDir),
     {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
                                     [{space, normalize},
                                      {namespace_conformant, true},
@@ -118,16 +131,16 @@ request_cached(SchemaUrl) ->
             end
     end.
 
-request_cached(SchemaUrl, BaseUrl) ->
+request_cached(SchemaUrl, BaseDir) ->
     CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
-    Url = ensure_url(SchemaUrl, BaseUrl),
-    case file:read_file(File) of
-        {ok, Bin} ->
+    URI = uri_string:parse(SchemaUrl),
+    case {file:read_file(File), URI} of
+        {{ok, Bin}, _} ->
             {ok, Bin};
-        {error, Error} ->
-            case lhttpc:request(Url, get, [], [], 400000, ?HTTP_OPTS) of
+        {{error, Error}, #{scheme := _Scheme}} ->
+            case lhttpc:request(SchemaUrl, get, [], [], 400000, ?HTTP_OPTS) of
                 {ok, {{200, _}, _, Bin}} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
@@ -135,16 +148,25 @@ request_cached(SchemaUrl, BaseUrl) ->
                     {error, Bin};
                 {error, Error} ->
                     {error, Error}
+            end;
+        %% Not a URI, fetch locally
+        {{error, Error}, #{}} ->
+            XSDFilename = filename:join(BaseDir, SchemaUrl),
+            case file:read_file(XSDFilename) of
+                {ok, Bin} ->
+                    {ok, Bin};
+                {error, Error} ->
+                    {error, Error}
             end
     end.
 
-ensure_url(SchemaUrl, BaseUrl) ->
-    case uri_string:parse(SchemaUrl) of
-        #{ host := _ } ->
-            SchemaUrl;
-        _ ->
-            lists:flatten(lists:join($/, [BaseUrl, SchemaUrl]))
-    end.
+%% ensure_url(SchemaUrl, BaseUrl) ->
+%%     case uri_string:parse(SchemaUrl) of
+%%         #{ host := _ } ->
+%%             SchemaUrl;
+%%         _ ->
+%%             lists:flatten(lists:join($/, [BaseUrl, SchemaUrl]))
+%%     end.
 
 escape_slash([]) -> [];
 escape_slash([$/ | Rest]) -> [$- | escape_slash(Rest)];
@@ -447,6 +469,7 @@ to_string(Val) -> Val.
 %% ----------------------------------------------------------------------------
 
 process(Types, Model) ->
+    io:format("Types: ~p~n", [Types]),
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     {AllTypes, Elems} = process(Types, Ts, [], []),
@@ -457,13 +480,21 @@ process(Types, Model) ->
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
-    Elem = #elem{qname=Qname, type=Qname, meta=Meta},
-    #complex_type{extends=Ext, parts=Ps2,
-                  abstract=Abstract} = lists:keyfind(complex_type, 1, Ps),
-    {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, []),
-    Type = #type{qname=Qname, extends=Ext,
-                 abstract=Abstract, elems=SubElems},
-    process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc]);
+    io:format("Elem ~p Ps: ~p~n", [Qname, Ps]),
+    case lists:keyfind(complex_type, 1, Ps) of
+        #complex_type{extends=Ext, parts=Ps2,
+                      abstract=Abstract} ->
+            Elem = #elem{qname=Qname, type=Qname, meta=Meta},
+            {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, []),
+            Type = #type{qname=Qname, extends=Ext,
+                         abstract=Abstract, elems=SubElems},
+            process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc]);
+        false ->
+            #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
+            #base{} = Base = process_simple(Type),
+            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            process(Rest, Ts, TypeAcc, [Elem | ElemAcc])
+    end;
 process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
     process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc);
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
@@ -491,8 +522,8 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Ts,
     {AccWithSubTypes, SubElems} = process(Ps, Ts, TypeAcc, []),
     Type = #type{qname=Qname, extends=Ext, elems=SubElems},
     process(Rest, Ts, [Type | AccWithSubTypes], ElemAcc);
-process([_T | Rest], Ts, TypeAcc, ElemAcc) ->
-    %% io:format("error: unexpected ~p~n", [T]),
+process([T | Rest], Ts, TypeAcc, ElemAcc) ->
+    io:format("error: unexpected ~p~n", [T]),
     process(Rest, Ts, TypeAcc, ElemAcc);
 process([], _, TypeAcc, ElemAcc) ->
     {TypeAcc, lists:reverse(ElemAcc)}.

@@ -7,6 +7,7 @@
 -export([start_link/0]).
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
+         add_wsdl_local/2,
          list_services/0, list_services/1,
          list_service_ops/1, list_service_ops/2,
          get_op_info/2, get_op_info/3,
@@ -40,6 +41,10 @@ add_wsdl_url(ModelRef, WsdlUrl) ->
 
 add_wsdl_bin(ModelRef, WsdlBin) ->
     gen_server:call(?MODULE, {add_wsdl_bin, ModelRef, WsdlBin},
+                    timer:minutes(1)).
+
+add_wsdl_local(ModelRef, WsdlBin) ->
+    gen_server:call(?MODULE, {add_wsdl_local, ModelRef, WsdlBin},
                     timer:minutes(1)).
 
 list_services() ->
@@ -189,6 +194,23 @@ handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
     OldSvcNames = [N || {N, _} <- OldModelSvcs],
     Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc, ModelRef),
+    Svcs = compile_wsdl(Wsdl),
+    NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewSvcNames = [N || {N, _} <- Svcs],
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
+                                     NewSvcNames -- OldSvcNames),
+    Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
+    NewState = State#state{services=NewSvcs, models=NewModels,
+                           service_index=NewSvcIdx},
+    {reply, {ok, Count}, NewState};
+handle_call({add_wsdl_local, ModelRef, WsdlPath}, _, State) ->
+    #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
+    OldSvcNames = [N || {N, _} <- OldModelSvcs],
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse_local(WsdlPath, ModelRef),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
     NewSvcNames = [N || {N, _} <- Svcs],

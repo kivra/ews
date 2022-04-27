@@ -8,7 +8,12 @@
 
 -module(ews_wsdl).
 
--export([parse/2, parse/3, fetch/1, fetch_and_parse/2]).
+-export([ parse/2
+        , parse/3
+        , parse_local/2
+        , fetch/1
+        , fetch_and_parse/2
+        ]).
 
 -include("ews.hrl").
 
@@ -55,6 +60,32 @@ parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
     PortTypes = parse_port_types(WsdlDoc, TargetNs),
     Services = parse_services(WsdlDoc),
     Types = parse_types(WsdlDoc, Model, BaseUrl),
+    #wsdl{target_ns=TargetNs,
+          services=Services,
+          bindings=Bindings,
+          port_types=PortTypes,
+          messages=Messages,
+          types=Types}.
+
+%% For now this is how to test.
+%%
+%% add this branch to kivra_core
+%% download the .jar from mm and unpack it to mm_api
+%% ews_wsdl:parse_local("mm_api/META-INF/wsdl/public/Recipient.wsdl", mm_rpc).
+%%
+parse_local(WsdlPath, Model) when is_atom(Model) ->
+    {ok, WsdlBin} = file:read_file(WsdlPath),
+    WsdlBasePath = filename:dirname(WsdlPath),
+    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+    TargetNs = wh:get_attribute(WsdlDoc, targetNamespace),
+    Messages = parse_messages(WsdlDoc, TargetNs),
+    Bindings = parse_bindings(WsdlDoc, TargetNs),
+    PortTypes = parse_port_types(WsdlDoc, TargetNs),
+    Services = parse_services(WsdlDoc),
+    Types = parse_types(WsdlDoc, Model, WsdlBasePath),
     #wsdl{target_ns=TargetNs,
           services=Services,
           bindings=Bindings,
@@ -201,11 +232,11 @@ parse_types(WsdlDoc, Model) ->
         lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model}, Schemas),
     Res.
 
-parse_types(WsdlDoc, Model, BaseUrl) ->
+parse_types(WsdlDoc, Model, BaseDir) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
     {Res, _} =
-        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model, BaseUrl},
+        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model, BaseDir},
                     Schemas),
     Res.
 
