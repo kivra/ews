@@ -231,6 +231,10 @@ parse_type(#xmlElement{} = Type) ->
 
 %% FIXME: Must handle 'ref' attributes
 parse_element(Element) ->
+    Ref = wh:get_attribute(Element, ref),
+    maybe_ref(Ref, Element).
+
+maybe_ref(undefined, Element) ->
     Name = wh:get_attribute(Element, name),
     Type = wh:get_attribute(Element, type),
     Default = wh:get_attribute(Element, default),
@@ -242,7 +246,10 @@ parse_element(Element) ->
     #element{name=Name, type=Type, default=Default,
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
-             parts=Children}.
+             parts=Children};
+maybe_ref(Qname, Element) ->
+    Name = wh:get_attribute(Element, name),
+    #element{name=Name, type=#reference{name=Qname}, parts=[]}.
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
@@ -477,10 +484,14 @@ process(Types, Model) ->
     [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
     #model{type_map=TypeMap, elems=[]}.
 
+%% two_step_process(Types, Ts) ->
+%%     {AllTypes0, Elems0} = process(Types, Ts, [], []),
+%%     .
+
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
-    io:format("Elem ~p Ps: ~p~n", [Qname, Ps]),
+    %% io:format("Elem ~p Ps: ~p~n", [Qname, Ps]),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
@@ -497,6 +508,10 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
     end;
 process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
     process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc);
+process([#element{name=_, type=#reference{name=Qname}, parts=[]} | Rest], Ts,
+        TypeAcc, ElemAcc) ->
+    Elem = #elem{qname=Qname, type=Qname},
+    process(Rest, Ts, TypeAcc, [Elem | ElemAcc]);
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
