@@ -4,7 +4,7 @@
 
 -include("ews.hrl").
 
-model_to_file(#model{type_map=Tbl}, Filename, ModelRef) ->
+model_to_file(#model{type_map=Tbl, simple_types=_Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl),
     io:format("emitting ~p records~n", [length(Unresolved) + length(Resolved)]),
     UnresolvedTypeDefs = [output_typedef(T) || T <- Unresolved],

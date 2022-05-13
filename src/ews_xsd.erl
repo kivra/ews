@@ -482,7 +482,7 @@ process(Types, Model) ->
     {AllTypes, Elems} = process(Types, Ts, [], []),
     [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
     [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
-    #model{type_map=TypeMap, elems=[]}.
+    #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 %% two_step_process(Types, Ts) ->
 %%     {AllTypes0, Elems0} = process(Types, Ts, [], []),
