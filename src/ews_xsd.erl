@@ -511,7 +511,8 @@ process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
 process([#element{name=_, type=#reference{name=Qname}, parts=[]} | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Elem = #elem{qname=Qname, type=Qname},
-    process(Rest, Ts, TypeAcc, [Elem | ElemAcc]);
+    Type = #type{qname=Qname},
+    process(Rest, Ts, [Type | TypeAcc], [Elem | ElemAcc]);
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
