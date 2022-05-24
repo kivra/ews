@@ -247,9 +247,9 @@ maybe_ref(undefined, Element) ->
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
-maybe_ref(Qname, Element) ->
-    Name = wh:get_attribute(Element, name),
-    #element{name=Name, type=#reference{name=Qname}, parts=[]}.
+maybe_ref(Qname, _Element) ->
+    %%Name = wh:get_attribute(Element, name),
+    #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
@@ -511,8 +511,7 @@ process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
 process([#element{name=_, type=#reference{name=Qname}, parts=[]} | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Elem = #elem{qname=Qname, type=Qname},
-    Type = #type{qname=Qname},
-    process(Rest, Ts, [Type | TypeAcc], [Elem | ElemAcc]);
+    process(Rest, Ts, TypeAcc, [Elem | ElemAcc]);
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
         TypeAcc, ElemAcc) ->
     Meta = parse_meta(E),
