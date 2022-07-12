@@ -531,8 +531,8 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
             case ews_model:get_elem(Qname, TypeMap) of
                 false ->
                     error({cant_find_in_typemap, Qname});
-                #elem{type = #base{}} = _E1 ->
-                    process(Rest, Ts, TypeAcc, ElemAcc, TypeMap, Model)
+                #elem{type = #base{}} = E1 ->
+                    process(Rest, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
             end
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
