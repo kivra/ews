@@ -39,6 +39,8 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
+make_envelope([], Body) ->
+    {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
 make_envelope(Header, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_header(Header), make_body(Body)]}.
 
