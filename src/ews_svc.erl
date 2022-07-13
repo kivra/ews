@@ -522,8 +522,10 @@ message_info(Op, Model) ->
         faults=FaultMsgs,
         endpoint=Endpoint,
         action=Action} = Op,
-    {#message{parts=InHdrParts}, #message{parts=InParts}} = InputMsg,
-    {#message{parts=OutHdrParts}, #message{parts=OutParts}} = OutputMsg,
+    {OpInHdrs, #message{parts=InParts}} = InputMsg,
+    {OpOutHdrs, #message{parts=OutParts}} = OutputMsg,
+    InHdrParts = empty_headers(OpInHdrs),
+    OutHdrParts = empty_headers(OpOutHdrs),
     InHdrs = [ E || #part{element=E} <- InHdrParts ],
     OutHdrs = [ E || #part{element=E} <- OutHdrParts ],
     Ins = [ E || #part{element=E} <- InParts ],
@@ -540,6 +542,9 @@ message_info(Op, Model) ->
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
      {pre_hooks, PreHooks}, {post_hooks, PostHooks},
      {endpoint, Endpoint}, {action, Action}].
+
+empty_headers(#message{parts=InHdrParts}) -> InHdrParts;
+empty_headers(undefined) -> [].
 
 find_elem(Qname, #model{type_map=Tbl}) ->
     case ews_model:get_elem(Qname, Tbl) of
