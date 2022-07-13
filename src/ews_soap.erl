@@ -11,19 +11,23 @@
 
 call(Endpoint, SoapAction, Header, Body, Opts) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
-    Timeout = maps:get(timeout, Opts, DefaultTimeout),
+    %% FIXME: get the timeout into hackney
+    _Timeout = maps:get(timeout, Opts, DefaultTimeout),
     IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
+    HttpOpts = maps:get(http_options, Opts, []),
     Hdrs = [{"SOAPAction", SoapAction},
             {"Content-Type", "text/xml"}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
     BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
-    case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
-        {ok, {{200,_}, HttpHdr, RespEnv}} ->
+    case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
+        {ok, 200, HttpHdr, RespRef} ->
+            {ok, RespEnv} = hackney:body(RespRef),
             XmlTerm = ews_xml:decode(RespEnv),
             Resp = parse_envelope(XmlTerm),
             fix_header(Resp, HttpHdr, IncludeHttpHdr);
-        {ok, {_Code, HttpHdr, FaultEnv}} ->
+        {ok, _Code, HttpHdr, FaultRef} ->
+            {ok, FaultEnv} = hackney:body(FaultRef),
             XmlTerm = ews_xml:decode(FaultEnv),
             Resp = parse_envelope(XmlTerm),
             fix_header(Resp, HttpHdr, IncludeHttpHdr);
