@@ -16,8 +16,8 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
     HttpOpts = maps:get(http_options, Opts, []),
-    Hdrs = [{"SOAPAction", SoapAction},
-            {"Content-Type", "text/xml"}] ++ ExtraHeaders,
+    Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
+            {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
     BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
     case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
@@ -36,6 +36,9 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     end.
 
 %% ----------------------------------------------------------------------------
+
+a2b(B) when is_binary(B) -> B;
+a2b(L) when is_list(L) -> iolist_to_binary(L).
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
