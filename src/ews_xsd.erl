@@ -320,7 +320,7 @@ parse_restriction(Restriction) ->
 is_enumeration([]) ->
     false;
 is_enumeration(Values) ->
-    lists:all(fun({enumeration, _}) -> true; (_) -> false end, Values).
+    lists:any(fun({enumeration, _}) -> true; (_) -> false end, Values).
 
 parse_complex_content(ComplexContent) ->
     case wh:get_all_child_elements(ComplexContent) of
