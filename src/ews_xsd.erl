@@ -539,7 +539,7 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
-    case to_base(T) of
+    case to_base(Qtype) of
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
@@ -580,12 +580,12 @@ process_simple(#simple_type{restrictions=Rs, order=Order}) ->
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
-        #enumeration{base_type=Base, values=Values} ->
+        #enumeration{base_type=_Base, values=Values} = Enum ->
             Vs = [ {ews_alias:create({ok, Str}), Str} ||
                    {enumeration, Str} <- Values ],
-            #enum{type=to_base(Base), values=Vs, list=IsList, union=IsUnion};
-        #restriction{base_type=Base, values=Rvals} ->
-            BaseRec = to_base(Base),
+            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+        #restriction{base_type=_Base, values=Rvals} = Restriction ->
+            BaseRec = to_base(Restriction),
             BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
     end.
 
@@ -612,9 +612,9 @@ to_base({"http://www.w3.org/2001/XMLSchema", N} = Qn) ->
                     #base{xsd_type=Qn, erl_type=string}
             end
     end;
-to_base({_, "boolean"} = Qn) ->
+to_base(#restriction{base_type = "boolean" = Qn}) ->
     #base{xsd_type=Qn, erl_type=boolean};
-to_base({_, N} = Qn) ->
+to_base(#restriction{base_type = N = Qn}) ->
     IntTypes = [integer, int, long, short, byte,
                 unsignedInt, unsignedLong, unsignedShort,
                 negativeInteger, positiveInteger, nonNegativeInteger],
@@ -630,9 +630,9 @@ to_base({_, N} = Qn) ->
                     #base{xsd_type=Qn, erl_type=string}
             end
     end;
-to_base("boolean" = Qn) ->
+to_base(#enumeration{base_type = "boolean" = Qn}) ->
     #base{xsd_type=Qn, erl_type=boolean};
-to_base(N = Qn) ->
+to_base(#enumeration{base_type = N = Qn}) ->
     IntTypes = [integer, int, long, short, byte,
                 unsignedInt, unsignedLong, unsignedShort,
                 negativeInteger, positiveInteger, nonNegativeInteger],
@@ -647,6 +647,25 @@ to_base(N = Qn) ->
                 false ->
                     #base{xsd_type=Qn, erl_type=string}
             end
-    end.
+    end;
+to_base({"no_ns", "boolean"} = Qn) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base({"no_ns", N} = Qn) ->
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end;
+to_base(_) -> false.
 
 %% ----------------------------------------------------------------------------
