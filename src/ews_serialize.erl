@@ -233,6 +233,14 @@ validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml(Es, Type, Tbl);
 validate_xml(Es, Type, Tbl) when is_list(Es) ->
     [ validate_xml(E, Type, Tbl) || E <- Es ];
+validate_xml({_, As, []}, #type{}, _Tbl) ->
+    %% This is broken, an empty type that shouldn't be.
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            undefined
+    end;
 validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
     case is_nil(As) of
         true ->
