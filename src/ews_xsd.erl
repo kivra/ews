@@ -47,7 +47,6 @@ get_all_schemas(TopSchema) ->
     lists:ukeysort(1, AllSchemas).
 
 get_all_schemas(TopSchema, BaseDir) ->
-    io:format("APA!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!~n"),
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
     Input = {Namespace, undefined, TopSchema, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
@@ -71,7 +70,7 @@ do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
         [] ->
             [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
-            io:format("Imports: ~p~n", [Imports]),
+            %%io:format("Imports: ~p~n", [Imports]),
             ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
                             basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
@@ -247,9 +246,9 @@ maybe_ref(undefined, Element) ->
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
-maybe_ref(Qname, Element) ->
-    Name = wh:get_attribute(Element, name),
-    io:format("maybe_ref(~p) Name: ~p~n~p~n", [Qname, Name, Element]),
+maybe_ref(Qname, _Element) ->
+    %%Name = wh:get_attribute(Element, name),
+    %%io:format("maybe_ref(~p) Name: ~p~n~p~n", [Qname, Name, Element]),
     #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
 
 parse_complex_type(ComplexType) ->
@@ -477,14 +476,14 @@ to_string(Val) -> Val.
 %% ----------------------------------------------------------------------------
 
 process(Types, Model) ->
-    io:format("Types: ~p~n", [Types]),
+    %%io:format("Types: ~p~n", [Types]),
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     {AllTypes, Elems} = process(Types, Ts, [], [], TypeMap, Model),
     [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
     [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
-    io:format("SimpleTypes: ~p~nModel: ~p~n",
-              [Ts, ets:tab2list(TypeMap)]),
+    %% io:format("SimpleTypes: ~p~nModel: ~p~n",
+    %%           [Ts, ets:tab2list(TypeMap)]),
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 %% two_step_process(Types, Ts) ->
@@ -517,9 +516,9 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
 process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc,
         TypeMap, Model) ->
     process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest], Ts,
+process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = _E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
-    io:format("Ref: ~p~n", [E]),
+    %% io:format("Ref: ~p~n", [E]),
     case lists:keyfind(Qname, 1, Ts) of
         #simple_type{} = Type ->
             #base{} = Base = process_simple(Type),
