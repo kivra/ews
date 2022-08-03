@@ -13,10 +13,12 @@
          get_op_info/2, get_op_info/3,
          get_op/2, get_op/3,
          get_op_message_details/2, get_op_message_details/3,
+         get_model_ops/1,
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/5, call/6, encode/5, encode/6, decode/4, decode/5,
+         decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1]).
@@ -77,6 +79,9 @@ get_op_message_details(Service, Op) ->
 get_op_message_details(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_message_details, ModelRef, Service, Op}).
 
+get_model_ops(ModelRef) ->
+    gen_server:call(?MODULE, {get_model_ops, ModelRef}).
+
 list_types(ModelRef) ->
     gen_server:call(?MODULE, {list_types, ModelRef}).
 
@@ -134,6 +139,26 @@ encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     encode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts).
+
+decode_in(ModelRef, SOAP) ->
+    XmlTerm = ews_xml:decode(SOAP),
+    {ok, {Headers, BodyParts} = XML} = ews_soap:parse_envelope(XmlTerm),
+    {ok, ModelOps} = ews_svc:get_model_ops(ModelRef),
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case find_service_op(XML, ModelOps) of
+        [{Svc, OpName, Op}] ->
+            case decode_service_ins(Headers, BodyParts, Op, Model,
+                               #{include_headers => false}) of
+                {ok, Res} ->
+                    {ok, {Svc, OpName, Res}};
+                {error, Reason} ->
+                    {error, {Reason, {Svc, OpName, Op}}}
+            end;
+        [] ->
+            {error, no_mathcing_op};
+        [_|_] ->
+            {error, ambiguous_op}
+    end.
 
 decode(ServiceName, OpName, BodyParts, Opts)
   when is_list(ServiceName) ->
@@ -309,6 +334,9 @@ handle_call({get_op_message_details, ModelRef, SvcName, OpName}, _, State) ->
                     {reply, {ok, message_info(Op, Model)}, State}
             end
     end;
+handle_call({get_model_ops, ModelRef}, _, #state{services=Svcs} = State) ->
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    {reply, {ok, ModelSvcs}, State};
 handle_call({list_clashes, ModelRef}, _, #state{models=Models} = State) ->
     case maps:get(ModelRef, Models, undefined) of
         undefined ->
@@ -554,6 +582,18 @@ find_elem(Qname, #model{type_map=Tbl}) ->
             E
     end.
 
+find_service_op({[], [{Qname, _, _}]}, Svcs) ->
+    lists:flatten(
+      [ [ {Svc, OpName, Op} ||
+            #op{ name = OpName
+               , input =
+                     {undefined,
+                      #message{
+                         parts =
+                             [#part{element = Mname
+                                   }]}}} = Op <- Ops, Mname == Qname]
+        || {Svc, Ops} <- Svcs]).
+
 %% >-----------------------------------------------------------------------< %%
 get_service_models(ServiceName,
                    #state{models=Models, service_index=SvcIndex}) ->
@@ -622,6 +662,14 @@ decode_service_out(Headers, Body, Info, Model, Opts) ->
     OutHdrs = proplists:get_value(out_hdr, Info),
     DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
     [DecodedBody] = ews_serialize:decode(Body, Outs, Model),
+    make_return(DecodedHeaders, DecodedBody, Opts).
+
+decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+    #message{parts=Parts} = Msg,
+    Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+              #part{element=Qname} <- Parts ],
+    DecodedHeaders = decode_headers(Headers, InHdrs, Model, Opts),
+    [DecodedBody] = ews_serialize:decode(Body, Ins, Model),
     make_return(DecodedHeaders, DecodedBody, Opts).
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->

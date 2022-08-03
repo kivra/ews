@@ -11,6 +11,7 @@
          encode_service_op/4, encode_service_op/5, encode_service_op/6,
          decode_service_op_result/3, decode_service_op_result/4,
          decode_service_op_result/5,
+         decode_in/1, decode_in/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
@@ -113,6 +114,12 @@ decode_service_op_result(Model, Service, Op, Body)
 decode_service_op_result(Model, Service, Op, Body, Opts)
   when is_atom(Model) ->
     ews_svc:decode(Model, Service, Op, Body, Opts).
+
+decode_in(Soap) ->
+    decode_in(default, Soap).
+
+decode_in(Model, Soap) ->
+    ews_svc:decode_in(Model, Soap).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->
