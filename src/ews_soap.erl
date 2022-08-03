@@ -1,6 +1,8 @@
 -module(ews_soap).
 
 -export([ call/5
+        , make_soap/2
+        , make_envelope/2
         , parse_envelope/1
         ]).
 
@@ -41,6 +43,11 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
 
 a2b(B) when is_binary(B) -> B;
 a2b(L) when is_list(L) -> iolist_to_binary(L).
+
+make_soap(Header, Body) ->
+    Envelope = make_envelope(Header, Body),
+    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
+    iolist_to_binary(BodyIoList).
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};

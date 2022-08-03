@@ -17,7 +17,9 @@
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/5, call/6, encode/5, encode/6, decode/4, decode/5,
+         call/5, call/6, encode/5, encode/6,
+         encode_out/6,
+         decode/4, decode/5,
          decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -139,6 +141,11 @@ encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     encode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts).
+
+encode_out(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    encode_service_op_out(ModelRef, Model, ServiceName, OpName,
+                          HeaderParts, BodyParts).
 
 decode_in(ModelRef, SOAP) ->
     XmlTerm = ews_xml:decode(SOAP),
@@ -642,12 +649,28 @@ encode_service_op(ModelRef, Model, ServiceName, OpName,
             encode_service_ins(HeaderParts, BodyParts, Info, Model)
     end.
 
+encode_service_op_out(ModelRef, Model, ServiceName, OpName,
+                      HeaderParts, BodyParts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            encode_service_out(HeaderParts, BodyParts, Info, Model)
+    end.
+
 encode_service_ins(HeaderParts, BodyParts, Info, Model) ->
     InHdrs = proplists:get_value(in_hdr, Info),
     EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
     Ins = proplists:get_value(in, Info),
     EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
     {ok, {EncodedHeader, EncodedBody}}.
+
+encode_service_out(HeaderParts, BodyParts, Info, Model) ->
+    OutHdrs = proplists:get_value(out_hdr, Info),
+    EncodedHeader = ews_serialize:encode(HeaderParts, OutHdrs, Model),
+    Outs = proplists:get_value(out, Info),
+    EncodedBody = ews_serialize:encode(BodyParts, Outs, Model),
+    ews_soap:make_soap(EncodedHeader, EncodedBody).
 
 decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
