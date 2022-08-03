@@ -213,6 +213,14 @@ validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
 validate_xml({Qname, _, _}=E, #elem{qname=Qname,meta=#meta{max=Max}}=ME, Tbl)
   when Max > 1 ->
     validate_xml([E], ME, Tbl);
+validate_xml({Name, As, Cs}, #elem{qname={_,Name},type={_,_}=TypeKey}, Tbl) ->
+    case has_inherited_type(As, Tbl, TypeKey) of
+        #type{} = Type ->
+            validate_xml({Name, As, Cs}, Type, Tbl);
+        false ->
+            Type = ews_model:get(TypeKey, Tbl),
+            validate_xml({Name, As, Cs}, Type, Tbl)
+    end;
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
     case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
@@ -227,6 +235,8 @@ validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,
              Tbl) when Max > 1 ->
     NewME = ME#elem{meta=Meta#meta{max=1}},
     [validate_xml(E, NewME, Tbl) || E <- Es];
+validate_xml({Name, As, Cs}, #elem{qname={_,Name},type=Type}, Tbl) ->
+    validate_xml({Name, As, Cs}, Type, Tbl);
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml({Qname, As, Cs}, Type, Tbl);
 validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
@@ -289,15 +299,27 @@ validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
 %% TODO: Fix Max > 1 terms are bunched into a list
 %% TODO: Just start by matching pairs together, maybe not even check meta now,
 %%       but after all terms that conform to the same Qname have been bunched
+match_children_elems([{Name,_,_}=C1, {Name,_,_}=C2|Cs],
+                     [#elem{qname={_,Name}}=E|Es], Acc, Res) ->
+    match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
 match_children_elems([{Qname,_,_}=C1, {Qname,_,_}=C2|Cs],
                      [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
+match_children_elems([{Name,_,_}=C1|Cs],
+                     [#elem{qname={_,Name}}=E|Es], [], Res) ->
+    match_children_elems(Cs, Es, [], [{C1,E}|Res]);
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], [], Res) ->
     match_children_elems(Cs, Es, [], [{C1,E}|Res]);
+match_children_elems([{Name,_,_}=C1|Cs],
+                     [#elem{qname={_,Name}}=E|Es], [{Name,_,_}|_]=Acc, Res) ->
+    match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], [{Qname,_,_}|_]=Acc, Res) ->
     match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
+match_children_elems([{Name,_,_}=C1|Cs],
+                     [#elem{qname={_,Name}}=E|Es], Acc, Res) ->
+    match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
