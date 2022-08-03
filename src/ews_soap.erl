@@ -1,6 +1,8 @@
 -module(ews_soap).
 
--export([call/5]).
+-export([ call/5
+        , parse_envelope/1
+        ]).
 
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
 -define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
