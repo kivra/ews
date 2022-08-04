@@ -703,8 +703,8 @@ encode_faults([Part | Parts], Faults, Model, Acc) ->
 encode_faults([], _, _, Acc) ->
     lists:reverse(Acc).
 
-try_encode_fault(Part, [Fault | Faults], Model) ->
-    case ews_serialize:encode(Part, Fault#message.parts, Model) of
+try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
+    case ews_serialize:encode(Part, Fault, Model) of
         {error, _} ->
             try_encode_fault(Part, Faults, Model);
         XML ->
