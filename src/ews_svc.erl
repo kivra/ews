@@ -694,7 +694,7 @@ encode_service_out(HeaderParts, BodyParts, Info, Model) ->
 
 encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model) ->
     Faults = proplists:get_value(faults, Info),
-    EncodedBody = encode_faults(BodyParts, Faults, Model, []),
+    EncodedBody = lists:flatten(encode_faults(BodyParts, Faults, Model, [])),
     ews_soap:make_fault(FaultCode, FaultString, EncodedBody).
 
 encode_faults([Part | Parts], Faults, Model, Acc) ->
