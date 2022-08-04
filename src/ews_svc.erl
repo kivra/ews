@@ -695,7 +695,7 @@ encode_service_out(HeaderParts, BodyParts, Info, Model) ->
 encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model) ->
     Faults = proplists:get_value(faults, Info),
     EncodedBody = encode_faults(BodyParts, Faults, Model, []),
-    ews_soap:make_soap(FaultCode, FaultString, EncodedBody).
+    ews_soap:make_fault(FaultCode, FaultString, EncodedBody).
 
 encode_faults([Part | Parts], Faults, Model, Acc) ->
     encode_faults(Parts, Faults, Model,
@@ -704,7 +704,7 @@ encode_faults([], _, _, Acc) ->
     lists:reverse(Acc).
 
 try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
-    case ews_serialize:encode(Part, Fault, Model) of
+    case ews_serialize:encode([Part], [Fault], Model) of
         {error, _} ->
             try_encode_fault(Part, Faults, Model);
         XML ->
