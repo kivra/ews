@@ -19,6 +19,7 @@
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/5, call/6, encode/5, encode/6,
          encode_out/6,
+         encode_faults/6,
          decode/4, decode/5,
          decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
@@ -146,6 +147,16 @@ encode_out(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     encode_service_op_out(ModelRef, Model, ServiceName, OpName,
                           HeaderParts, BodyParts).
+
+encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+              BodyParts) when is_list(BodyParts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    encode_service_op_faults(ModelRef, Model, ServiceName, OpName,
+                             FaultCode, FaultString, BodyParts);
+encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+              BodyParts) ->
+    encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+                  [BodyParts]).
 
 decode_in(ModelRef, SOAP) ->
     XmlTerm = ews_xml:decode(SOAP),
@@ -658,6 +669,15 @@ encode_service_op_out(ModelRef, Model, ServiceName, OpName,
             encode_service_out(HeaderParts, BodyParts, Info, Model)
     end.
 
+encode_service_op_faults(ModelRef, Model, ServiceName, OpName,
+                         FaultCode, FaultString, BodyParts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model)
+    end.
+
 encode_service_ins(HeaderParts, BodyParts, Info, Model) ->
     InHdrs = proplists:get_value(in_hdr, Info),
     EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
@@ -671,6 +691,27 @@ encode_service_out(HeaderParts, BodyParts, Info, Model) ->
     Outs = proplists:get_value(out, Info),
     EncodedBody = ews_serialize:encode(BodyParts, Outs, Model),
     ews_soap:make_soap(EncodedHeader, EncodedBody).
+
+encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model) ->
+    Faults = proplists:get_value(faults, Info),
+    EncodedBody = encode_faults(BodyParts, Faults, Model, []),
+    ews_soap:make_soap(FaultCode, FaultString, EncodedBody).
+
+encode_faults([Part | Parts], Faults, Model, Acc) ->
+    encode_faults(Parts, Faults, Model,
+                  [try_encode_fault(Part, Faults, Model) | Acc]);
+encode_faults([], _, _, Acc) ->
+    lists:reverse(Acc).
+
+try_encode_fault(Part, [Fault | Faults], Model) ->
+    case ews_serialize:encode(Part, Fault#message.parts, Model) of
+        {error, _} ->
+            try_encode_fault(Part, Faults, Model);
+        XML ->
+            XML
+    end;
+try_encode_fault(_, [], _) ->
+    [].
 
 decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of

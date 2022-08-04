@@ -29,6 +29,10 @@ decode(XmlString) when is_list(XmlString) ->
 
 emit_tag({txt, Content}, _) ->
     Content;
+emit_tag({{Ns, txt}, Content}, Nss) ->
+    %% Ugly hack for namespaced txts
+    {Prefix, _XmlNsDecl, _NewNss} = get_ns_prefix(Ns, Nss),
+    to_string({Prefix, Content});
 emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},

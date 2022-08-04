@@ -1,6 +1,7 @@
 -module(ews_soap).
 
 -export([ call/5
+        , make_fault/3
         , make_soap/2
         , make_envelope/2
         , parse_envelope/1
@@ -43,6 +44,17 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
 
 a2b(B) when is_binary(B) -> B;
 a2b(L) when is_list(L) -> iolist_to_binary(L).
+
+make_fault(FaultCode, FaultString, Detail) ->
+    Envelope = {{?SOAPNS, "Envelope"}, [],
+                [{{?SOAPNS, "Body"}, [],
+                 [{{?SOAPNS, "Fault"}, [],
+                   [ {"faultcode", [], [{{?SOAPNS, txt}, FaultCode}]}
+                   , {"faultstring", [], [{txt, FaultString}]}
+                   , {"detail", [], Detail}
+                   ]}]}]},
+    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
+    iolist_to_binary(BodyIoList).
 
 make_soap(Header, Body) ->
     Envelope = make_envelope(Header, Body),
