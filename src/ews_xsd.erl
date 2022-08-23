@@ -292,16 +292,7 @@ print_schema_stats(Schema) ->
     Attributes = wh:get_children(Schema, "attribute"),
     AttributeGroups = wh:get_children(Schema, "attributeGroup"),
     Notations = wh:get_children(Schema, "notation"),
-    Annotations = wh:get_children(Schema, "annotation"),
-    io:format("e: ~p, s: ~p, c: ~p, g: ~p, a: ~p, ag: ~p, n: ~p, an: ~p~n",
-              [length(Elements),
-               length(SimpleTypes),
-               length(ComplexTypes),
-               length(Groups),
-               length(Attributes),
-               length(AttributeGroups),
-               length(Notations),
-               length(Annotations)]).
+    Annotations = wh:get_children(Schema, "annotation").
 
 to_integer(undefined) -> 1;
 to_integer("unbounded") -> infinite;
