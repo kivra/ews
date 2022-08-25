@@ -13,9 +13,16 @@
 
 -spec encode(xml_data()) -> iolist().
 encode(Data) when is_tuple(Data) andalso size(Data) == 3 ->
-    emit_tag(Data, []);
+    {Encoded, _} = emit_tag(Data, []),
+    Encoded;
 encode(Data) when is_list(Data) ->
-    [ emit_tag(D, []) || D <- Data ].
+    encode_list(Data, [], []).
+
+encode_list([Head, Tail], Nss, Acc) ->
+    {Tag, NewNss} = emit_tag(Head, Nss),
+    encode_list(Tail, NewNss, [Tag | Acc]);
+encode_list([], _, Acc) ->
+    lists:reverse(Acc).
 
 -spec decode(string()|binary()) -> xml_data() | [xml_data()].
 decode(XmlString) when is_binary(XmlString) ->
@@ -27,25 +34,31 @@ decode(XmlString) when is_list(XmlString) ->
 %% ----------------------------------------------------------------------------
 %% encode
 
-emit_tag({txt, Content}, _) ->
-    Content;
+emit_tag({txt, Content}, Nss) ->
+    {Content, Nss};
 emit_tag({{Ns, txt}, Content}, Nss) ->
     %% Ugly hack for namespaced txts
-    {Prefix, _XmlNsDecl, _NewNss} = get_ns_prefix(Ns, Nss),
-    to_string({Prefix, Content});
-emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
-    {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
+    {Prefix, _XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
+    {to_string({Prefix, Content}), NewNss};
+emit_tag({{Ns, Name}, Attributes, Children}, Nss0) ->
+    {Prefix, XmlNsDecl, Nss1} = get_ns_prefix(Ns, Nss0),
     QName = {Prefix, Name},
-    [emit_start_tag(QName),
-     emit_attributes(lists:ukeysort(2, XmlNsDecl++Attributes), NewNss),
-     emit_children(QName, Children, NewNss)];
-emit_tag({Name, Attributes, Children}, Nss) ->
-    [emit_start_tag(Name),
-     emit_attributes(Attributes, Nss),
-     emit_children(Name, Children, Nss)].
+    {EmittedAttributes, Nss2} = emit_attributes(lists:ukeysort(2, XmlNsDecl++Attributes), Nss1),
+    {EmittedChildren, Nss3} = emit_children(QName, Children, Nss2),
+    {[emit_start_tag(QName),
+      EmittedAttributes,
+      EmittedChildren],
+     Nss3};
+emit_tag({Name, Attributes, Children}, Nss0) ->
+    {EmittedAttributes, Nss1} = emit_attributes(Attributes, Nss0),
+    {EmittedChildren, Nss2} = emit_children(Name, Children, Nss1),
+    {[emit_start_tag(Name),
+      EmittedAttributes,
+      EmittedChildren],
+      Nss2}.
 
-emit_attributes([], _) ->
-    "";
+emit_attributes([], NssStore) ->
+    {"", NssStore};
 emit_attributes(Attributes, NssStore) ->
     emit_attributes(Attributes, NssStore, []).
 
@@ -61,15 +74,22 @@ emit_attributes([{{Ns, N}, Value} | Attrs], Nss, Acc) ->
     emit_attributes(NewAttrs, NewNss, Acc);
 emit_attributes([{Key, Value} | Attrs], Nss, Acc) ->
     emit_attributes(Attrs, Nss, [[to_string(Key), "=\"", Value, "\""] | Acc]);
-emit_attributes([], _, Acc) ->
-    [" ", string:join(lists:reverse(Acc), " ")].
+emit_attributes([], Nss, Acc) ->
+    {[" ", string:join(lists:reverse(Acc), " ")], Nss}.
 
-emit_children([$?|_], _, []) ->
-    "?>";
-emit_children(_, _, []) ->
-    "/>";
+emit_children([$?|_], [], Nss) ->
+    {"?>", Nss};
+emit_children(_, [], Nss) ->
+    {"/>", Nss};
 emit_children(Name, Children, Nss) ->
-    [">", [ emit_tag(C, Nss) || C <- Children ], emit_end_tag(Name)].
+    {EmittedChildren, NewNss} = do_emit_children(Children, Nss, []),
+    {[">", EmittedChildren, emit_end_tag(Name)], NewNss}.
+
+do_emit_children([Head | Tail], Nss, Acc) ->
+    {Child, NewNss} = emit_tag(Head, Nss),
+    do_emit_children(Tail, NewNss, [Child | Acc]);
+do_emit_children([], Nss, Acc) ->
+    {lists:reverse(Acc), Nss}.
 
 emit_start_tag({Ns, Name}) ->
     ["<", to_string(Ns), ":", to_string(Name)];
