@@ -166,11 +166,12 @@ decode_in(ModelRef, SOAP) ->
     case find_service_op(XML, ModelOps) of
         [{Svc, OpName, Op}] ->
             case decode_service_ins(Headers, BodyParts, Op, Model,
-                               #{include_headers => false}) of
+                                    #{include_headers => false}) of
                 {ok, Res} ->
-                    {ok, {Svc, OpName, Res}};
-                {error, Reason} ->
-                    {error, {Reason, {Svc, OpName, Op}}}
+                    {ok, {Svc, OpName, Res}}%%;
+                %% TODO: handle headers as well
+                %% {error, Reason} ->
+                %%     {error, {Reason, {Svc, OpName, Op}}}
             end;
         [] ->
             {error, no_mathcing_op};
@@ -704,8 +705,8 @@ encode_faults([], _, _, Acc) ->
     lists:reverse(Acc).
 
 try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
-    case ews_serialize:encode([Part], [Fault], Model) of
-        {error, _} ->
+    case catch ews_serialize:encode([Part], [Fault], Model) of
+        {'EXIT', _} ->
             try_encode_fault(Part, Faults, Model);
         XML ->
             XML
