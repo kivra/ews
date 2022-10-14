@@ -613,7 +613,8 @@ to_base({"http://www.w3.org/2001/XMLSchema", N} = Qn) ->
     end;
 to_base(#restriction{base_type = "boolean" = Qn}) ->
     #base{xsd_type=Qn, erl_type=boolean};
-to_base(#restriction{base_type = N = Qn}) ->
+to_base(#restriction{base_type = Qn}) ->
+    N = no_ns(Qn),
     IntTypes = [integer, int, long, short, byte,
                 unsignedInt, unsignedLong, unsignedShort,
                 negativeInteger, positiveInteger, nonNegativeInteger],
@@ -631,7 +632,8 @@ to_base(#restriction{base_type = N = Qn}) ->
     end;
 to_base(#enumeration{base_type = "boolean" = Qn}) ->
     #base{xsd_type=Qn, erl_type=boolean};
-to_base(#enumeration{base_type = N = Qn}) ->
+to_base(#enumeration{base_type = Qn}) ->
+    N = no_ns(Qn),
     IntTypes = [integer, int, long, short, byte,
                 unsignedInt, unsignedLong, unsignedShort,
                 negativeInteger, positiveInteger, nonNegativeInteger],
@@ -666,5 +668,8 @@ to_base({"no_ns", N} = Qn) ->
             end
     end;
 to_base(_) -> false.
+
+no_ns({_NS, N}) -> N;
+no_ns(N) -> N.
 
 %% ----------------------------------------------------------------------------
