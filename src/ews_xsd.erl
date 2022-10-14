@@ -519,20 +519,11 @@ process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc,
 process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = _E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
     %% io:format("Ref: ~p~n", [E]),
-    case lists:keyfind(Qname, 1, Ts) of
-        #simple_type{} = Type ->
-            #base{} = Base = process_simple(Type),
-            %% FIXME: new variable names
-            Elem = #elem{qname=Qname, type=Base} ,
-            ews_model:put(Elem, Model, TypeMap),
-            process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model);
+    case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            case ews_model:get_elem(Qname, TypeMap) of
-                false ->
-                    error({cant_find_in_typemap, Qname});
-                #elem{type = #base{}} = E1 ->
-                    process(Rest, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
-            end
+            error({cant_find_in_typemap, Qname});
+        #elem{type = #base{}} = E1 ->
+            process(Rest, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
