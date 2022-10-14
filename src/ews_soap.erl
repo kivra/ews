@@ -43,7 +43,8 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
 %% ----------------------------------------------------------------------------
 
 a2b(B) when is_binary(B) -> B;
-a2b(L) when is_list(L) -> iolist_to_binary(L).
+a2b(L) when is_list(L) -> iolist_to_binary(L);
+a2b(A) when is_atom(A) -> atom_to_binary(A).
 
 make_fault(FaultCode, FaultString, Detail) ->
     Envelope = {{?SOAPNS, "Envelope"}, [],
