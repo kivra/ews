@@ -1,0 +1,117 @@
+name: Automatic testing
+on: [push]
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  compile:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "25.0"
+          rebar3-version: "3.18.0"
+      - name: Configure SSH key
+        uses: ./.github/actions/configure-ssh-key
+        with:
+          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+      - name: Fetch dependencies from cache
+        uses: actions/cache@v2
+        id: cached-deps
+        with:
+          path: |
+            _build/*/*/*
+            !_build/*/*/payments
+            ebin
+          key: deps-v2-${{ runner.os }}-${{ hashFiles('rebar.lock') }}
+      - name: Fetch workspace from cache
+        uses: actions/cache@v2
+        id: cached-workspace
+        with:
+          path: |
+            _build/*/*/*
+            !_build/*/*/payments
+            ebin
+          key: workspace-${{ github.run_id }}
+      - name: Compile
+        run: rebar3 as test compile
+
+  ct:
+    needs: [compile]
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "25.0"
+          rebar3-version: "3.18.0"
+      - name: Configure SSH key
+        uses: ./.github/actions/configure-ssh-key
+        with:
+          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+      - name: Fetch workspace from cache
+        uses: actions/cache@v2
+        id: cached-workspace
+        with:
+          path: |
+            _build/*/*/*
+            !_build/*/*/payments
+            ebin
+          key: workspace-${{ github.run_id }}
+      - name: Run CT tests
+        shell: 'script -q -e -c "bash {0}"'
+        run: |
+          docker-compose up -d
+          rebar3 ct
+          docker-compose down
+  eunit:
+    needs: [compile]
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "25.0"
+          rebar3-version: "3.18.0"
+      - name: Configure SSH key
+        uses: ./.github/actions/configure-ssh-key
+        with:
+          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+      - name: Fetch workspace from cache
+        uses: actions/cache@v2
+        id: cached-workspace
+        with:
+          path: |
+           _build/*/*/*
+            !_build/*/*/payments
+            ebin
+          key: workspace-${{ github.run_id }}
+      - name: Run EUnit tests
+        run: rebar3 eunit
+
+  dialyzer:
+    needs: [compile]
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "25.0"
+          rebar3-version: "3.18.0"
+      - name: Configure SSH key
+        uses: ./.github/actions/configure-ssh-key
+        with:
+          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+      - name: Fetch workspace from cache
+        uses: actions/cache@v2
+        id: cached-workspace
+        with:
+          path: |
+            _build/*/*/*
+            !_build/*/*/payments
+            ebin
+          key: workspace-${{ github.run_id }}
+      - name: Run Dialyzer
+        run: rebar3 dialyzer
