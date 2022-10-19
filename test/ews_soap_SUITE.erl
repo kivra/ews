@@ -9,7 +9,7 @@
         ]).
 
 %% Tests
--export([lhttpc_error/1,
+-export([hackney_error/1,
          no_header_response/1,
          full_response/1,
          fault_response/1,
@@ -23,7 +23,7 @@ all() ->
 
 groups() ->
     [{soap_test, [shuffle],
-      [lhttpc_error,
+      [hackney_error,
        no_header_response,
        full_response,
        fault_response,
@@ -44,7 +44,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     meck:unload(hackney).
 
-lhttpc_error(_Config) ->
+hackney_error(_Config) ->
     meck:expect(hackney, request, 5, {error, test_error}),
 
     Endpoint = endpoint,

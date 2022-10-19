@@ -17,13 +17,18 @@
 
 -include("ews.hrl").
 
--define(HTTP_OPTS, []).
+-define(HTTP_OPTS, #{http_options =>
+                         [ {connect_timeout, timer:seconds(400)}
+                         , {recv_timeout, timer:seconds(400)}
+                         ]
+                    }).
 
 %% ----------------------------------------------------------------------------
 
 fetch(WsdlUrl) ->
-    case lhttpc:request(WsdlUrl, get, [], [], 10000, ?HTTP_OPTS) of
-        {ok, {{200, _},_,Bin}} ->
+    case hackney:request(get, WsdlUrl, [], [], ?HTTP_OPTS) of
+        {ok, 200, _, RespRef} ->
+            {ok, Bin} = hackney:body(RespRef),
             {ok, Bin};
         {ok, {_, _, Error}} ->
             {error, Error};

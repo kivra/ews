@@ -122,17 +122,18 @@ add_model(_Config) ->
     {ok, Bin} = file:read_file(File),
 
     %% Mock request
-    meck:new(lhttpc),
-    meck:expect(lhttpc, request, 6, {ok, {{200, ignore}, ignore, Bin}}),
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, ref}),
+    meck:expect(hackney, body, 2, {ok, Bin}),
 
-    %% Get Wsdl, the actual URL is not important as we mock the lhttpc call
+    %% Get Wsdl, the actual URL is not important as we mock the hackney call
     %% with an already downloaded version
     Url = "https://adwords.google.com/api/adwords/cm/"
           "v201306/CampaignService?wsdl",
     {ok,[{"CampaignService",3}]} = ews_svc:add_wsdl_url(default, Url),
 
-    true = meck:validate(lhttpc),
-    meck:unload(lhttpc).
+    true = meck:validate(hackney),
+    meck:unload(hackney).
 
 one_model_list_services(_Config) ->
     {ok, ["CampaignService"]} = ews_svc:list_services(default).
@@ -420,11 +421,12 @@ add_two_models(_COnfig) ->
     {ok, Bin2} = file:read_file(File2),
 
     %% Mock request
-    meck:new(lhttpc),
+    meck:new(hackney),
 
-    %% Get Wsdl, the actual URL is not important as we mock the lhttpc call
+    %% Get Wsdl, the actual URL is not important as we mock the hackney call
     %% with an already downloaded version
-    meck:expect(lhttpc, request, 6, {ok, {{200, ignore}, ignore, Bin1}}),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, ref}),
+    meck:expect(hackney, body, 2, {ok, Bin1}),
     Url1 = "https://ss.yahooapis.jp/services/V6.5/CampaignService?wsdl",
     {ok,[{"CampaignService",2}]} = ews_svc:add_wsdl_url(yahoo_campaign, Url1),
     {ok,[{"LocationService",1}]} = ews_svc:add_wsdl_bin(yahoo_location, Bin2),
@@ -437,8 +439,8 @@ add_two_models(_COnfig) ->
     {ok, ["LocationService"]} = ews_svc:list_services(yahoo_location),
     {ok, ["CampaignService"]} = ews_svc:list_services(default),
 
-    true = meck:validate(lhttpc),
-    meck:unload(lhttpc).
+    true = meck:validate(hackney),
+    meck:unload(hackney).
 
 two_models_explicit_model(_Config) ->
     Service = "CampaignService",
