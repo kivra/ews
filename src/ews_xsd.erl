@@ -13,11 +13,12 @@
 
 -include("ews.hrl").
 
--define(HTTP_OPTS, #{http_options =>
-                         [ {connect_timeout, timer:seconds(400)}
-                         , {recv_timeout, timer:seconds(400)}
-                         ]
-                    }).
+-define(HTTP_OPTS, [ {connect_options,
+                      [ {connect_timeout, timer:seconds(400)}
+                      , {recv_timeout, timer:seconds(400)}
+                      ]}
+                   , with_body
+                   ]).
 
 %% ----------------------------------------------------------------------------
 %% Api
@@ -124,11 +125,10 @@ request_cached(SchemaUrl) ->
             {ok, Bin};
         {error, Error} ->
             case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
-                {ok, 200, _, RespRef} ->
-                    {ok, Bin} = hackney:body(RespRef),
+                {ok, 200, _, Bin} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
-                {ok, {{_, _}, _, Bin}} ->
+                {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
                     {error, Error}
@@ -145,11 +145,10 @@ request_cached(SchemaUrl, BaseDir) ->
             {ok, Bin};
         {{error, Error}, #{scheme := _Scheme}} ->
             case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
-                {ok, 200, _, RespRef} ->
-                    {ok, Bin} = hackney:body(RespRef),
+                {ok, 200, _, Bin} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
-                {ok, {{_, _}, _, Bin}} ->
+                {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
                     {error, Error}

@@ -425,8 +425,7 @@ add_two_models(_COnfig) ->
 
     %% Get Wsdl, the actual URL is not important as we mock the hackney call
     %% with an already downloaded version
-    meck:expect(hackney, request, 5, {ok, 200, ignore, ref}),
-    meck:expect(hackney, body, 1, {ok, Bin1}),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, Bin1}),
     Url1 = "https://ss.yahooapis.jp/services/V6.5/CampaignService?wsdl",
     {ok,[{"CampaignService",2}]} = ews_svc:add_wsdl_url(yahoo_campaign, Url1),
     {ok,[{"LocationService",1}]} = ews_svc:add_wsdl_bin(yahoo_location, Bin2),
