@@ -123,8 +123,7 @@ add_model(_Config) ->
 
     %% Mock request
     meck:new(hackney),
-    meck:expect(hackney, request, 5, {ok, 200, ignore, ref}),
-    meck:expect(hackney, body, 1, {ok, Bin}),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, Bin}),
 
     %% Get Wsdl, the actual URL is not important as we mock the hackney call
     %% with an already downloaded version
