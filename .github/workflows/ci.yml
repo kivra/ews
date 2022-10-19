@@ -61,11 +61,8 @@ jobs:
             ebin
           key: workspace-${{ github.run_id }}
       - name: Run CT tests
-        shell: 'script -q -e -c "bash {0}"'
-        run: |
-          docker-compose up -d
-          rebar3 ct
-          docker-compose down
+        run: rebar3 ct
+
   eunit:
     needs: [compile]
     runs-on: ubuntu-20.04
