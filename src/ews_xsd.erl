@@ -170,14 +170,6 @@ request_cached(SchemaUrl, BaseDir) ->
             end
     end.
 
-%% ensure_url(SchemaUrl, BaseUrl) ->
-%%     case uri_string:parse(SchemaUrl) of
-%%         #{ host := _ } ->
-%%             SchemaUrl;
-%%         _ ->
-%%             lists:flatten(lists:join($/, [BaseUrl, SchemaUrl]))
-%%     end.
-
 escape_slash([]) -> [];
 escape_slash([$/ | Rest]) -> [$- | escape_slash(Rest)];
 escape_slash([C | Rest]) -> [C | escape_slash(Rest)].
