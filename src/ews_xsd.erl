@@ -491,10 +491,6 @@ process(Types, Model) ->
     %%           [Ts, ets:tab2list(TypeMap)]),
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
-%% two_step_process(Types, Ts) ->
-%%     {AllTypes0, Elems0} = process(Types, Ts, [], []),
-%%     .
-
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
     Meta = parse_meta(E),
