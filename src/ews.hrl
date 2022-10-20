@@ -46,3 +46,12 @@
 -record(model, {type_map, elems, clashes=dict:new(),
                 pre_hooks=[], post_hooks=[], simple_types=[]}).
 -record(fault, {code, string, actor, detail}).
+
+%% Macro definitions
+-ifdef(DEBUG).
+-define(log(Expression), Expression).
+-define(log(Format, Arguments), io:format(Format, Arguments)).
+-else.
+-define(log(Expression), ok).
+-define(log(Format, Arguments), ok).
+-endif.

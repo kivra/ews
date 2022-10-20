@@ -9,7 +9,9 @@
 
 -export([parse_schema/2]).
 
--export([print_schema_stats/1]).
+-export([ print_all_schema_stats/1
+        , print_schema_stats/1
+        ]).
 
 -include("ews.hrl").
 
@@ -20,12 +22,18 @@
                    , with_body
                    ]).
 
+-ifdef(DEBUG).
+-define(print_stats(Schemas), print_all_schema_stats(Schemas)).
+-else.
+-define(print_stats(_Schemas), ok).
+-endif.
+
 %% ----------------------------------------------------------------------------
 %% Api
 
 parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema),
-    [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+    ?print_stats(Schemas),
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
@@ -33,14 +41,12 @@ parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     {ews_model:append_model(Acc, NewTypes, Model), Model};
 parse_schema(Schema, {Acc, Model, BaseDir}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema, BaseDir),
-    [ print_schema_stats(S) || {_, _, S, _} <- Schemas ],
+    ?print_stats(Schemas),
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S, _} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model}.
-
-
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
@@ -75,7 +81,7 @@ do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
         [] ->
             [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
-            %%io:format("Imports: ~p~n", [Imports]),
+            ?log("Imports: ~p~n", [Imports]),
             ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
                             basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
@@ -229,7 +235,7 @@ parse_type(#xmlElement{} = Type) ->
             notation;
         Other ->
             io:format("ERROR: unrecognized xsd-element: ~p~n",
-                      [wh:get_name(Other)]),
+                      [Other]),
             {error, {unknown_type, Other}}
     end.
 
@@ -252,8 +258,6 @@ maybe_ref(undefined, Element) ->
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
 maybe_ref(Qname, _Element) ->
-    %%Name = wh:get_attribute(Element, name),
-    %%io:format("maybe_ref(~p) Name: ~p~n~p~n", [Qname, Name, Element]),
     #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
 
 parse_complex_type(ComplexType) ->
@@ -383,6 +387,9 @@ select_ordering(Types) ->
             {{sequence, Min, Max}, Parts}
     end.
 
+print_all_schema_stats(Schemas) ->
+    [ print_schema_stats(S) || {_, _, S} <- Schemas ].
+
 print_schema_stats(Schema) ->
     Elements = wh:get_children(Schema, "element"),
     SimpleTypes = wh:get_children(Schema, "simpleType"),
@@ -481,20 +488,17 @@ to_string(Val) -> Val.
 %% ----------------------------------------------------------------------------
 
 process(Types, Model) ->
-    %%io:format("Types: ~p~n", [Types]),
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     {AllTypes, Elems} = process(Types, Ts, [], [], TypeMap, Model),
     [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
     [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
-    %% io:format("SimpleTypes: ~p~nModel: ~p~n",
-    %%           [Ts, ets:tab2list(TypeMap)]),
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
     Meta = parse_meta(E),
-    %% io:format("Elem ~p Ps: ~p~n", [Qname, Ps]),
+    ?log("Elem ~p Ps: ~p~n", [Qname, Ps]),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
@@ -519,7 +523,6 @@ process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc,
     process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model);
 process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = _E | Rest], Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
-    %% io:format("Ref: ~p~n", [E]),
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
             error({cant_find_in_typemap, Qname});

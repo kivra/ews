@@ -158,7 +158,6 @@ find_loop(Qn, Passed = [Previous | _], Graph, Ts) ->
 
 create_graph(Tbl) ->
     Types = ews_model:values(Tbl),
-    %% io:format("Types: ~p~n", [Types]),
     F = fun(#type{qname=Qn}, D) ->
                 Es = ews_model:get_parts(Qn, Tbl),
                 ElemFun = fun (#elem{type={_,_}=K}, A) ->
