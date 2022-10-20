@@ -149,9 +149,9 @@ find_loop(Qn, Passed = [Previous | _], Graph, Ts) ->
                 _:_ ->
                     case lists:keyfind(Qn, 1, Ts) of
                         {_, Foo} ->
-                            error({found, Qn, Foo});
+                            error({found, Qn, Foo}, [Qn, Passed, Ts]);
                         false ->
-                            error({cant_find, Qn, Ts})
+                            error({cant_find, Qn, Ts}, [Qn, Passed, Ts])
                     end
             end
     end.
