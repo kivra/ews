@@ -1,6 +1,11 @@
 -module(ews_soap).
 
--export([call/5]).
+-export([ call/5
+        , make_fault/3
+        , make_soap/2
+        , make_envelope/2
+        , parse_envelope/1
+        ]).
 
 -define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
 -define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
@@ -11,19 +16,23 @@
 
 call(Endpoint, SoapAction, Header, Body, Opts) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
-    Timeout = maps:get(timeout, Opts, DefaultTimeout),
+    %% FIXME: get the timeout into hackney
+    _Timeout = maps:get(timeout, Opts, DefaultTimeout),
     IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
-    Hdrs = [{"SOAPAction", SoapAction},
-            {"Content-Type", "text/xml"}] ++ ExtraHeaders,
+    HttpOpts = maps:get(http_options, Opts, []),
+    Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
+            {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     Envelope = make_envelope(Header, Body),
     BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
-    case lhttpc:request(Endpoint, post, Hdrs, BodyIoList, Timeout) of
-        {ok, {{200,_}, HttpHdr, RespEnv}} ->
+    case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
+        {ok, 200, HttpHdr, RespRef} ->
+            {ok, RespEnv} = hackney:body(RespRef),
             XmlTerm = ews_xml:decode(RespEnv),
             Resp = parse_envelope(XmlTerm),
             fix_header(Resp, HttpHdr, IncludeHttpHdr);
-        {ok, {_Code, HttpHdr, FaultEnv}} ->
+        {ok, _Code, HttpHdr, FaultRef} ->
+            {ok, FaultEnv} = hackney:body(FaultRef),
             XmlTerm = ews_xml:decode(FaultEnv),
             Resp = parse_envelope(XmlTerm),
             fix_header(Resp, HttpHdr, IncludeHttpHdr);
@@ -33,7 +42,29 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
 
 %% ----------------------------------------------------------------------------
 
+a2b(B) when is_binary(B) -> B;
+a2b(L) when is_list(L) -> iolist_to_binary(L);
+a2b(A) when is_atom(A) -> atom_to_binary(A).
+
+make_fault(FaultCode, FaultString, Detail) ->
+    Envelope = {{?SOAPNS, "Envelope"}, [],
+                [{{?SOAPNS, "Body"}, [],
+                 [{{?SOAPNS, "Fault"}, [],
+                   [ {"faultcode", [], [{{?SOAPNS, txt}, FaultCode}]}
+                   , {"faultstring", [], [{txt, FaultString}]}
+                   , {"detail", [], Detail}
+                   ]}]}]},
+    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
+    iolist_to_binary(BodyIoList).
+
+make_soap(Header, Body) ->
+    Envelope = make_envelope(Header, Body),
+    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
+    iolist_to_binary(BodyIoList).
+
 make_envelope(undefined, Body) ->
+    {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
+make_envelope([], Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};
 make_envelope(Header, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_header(Header), make_body(Body)]}.

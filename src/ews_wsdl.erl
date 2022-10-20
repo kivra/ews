@@ -8,19 +8,29 @@
 
 -module(ews_wsdl).
 
--export([parse/2, fetch/1, fetch_and_parse/2]).
+-export([ parse/2
+        , parse/3
+        , parse_local/2
+        , fetch/1
+        , fetch_and_parse/2
+        ]).
 
 -include("ews.hrl").
 
--define(HTTP_OPTS, []).
+-define(HTTP_OPTS, [ {connect_options,
+                      [ {connect_timeout, timer:seconds(400)}
+                      , {recv_timeout, timer:seconds(400)}
+                      ]}
+                   , with_body
+                   ]).
 
 %% ----------------------------------------------------------------------------
 
 fetch(WsdlUrl) ->
-    case lhttpc:request(WsdlUrl, get, [], [], 10000, ?HTTP_OPTS) of
-        {ok, {{200, _},_,Bin}} ->
+    case hackney:request(get, WsdlUrl, [], [], ?HTTP_OPTS) of
+        {ok, 200, _, Bin} ->
             {ok, Bin};
-        {ok, {_, _, Error}} ->
+        {ok, _, _, Error} ->
             {error, Error};
         {error, Error} ->
             {error, Error}
@@ -44,9 +54,54 @@ parse(WsdlBin, Model) when is_atom(Model) ->
           messages=Messages,
           types=Types}.
 
+parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
+    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+    TargetNs = wh:get_attribute(WsdlDoc, targetNamespace),
+    Messages = parse_messages(WsdlDoc, TargetNs),
+    Bindings = parse_bindings(WsdlDoc, TargetNs),
+    PortTypes = parse_port_types(WsdlDoc, TargetNs),
+    Services = parse_services(WsdlDoc),
+    Types = parse_types(WsdlDoc, Model, BaseUrl),
+    #wsdl{target_ns=TargetNs,
+          services=Services,
+          bindings=Bindings,
+          port_types=PortTypes,
+          messages=Messages,
+          types=Types}.
+
+%% For now this is how to test.
+%%
+%% add this branch to kivra_core
+%% download the .jar from mm and unpack it to mm_api
+%% ews_wsdl:parse_local("mm_api/META-INF/wsdl/public/Recipient.wsdl", mm_rpc).
+%%
+parse_local(WsdlPath, Model) when is_atom(Model) ->
+    {ok, WsdlBin} = file:read_file(WsdlPath),
+    WsdlBasePath = filename:dirname(WsdlPath),
+    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+    TargetNs = wh:get_attribute(WsdlDoc, targetNamespace),
+    Messages = parse_messages(WsdlDoc, TargetNs),
+    Bindings = parse_bindings(WsdlDoc, TargetNs),
+    PortTypes = parse_port_types(WsdlDoc, TargetNs),
+    Services = parse_services(WsdlDoc),
+    Types = parse_types(WsdlDoc, Model, WsdlBasePath),
+    #wsdl{target_ns=TargetNs,
+          services=Services,
+          bindings=Bindings,
+          port_types=PortTypes,
+          messages=Messages,
+          types=Types}.
+
 fetch_and_parse(WsdlUrl, Model) when is_atom(Model) ->
+    BaseUrl = filename:dirname(WsdlUrl),
     {ok, WsdlBin} = fetch(WsdlUrl),
-    parse(WsdlBin, Model).
+    parse(WsdlBin, Model, BaseUrl).
 
 %% ---------------------------------------------------------------------------
 
@@ -180,6 +235,14 @@ parse_types(WsdlDoc, Model) ->
     Schemas = wh:get_children(Types, "schema"),
     {Res, _} =
         lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model}, Schemas),
+    Res.
+
+parse_types(WsdlDoc, Model, BaseDir) ->
+    Types = wh:get_child(WsdlDoc, "types"),
+    Schemas = wh:get_children(Types, "schema"),
+    {Res, _} =
+        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model, BaseDir},
+                    Schemas),
     Res.
 
 %% >-----------------------------------------------------------------------< %%

@@ -36,16 +36,16 @@ init_per_group(google_v201306_campaignService, Config) ->
     {ok, Bin} = file:read_file(File),
 
     %% Mock request
-    meck:new(lhttpc),
-    meck:expect(lhttpc, request, 6, {ok, {{200, ignore}, ignore, Bin}}),
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, Bin}),
 
-    %% Get Wsdl, the actual URL is not important as we mock the lhttpc call
+    %% Get Wsdl, the actual URL is not important as we mock the hackney call
     %% with an already downloaded version
     Url = "https://adwords.google.com/api/adwords/cm/"
           "v201306/CampaignService?wsdl",
     Wsdl = ews_wsdl:fetch_and_parse(Url, test),
 
-    meck:unload(lhttpc),
+    meck:unload(hackney),
     ews:stop(),
     [{google_v201306_campaignService, Wsdl} | Config].
 

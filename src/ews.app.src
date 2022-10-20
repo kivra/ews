@@ -13,7 +13,7 @@
                   public_key,
                   ssl,
                   inets,
-                  lhttpc
+                  hackney
                  ]},
   {mod, {ews_app, no_arg}},
   {env, [{soap_timeout, 60000}]}

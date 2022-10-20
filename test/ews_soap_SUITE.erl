@@ -9,7 +9,7 @@
         ]).
 
 %% Tests
--export([lhttpc_error/1,
+-export([hackney_error/1,
          no_header_response/1,
          full_response/1,
          fault_response/1,
@@ -23,7 +23,7 @@ all() ->
 
 groups() ->
     [{soap_test, [shuffle],
-      [lhttpc_error,
+      [hackney_error,
        no_header_response,
        full_response,
        fault_response,
@@ -38,14 +38,14 @@ end_per_group(soap_test, _Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    meck:new(lhttpc),
+    meck:new(hackney),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    meck:unload(lhttpc).
+    meck:unload(hackney).
 
-lhttpc_error(_Config) ->
-    meck:expect(lhttpc, request, 5, {error, test_error}),
+hackney_error(_Config) ->
+    meck:expect(hackney, request, 5, {error, test_error}),
 
     Endpoint = endpoint,
     SoapAction = soap_action,
@@ -61,7 +61,8 @@ no_header_response(_Config) ->
                  "<Res />"
                "</s:Body>"
              "</s:Envelope>",
-    meck:expect(lhttpc, request, 5, {ok, {{200, ok}, [], Return}}),
+    meck:expect(hackney, request, 5, {ok, 200, [], noref}),
+    meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
     SoapAction = soap_action,
@@ -80,7 +81,8 @@ full_response(_Config) ->
                  "<Res />"
                "</s:Body>"
              "</s:Envelope>",
-    meck:expect(lhttpc, request, 5, {ok, {{200, ok}, [], Return}}),
+    meck:expect(hackney, request, 5, {ok, 200, [], noref}),
+    meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
     SoapAction = soap_action,
@@ -99,7 +101,8 @@ fault_response(_Config) ->
                "  <s:Fault />"
                "</s:Body>"
              "</s:Envelope>",
-    meck:expect(lhttpc, request, 5, {ok, {{201, ok}, [], Return}}),
+    meck:expect(hackney, request, 5, {ok, 201, [], noref}),
+    meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
     SoapAction = soap_action,
@@ -113,7 +116,8 @@ not_an_envelope(_Config) ->
     %% TODO We should not get a {fault | ok, _} tuple back if the response is
     %% not a correct SOAP envelope
     Return = "<Res />",
-    meck:expect(lhttpc, request, 5, {ok, {{201, ok}, [], Return}}),
+    meck:expect(hackney, request, 5, {ok, 201, [], noref}),
+    meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
     SoapAction = soap_action,

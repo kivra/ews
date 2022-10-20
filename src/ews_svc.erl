@@ -7,15 +7,21 @@
 -export([start_link/0]).
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
+         add_wsdl_local/2,
          list_services/0, list_services/1,
          list_service_ops/1, list_service_ops/2,
          get_op_info/2, get_op_info/3,
          get_op/2, get_op/3,
          get_op_message_details/2, get_op_message_details/3,
+         get_model_ops/1,
          list_types/1, get_type/2,
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
-         call/5, call/6, encode/5, encode/6, decode/4, decode/5,
+         call/5, call/6, encode/5, encode/6,
+         encode_out/6,
+         encode_faults/6,
+         decode/4, decode/5,
+         decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1]).
@@ -40,6 +46,10 @@ add_wsdl_url(ModelRef, WsdlUrl) ->
 
 add_wsdl_bin(ModelRef, WsdlBin) ->
     gen_server:call(?MODULE, {add_wsdl_bin, ModelRef, WsdlBin},
+                    timer:minutes(1)).
+
+add_wsdl_local(ModelRef, WsdlBin) ->
+    gen_server:call(?MODULE, {add_wsdl_local, ModelRef, WsdlBin},
                     timer:minutes(1)).
 
 list_services() ->
@@ -71,6 +81,9 @@ get_op_message_details(Service, Op) ->
 
 get_op_message_details(ModelRef, Service, Op) ->
     gen_server:call(?MODULE, {get_op_message_details, ModelRef, Service, Op}).
+
+get_model_ops(ModelRef) ->
+    gen_server:call(?MODULE, {get_model_ops, ModelRef}).
 
 list_types(ModelRef) ->
     gen_server:call(?MODULE, {list_types, ModelRef}).
@@ -130,6 +143,42 @@ encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     encode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts).
 
+encode_out(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    encode_service_op_out(ModelRef, Model, ServiceName, OpName,
+                          HeaderParts, BodyParts).
+
+encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+              BodyParts) when is_list(BodyParts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    encode_service_op_faults(ModelRef, Model, ServiceName, OpName,
+                             FaultCode, FaultString, BodyParts);
+encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+              BodyParts) ->
+    encode_faults(ModelRef, ServiceName, OpName, FaultCode, FaultString,
+                  [BodyParts]).
+
+decode_in(ModelRef, SOAP) ->
+    XmlTerm = ews_xml:decode(SOAP),
+    {ok, {Headers, BodyParts} = XML} = ews_soap:parse_envelope(XmlTerm),
+    {ok, ModelOps} = ews_svc:get_model_ops(ModelRef),
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case find_service_op(XML, ModelOps) of
+        [{Svc, OpName, Op}] ->
+            case decode_service_ins(Headers, BodyParts, Op, Model,
+                                    #{include_headers => false}) of
+                {ok, Res} ->
+                    {ok, {Svc, OpName, Res}}%%;
+                %% TODO: handle headers as well
+                %% {error, Reason} ->
+                %%     {error, {Reason, {Svc, OpName, Op}}}
+            end;
+        [] ->
+            {error, no_mathcing_op};
+        [_|_] ->
+            {error, ambiguous_op}
+    end.
+
 decode(ServiceName, OpName, BodyParts, Opts)
   when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
@@ -164,15 +213,48 @@ remove_model(ModelRef) ->
 init([]) ->
     {ok, #state{}}.
 
-handle_call({add_wsdl_url, ModelRef, WsdlUrl}, S, State) ->
+handle_call({add_wsdl_url, ModelRef, WsdlUrl}, _S, State) ->
+    BaseUrl = filename:dirname(WsdlUrl),
     {ok, WsdlDoc} = ews_wsdl:fetch(WsdlUrl),
-    handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, S, State);
+    #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
+    OldSvcNames = [N || {N, _} <- OldModelSvcs],
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc, ModelRef, BaseUrl),
+    Svcs = compile_wsdl(Wsdl),
+    NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewSvcNames = [N || {N, _} <- Svcs],
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
+                                     NewSvcNames -- OldSvcNames),
+    Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
+    NewState = State#state{services=NewSvcs, models=NewModels,
+                           service_index=NewSvcIdx},
+    {reply, {ok, Count}, NewState};
 handle_call({add_wsdl_bin, ModelRef, WsdlDoc}, _, State) ->
     #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
     OldModel = maps:get(ModelRef, OldModels, undefined),
     OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
     OldSvcNames = [N || {N, _} <- OldModelSvcs],
     Wsdl = #wsdl{types=Model} = ews_wsdl:parse(WsdlDoc, ModelRef),
+    Svcs = compile_wsdl(Wsdl),
+    NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
+    NewSvcNames = [N || {N, _} <- Svcs],
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewSvcIdx = update_service_index(OldSvcIdx, ModelRef,
+                                     NewSvcNames -- OldSvcNames),
+    Count = [ {N, length(Ops)} || {N, Ops} <- Svcs ],
+    NewState = State#state{services=NewSvcs, models=NewModels,
+                           service_index=NewSvcIdx},
+    {reply, {ok, Count}, NewState};
+handle_call({add_wsdl_local, ModelRef, WsdlPath}, _, State) ->
+    #state{services=OldSvcs, models=OldModels, service_index=OldSvcIdx} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    OldModelSvcs = maps:get(ModelRef, OldSvcs, []),
+    OldSvcNames = [N || {N, _} <- OldModelSvcs],
+    Wsdl = #wsdl{types=Model} = ews_wsdl:parse_local(WsdlPath, ModelRef),
     Svcs = compile_wsdl(Wsdl),
     NewSvcs = OldSvcs#{ModelRef => lists:ukeysort(1, Svcs++OldModelSvcs)},
     NewSvcNames = [N || {N, _} <- Svcs],
@@ -271,6 +353,9 @@ handle_call({get_op_message_details, ModelRef, SvcName, OpName}, _, State) ->
                     {reply, {ok, message_info(Op, Model)}, State}
             end
     end;
+handle_call({get_model_ops, ModelRef}, _, #state{services=Svcs} = State) ->
+    ModelSvcs = maps:get(ModelRef, Svcs, []),
+    {reply, {ok, ModelSvcs}, State};
 handle_call({list_clashes, ModelRef}, _, #state{models=Models} = State) ->
     case maps:get(ModelRef, Models, undefined) of
         undefined ->
@@ -484,8 +569,10 @@ message_info(Op, Model) ->
         faults=FaultMsgs,
         endpoint=Endpoint,
         action=Action} = Op,
-    {#message{parts=InHdrParts}, #message{parts=InParts}} = InputMsg,
-    {#message{parts=OutHdrParts}, #message{parts=OutParts}} = OutputMsg,
+    {OpInHdrs, #message{parts=InParts}} = InputMsg,
+    {OpOutHdrs, #message{parts=OutParts}} = OutputMsg,
+    InHdrParts = empty_headers(OpInHdrs),
+    OutHdrParts = empty_headers(OpOutHdrs),
     InHdrs = [ E || #part{element=E} <- InHdrParts ],
     OutHdrs = [ E || #part{element=E} <- OutHdrParts ],
     Ins = [ E || #part{element=E} <- InParts ],
@@ -503,6 +590,9 @@ message_info(Op, Model) ->
      {pre_hooks, PreHooks}, {post_hooks, PostHooks},
      {endpoint, Endpoint}, {action, Action}].
 
+empty_headers(#message{parts=InHdrParts}) -> InHdrParts;
+empty_headers(undefined) -> [].
+
 find_elem(Qname, #model{type_map=Tbl}) ->
     case ews_model:get_elem(Qname, Tbl) of
         false ->
@@ -510,6 +600,18 @@ find_elem(Qname, #model{type_map=Tbl}) ->
         #elem{} = E ->
             E
     end.
+
+find_service_op({[], [{Qname, _, _}]}, Svcs) ->
+    lists:flatten(
+      [ [ {Svc, OpName, Op} ||
+            #op{ name = OpName
+               , input =
+                     {undefined,
+                      #message{
+                         parts =
+                             [#part{element = Mname
+                                   }]}}} = Op <- Ops, Mname == Qname]
+        || {Svc, Ops} <- Svcs]).
 
 %% >-----------------------------------------------------------------------< %%
 get_service_models(ServiceName,
@@ -559,12 +661,58 @@ encode_service_op(ModelRef, Model, ServiceName, OpName,
             encode_service_ins(HeaderParts, BodyParts, Info, Model)
     end.
 
+encode_service_op_out(ModelRef, Model, ServiceName, OpName,
+                      HeaderParts, BodyParts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            encode_service_out(HeaderParts, BodyParts, Info, Model)
+    end.
+
+encode_service_op_faults(ModelRef, Model, ServiceName, OpName,
+                         FaultCode, FaultString, BodyParts) ->
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model)
+    end.
+
 encode_service_ins(HeaderParts, BodyParts, Info, Model) ->
     InHdrs = proplists:get_value(in_hdr, Info),
     EncodedHeader = ews_serialize:encode(HeaderParts, InHdrs, Model),
     Ins = proplists:get_value(in, Info),
     EncodedBody = ews_serialize:encode(BodyParts, Ins, Model),
     {ok, {EncodedHeader, EncodedBody}}.
+
+encode_service_out(HeaderParts, BodyParts, Info, Model) ->
+    OutHdrs = proplists:get_value(out_hdr, Info),
+    EncodedHeader = ews_serialize:encode(HeaderParts, OutHdrs, Model),
+    Outs = proplists:get_value(out, Info),
+    EncodedBody = ews_serialize:encode(BodyParts, Outs, Model),
+    ews_soap:make_soap(EncodedHeader, EncodedBody).
+
+encode_service_faults(FaultCode, FaultString, BodyParts, Info, Model) ->
+    Faults = proplists:get_value(faults, Info),
+    EncodedBody = lists:flatten(encode_faults(BodyParts, Faults, Model, [])),
+    ews_soap:make_fault(FaultCode, FaultString, EncodedBody).
+
+encode_faults([Part | Parts], Faults, Model, Acc) ->
+    encode_faults(Parts, Faults, Model,
+                  [try_encode_fault(Part, Faults, Model) | Acc]);
+encode_faults([], _, _, Acc) ->
+    lists:reverse(Acc).
+
+try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
+    case catch ews_serialize:encode([Part], [Fault], Model) of
+        {'EXIT', _} ->
+            try_encode_fault(Part, Faults, Model);
+        XML ->
+            XML
+    end;
+try_encode_fault(_, [], _) ->
+    [].
 
 decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
@@ -579,6 +727,14 @@ decode_service_out(Headers, Body, Info, Model, Opts) ->
     OutHdrs = proplists:get_value(out_hdr, Info),
     DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
     [DecodedBody] = ews_serialize:decode(Body, Outs, Model),
+    make_return(DecodedHeaders, DecodedBody, Opts).
+
+decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+    #message{parts=Parts} = Msg,
+    Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+              #part{element=Qname} <- Parts ],
+    DecodedHeaders = decode_headers(Headers, InHdrs, Model, Opts),
+    [DecodedBody] = ews_serialize:decode(Body, Ins, Model),
     make_return(DecodedHeaders, DecodedBody, Opts).
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->

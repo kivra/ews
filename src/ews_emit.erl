@@ -4,8 +4,8 @@
 
 -include("ews.hrl").
 
-model_to_file(#model{type_map=Tbl}, Filename, ModelRef) ->
-    {Unresolved, Resolved} = sort_types(Tbl),
+model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
+    {Unresolved, Resolved} = sort_types(Tbl, Ts),
     io:format("emitting ~p records~n", [length(Unresolved) + length(Resolved)]),
     UnresolvedTypeDefs = [output_typedef(T) || T <- Unresolved],
     ResolvedTypes = [output_type(T, Tbl, ModelRef, Unresolved) ||
@@ -105,45 +105,55 @@ check_min(Base, _) ->
 
 %% ---------------------------------------------------------------------------
 
-sort_types(Tbl) ->
+sort_types(Tbl, Ts) ->
     Graph = create_graph(Tbl),
-    {Unresolved, Resolved} = sort_types(Graph, [], [], [], false),
+    {Unresolved, Resolved} = sort_types(Graph, [], [], [], false, Ts),
     {[ews_model:get(Qn, Tbl) || Qn <- Unresolved],
      [ews_model:get(Qn, Tbl) || Qn <- Resolved]}.
 
-sort_types([{Qn, []}|Types], Overflow, Res, Unresolvable,_Progressed) ->
-    sort_types(Types, Overflow, [Qn|Res], Unresolvable, true);
-sort_types([{Qn, Deps}|Types], Overflow, Res, Unresolvable, Progressed) ->
+sort_types([{Qn, []}|Types], Overflow, Res, Unresolvable,_Progressed, Ts) ->
+    sort_types(Types, Overflow, [Qn|Res], Unresolvable, true, Ts);
+sort_types([{Qn, Deps}|Types], Overflow, Res, Unresolvable, Progressed, Ts) ->
     case [D || D <- Deps,
                D /= Qn,
                not lists:member(D, Res),
                not lists:member(D, Unresolvable)] of
         [] ->
-            sort_types(Types, Overflow, [Qn|Res], Unresolvable, true);
+            sort_types(Types, Overflow, [Qn|Res], Unresolvable, true, Ts);
         UnresolvedDeps ->
             sort_types(Types, [{Qn, UnresolvedDeps}|Overflow], Res,
-                       Unresolvable, Progressed)
+                       Unresolvable, Progressed, Ts)
     end;
-sort_types([], [], Res, Unresolvable, _Progressed) ->
+sort_types([], [], Res, Unresolvable, _Progressed, _Ts) ->
     {Unresolvable, lists:reverse(Res)};
-sort_types([], Overflow, Res, Unresolvable, false) ->
-    NewUnresolvable = choose_unresolvable(Overflow),
+sort_types([], Overflow, Res, Unresolvable, false, Ts) ->
+    NewUnresolvable = choose_unresolvable(Overflow, Ts),
     NewOverflow = lists:keydelete(NewUnresolvable, 1, Overflow),
-    sort_types(NewOverflow, [], Res, [NewUnresolvable | Unresolvable], false);
-sort_types([], Overflow, Res, Unresolvable, true) ->
-    sort_types(Overflow, [], Res, Unresolvable, false).
+    sort_types(NewOverflow, [], Res, [NewUnresolvable | Unresolvable], false, Ts);
+sort_types([], Overflow, Res, Unresolvable, true, Ts) ->
+    sort_types(Overflow, [], Res, Unresolvable, false, Ts).
 
-choose_unresolvable([{Qn, [D | _]} | _] = Graph) ->
-    Chosen = find_loop(D, [Qn], Graph),
+choose_unresolvable([{Qn, [D | _]} | _] = Graph, Ts) ->
+    Chosen = find_loop(D, [Qn], Graph, Ts),
     Chosen.
 
-find_loop(Qn, Passed = [Previous | _], Graph) ->
+find_loop(Qn, Passed = [Previous | _], Graph, Ts) ->
     case lists:member(Qn, Passed) of
         true ->
             Previous;
         false ->
-            {_, [D | _]} = lists:keyfind(Qn, 1, Graph),
-            find_loop(D, [Qn | Passed], Graph)
+            try
+                {_, [D | _]} = lists:keyfind(Qn, 1, Graph),
+                find_loop(D, [Qn | Passed], Graph, Ts)
+            catch
+                _:_ ->
+                    case lists:keyfind(Qn, 1, Ts) of
+                        {_, Foo} ->
+                            error({found, Qn, Foo}, [Qn, Passed, Ts]);
+                        false ->
+                            error({cant_find, Qn, Ts}, [Qn, Passed, Ts])
+                    end
+            end
     end.
 
 create_graph(Tbl) ->

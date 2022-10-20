@@ -9,8 +9,11 @@
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5, call_service_op/6,
          encode_service_op/4, encode_service_op/5, encode_service_op/6,
+         encode_service_op_faults/6,
+         encode_service_op_result/5,
          decode_service_op_result/3, decode_service_op_result/4,
          decode_service_op_result/5,
+         decode_in/1, decode_in/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_post_hook/1, add_post_hook/2,
@@ -28,10 +31,16 @@ stop() ->
 
 add_wsdl_to_model(Wsdl) ->
     add_wsdl_to_model(default, Wsdl).
+
 add_wsdl_to_model(Model, Wsdl) when is_atom(Model), is_binary(Wsdl) ->
     ews_svc:add_wsdl_bin(Model, Wsdl);
 add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
-    ews_svc:add_wsdl_url(Model, WsdlUrl).
+    case uri_string:parse(WsdlUrl) of
+        #{scheme := _} ->
+            ews_svc:add_wsdl_url(Model, WsdlUrl);
+        #{} ->
+            ews_svc:add_wsdl_local(Model, WsdlUrl)
+    end.
 
 emit_complete_model_types(Filename) ->
     emit_complete_model_types(default, Filename).
@@ -95,6 +104,13 @@ encode_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
 encode_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
     ews_svc:encode(Model, Service, Op, Header, Body, Opts).
 
+encode_service_op_result(Model, Service, Op, Header, Body) when is_atom(Model) ->
+    ews_svc:encode_out(Model, Service, Op, Header, Body, #{}).
+
+encode_service_op_faults(Model, Service, Op, FaultCode, FaultString, Body)
+  when is_atom(Model) ->
+    ews_svc:encode_faults(Model, Service, Op, FaultCode, FaultString, Body).
+
 decode_service_op_result(Service, Op, Body) ->
     ews_svc:decode(Service, Op, Body, #{}).
 
@@ -107,6 +123,12 @@ decode_service_op_result(Model, Service, Op, Body)
 decode_service_op_result(Model, Service, Op, Body, Opts)
   when is_atom(Model) ->
     ews_svc:decode(Model, Service, Op, Body, Opts).
+
+decode_in(Soap) ->
+    decode_in(default, Soap).
+
+decode_in(Model, Soap) ->
+    ews_svc:decode_in(Model, Soap).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->

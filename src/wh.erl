@@ -58,7 +58,7 @@ find_element([E | Elements], Name) ->
             Child
     end;
 find_element([], _Name) ->
-    undefined; 
+    undefined;
 find_element(_, _Name) ->
     undefined.
 

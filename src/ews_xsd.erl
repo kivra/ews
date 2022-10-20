@@ -9,21 +9,42 @@
 
 -export([parse_schema/2]).
 
--export([print_schema_stats/1]).
+-export([ print_all_schema_stats/1
+        , print_schema_stats/1
+        ]).
 
 -include("ews.hrl").
 
--define(HTTP_OPTS, []).
+-define(HTTP_OPTS, [ {connect_options,
+                      [ {connect_timeout, timer:seconds(400)}
+                      , {recv_timeout, timer:seconds(400)}
+                      ]}
+                   , with_body
+                   ]).
+
+-ifdef(DEBUG).
+-define(print_stats(Schemas), print_all_schema_stats(Schemas)).
+-else.
+-define(print_stats(_Schemas), ok).
+-endif.
 
 %% ----------------------------------------------------------------------------
 %% Api
 
 parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
     Schemas = get_all_schemas(Schema),
-%%  [ print_schema_stats(S) || {_, _, S} <- Schemas ],
+    ?print_stats(Schemas),
     PrSchemas = [ #schema{namespace=Ns,
                           url=Url,
                           types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
+    NewTypes = process(propagate_namespaces(PrSchemas), Model),
+    {ews_model:append_model(Acc, NewTypes, Model), Model};
+parse_schema(Schema, {Acc, Model, BaseDir}) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schema, BaseDir),
+    ?print_stats(Schemas),
+    PrSchemas = [ #schema{namespace=Ns,
+                          url=Url,
+                          types=parse_types(S)} || {Ns, Url, S, _} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model}.
 
@@ -33,10 +54,16 @@ parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
 get_all_schemas(TopSchema) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
     Input = {Namespace, undefined, TopSchema},
-    AllSchemas = lists:flatten(get_all_schemas(Input, [])),
+    AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas).
 
-get_all_schemas({Ns, Base, Schema}, Acc) ->
+get_all_schemas(TopSchema, BaseDir) ->
+    Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    Input = {Namespace, undefined, TopSchema, BaseDir},
+    AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
+    lists:ukeysort(1, AllSchemas).
+
+do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
         [] ->
             [{Ns, Base, Schema} | Acc];
@@ -46,7 +73,32 @@ get_all_schemas({Ns, Base, Schema}, Acc) ->
                              Url /= undefined,
                              not lists:keymember(ImpNs, 1, Acc) ],
             [{Ns, Base, Schema} |
-             [ get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+             [ do_get_all_schemas(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+    end.
+
+do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
+    case find_imports(Schema) of
+        [] ->
+            [{Ns, Base, Schema, BaseDir} | Acc];
+        Imports ->
+            ?log("Imports: ~p~n", [Imports]),
+            ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
+                            basedir(Url, BaseDir)} ||
+                             {ImpNs, Url} <- Imports,
+                             Url /= undefined,
+                             not lists:keymember(ImpNs, 1, Acc) ],
+            [{Ns, Base, Schema, BaseDir} |
+             [ do_get_all_schemas_local(S, Acc++ImpSchemas) || S <- ImpSchemas ]]
+    end.
+
+basedir(Url, BaseDir) ->
+    case {uri_string:parse(Url), filename:dirname(Url)} of
+        {#{scheme := _}, _} ->
+            BaseDir;
+        {#{}, "."} ->
+            BaseDir;
+        {#{}, DirName} ->
+            filename:join(BaseDir, DirName)
     end.
 
 find_imports(Schema) ->
@@ -62,6 +114,14 @@ import_schema(SchemaUrl) ->
                                      {validation, schema}]),
     Schema.
 
+import_schema(SchemaUrl, BaseDir) ->
+    {ok, Bin} = request_cached(SchemaUrl, BaseDir),
+    {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
+    Schema.
+
 request_cached(SchemaUrl) ->
     CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
@@ -70,12 +130,41 @@ request_cached(SchemaUrl) ->
         {ok, Bin} ->
             {ok, Bin};
         {error, Error} ->
-            case lhttpc:request(SchemaUrl, get, [], [], 400000, ?HTTP_OPTS) of
-                {ok, {{200, _}, _, Bin}} ->
+            case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
+                {ok, 200, _, Bin} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
-                {ok, {{_, _}, _, Bin}} ->
+                {ok, _, _, Bin} ->
                     {error, Bin};
+                {error, Error} ->
+                    {error, Error}
+            end
+    end.
+
+request_cached(SchemaUrl, BaseDir) ->
+    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
+    ok = filelib:ensure_dir(File),
+    URI = uri_string:parse(SchemaUrl),
+    case {file:read_file(File), URI} of
+        {{ok, Bin}, _} ->
+            {ok, Bin};
+        {{error, Error}, #{scheme := _Scheme}} ->
+            case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
+                {ok, 200, _, Bin} ->
+                    ok = file:write_file(File, Bin),
+                    {ok, Bin};
+                {ok, _, _, Bin} ->
+                    {error, Bin};
+                {error, Error} ->
+                    {error, Error}
+            end;
+        %% Not a URI, fetch locally
+        {{error, Error}, #{}} ->
+            XSDFilename = filename:join(BaseDir, SchemaUrl),
+            case file:read_file(XSDFilename) of
+                {ok, Bin} ->
+                    {ok, Bin};
                 {error, Error} ->
                     {error, Error}
             end
@@ -138,12 +227,16 @@ parse_type(#xmlElement{} = Type) ->
             notation;
         Other ->
             io:format("ERROR: unrecognized xsd-element: ~p~n",
-                      [wh:get_name(Other)]),
+                      [Other]),
             {error, {unknown_type, Other}}
     end.
 
 %% FIXME: Must handle 'ref' attributes
 parse_element(Element) ->
+    Ref = wh:get_attribute(Element, ref),
+    maybe_ref(Ref, Element).
+
+maybe_ref(undefined, Element) ->
     Name = wh:get_attribute(Element, name),
     Type = wh:get_attribute(Element, type),
     Default = wh:get_attribute(Element, default),
@@ -155,7 +248,9 @@ parse_element(Element) ->
     #element{name=Name, type=Type, default=Default,
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
-             parts=Children}.
+             parts=Children};
+maybe_ref(Qname, _Element) ->
+    #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
@@ -225,7 +320,7 @@ parse_restriction(Restriction) ->
 is_enumeration([]) ->
     false;
 is_enumeration(Values) ->
-    lists:all(fun({enumeration, _}) -> true; (_) -> false end, Values).
+    lists:any(fun({enumeration, _}) -> true; (_) -> false end, Values).
 
 parse_complex_content(ComplexContent) ->
     case wh:get_all_child_elements(ComplexContent) of
@@ -283,6 +378,9 @@ select_ordering(Types) ->
         {#sequence{min_occurs=Min, max_occurs=Max, parts=Parts}, _, _} ->
             {{sequence, Min, Max}, Parts}
     end.
+
+print_all_schema_stats(Schemas) ->
+    [ print_schema_stats(S) || {_, _, S} <- Schemas ].
 
 print_schema_stats(Schema) ->
     Elements = wh:get_children(Schema, "element"),
@@ -350,9 +448,8 @@ insert_nss([E = #element{name=N, parts=[]} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [E#element{name=qname(N, Ns)}|Res]);
 insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewParts = case Ps of
-                   [#simple_type{}] ->
-                       error({not_implemented, unnamed_simple_type},
-                             [E, Ns, Res]);
+                   [#simple_type{} = St] ->
+                       [St#simple_type{name=qname(N, Ns)}];
                    [#complex_type{parts=CtPs} = Ct] ->
                        [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
@@ -385,52 +482,78 @@ to_string(Val) -> Val.
 process(Types, Model) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
-    {AllTypes, Elems} = process(Types, Ts, [], []),
+    {AllTypes, Elems} = process(Types, Ts, [], [], TypeMap, Model),
     [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
     [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
-    #model{type_map=TypeMap, elems=[]}.
+    #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
-        TypeAcc, ElemAcc) ->
+        TypeAcc, ElemAcc, TypeMap, Model) ->
     Meta = parse_meta(E),
-    Elem = #elem{qname=Qname, type=Qname, meta=Meta},
-    #complex_type{extends=Ext, parts=Ps2,
-                  abstract=Abstract} = lists:keyfind(complex_type, 1, Ps),
-    {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, []),
-    Type = #type{qname=Qname, extends=Ext,
-                 abstract=Abstract, elems=SubElems},
-    process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc]);
-process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc) ->
-    process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc);
+    ?log("Elem ~p Ps: ~p~n", [Qname, Ps]),
+    case lists:keyfind(complex_type, 1, Ps) of
+        #complex_type{extends=Ext, parts=Ps2,
+                      abstract=Abstract} ->
+            Elem = #elem{qname=Qname, type=Qname, meta=Meta},
+            ews_model:put(Elem, Model, TypeMap),
+            {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, [],
+                                                  TypeMap, Model),
+            Type = #type{qname=Qname, extends=Ext,
+                         abstract=Abstract, elems=SubElems},
+            ews_model:put(Type, Model, TypeMap),
+            process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
+                    TypeMap, Model);
+        false ->
+            #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
+            #base{} = Base = process_simple(Type),
+            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            ews_model:put(Elem, Model, TypeMap),
+            process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+    end;
+process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc,
+        TypeMap, Model) ->
+    process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model);
+process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = _E | Rest], Ts,
+        TypeAcc, ElemAcc, TypeMap, Model) ->
+    case ews_model:get_elem(Qname, TypeMap) of
+        false ->
+            error({cant_find_in_typemap, Qname});
+        #elem{type = #base{}} = E1 ->
+            process(Rest, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
+    end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
-        TypeAcc, ElemAcc) ->
+        TypeAcc, ElemAcc, TypeMap, Model) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
-    case to_base(T) of
+    case to_base(Qtype) of
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
                     Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
-                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc]);
+                    ews_model:put(Elem, Model, TypeMap),
+                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model);
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
-                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc])
+                    ews_model:put(Elem, Model, TypeMap),
+                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
             end;
         #base{} = Base ->
             Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
-            process(Rest, Ts, TypeAcc, [Elem | ElemAcc])
+            ews_model:put(Elem, Model, TypeMap),
+            process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
     end;
-process([#simple_type{} | Rest], Ts, TypeAcc, ElemAcc) ->
-    process(Rest, Ts, TypeAcc, ElemAcc);
+process([#simple_type{} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
+    process(Rest, Ts, TypeAcc, ElemAcc, TypeMap, Model);
 process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Ts,
-        TypeAcc, ElemAcc) ->
-    {AccWithSubTypes, SubElems} = process(Ps, Ts, TypeAcc, []),
+        TypeAcc, ElemAcc, TypeMap, Model) ->
+    {AccWithSubTypes, SubElems} = process(Ps, Ts, TypeAcc, [], TypeMap, Model),
     Type = #type{qname=Qname, extends=Ext, elems=SubElems},
-    process(Rest, Ts, [Type | AccWithSubTypes], ElemAcc);
-process([_T | Rest], Ts, TypeAcc, ElemAcc) ->
-    %% io:format("error: unexpected ~p~n", [T]),
-    process(Rest, Ts, TypeAcc, ElemAcc);
-process([], _, TypeAcc, ElemAcc) ->
+    ews_model:put(Type, Model, TypeMap),
+    process(Rest, Ts, [Type | AccWithSubTypes], ElemAcc, TypeMap, Model);
+process([T | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
+    io:format("error: unexpected ~p~n", [T]),
+    process(Rest, Ts, TypeAcc, ElemAcc, TypeMap, Model);
+process([], _, TypeAcc, ElemAcc, _TypeMap, _Model) ->
     {TypeAcc, lists:reverse(ElemAcc)}.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
@@ -443,12 +566,12 @@ process_simple(#simple_type{restrictions=Rs, order=Order}) ->
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
-        #enumeration{base_type=Base, values=Values} ->
+        #enumeration{base_type=_Base, values=Values} = Enum ->
             Vs = [ {ews_alias:create({ok, Str}), Str} ||
                    {enumeration, Str} <- Values ],
-            #enum{type=to_base(Base), values=Vs, list=IsList, union=IsUnion};
-        #restriction{base_type=Base, values=Rvals} ->
-            BaseRec = to_base(Base),
+            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+        #restriction{base_type=_Base, values=Rvals} = Restriction ->
+            BaseRec = to_base(Restriction),
             BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
     end.
 
@@ -475,6 +598,65 @@ to_base({"http://www.w3.org/2001/XMLSchema", N} = Qn) ->
                     #base{xsd_type=Qn, erl_type=string}
             end
     end;
+to_base(#restriction{base_type = "boolean" = Qn}) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base(#restriction{base_type = Qn}) ->
+    N = no_ns(Qn),
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end;
+to_base(#enumeration{base_type = "boolean" = Qn}) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base(#enumeration{base_type = Qn}) ->
+    N = no_ns(Qn),
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end;
+to_base({"no_ns", "boolean"} = Qn) ->
+    #base{xsd_type=Qn, erl_type=boolean};
+to_base({"no_ns", N} = Qn) ->
+    IntTypes = [integer, int, long, short, byte,
+                unsignedInt, unsignedLong, unsignedShort,
+                negativeInteger, positiveInteger, nonNegativeInteger],
+    FloatTypes = [decimal, double, float],
+    case lists:member(list_to_atom(N), IntTypes) of
+        true ->
+            #base{xsd_type=Qn, erl_type=integer};
+        false ->
+            case lists:member(list_to_atom(N), FloatTypes) of
+                true ->
+                    #base{xsd_type=Qn, erl_type=float};
+                false ->
+                    #base{xsd_type=Qn, erl_type=string}
+            end
+    end;
 to_base(_) -> false.
+
+no_ns({_NS, N}) -> N;
+no_ns(N) -> N.
 
 %% ----------------------------------------------------------------------------
