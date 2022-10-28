@@ -9,6 +9,7 @@
          get_service_op_info/2, get_service_op_info/3,
          call_service_op/4, call_service_op/5, call_service_op/6,
          encode_service_op/4, encode_service_op/5, encode_service_op/6,
+         serialize_service_op/5,
          encode_service_op_faults/6,
          encode_service_op_result/5,
          decode_service_op_result/3, decode_service_op_result/4,
@@ -103,6 +104,9 @@ encode_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
     ews_svc:encode(Model, Service, Op, Header, Body, #{}).
 encode_service_op(Model, Service, Op, Header, Body, Opts) when is_atom(Model) ->
     ews_svc:encode(Model, Service, Op, Header, Body, Opts).
+
+serialize_service_op(Model, Service, Op, Header, Body) when is_atom(Model) ->
+    ews_svc:serialize(Model, Service, Op, Header, Body).
 
 encode_service_op_result(Model, Service, Op, Header, Body) when is_atom(Model) ->
     ews_svc:encode_out(Model, Service, Op, Header, Body, #{}).
