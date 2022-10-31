@@ -58,11 +58,11 @@ do_get_all_nss([], NssMap0) ->
 %% encode
 
 emit_tag({txt, Content}, _) ->
-    Content;
+    export_text(Content);
 emit_tag({{Ns, txt}, Content}, Nss) ->
     %% Ugly hack for namespaced txts
     {Prefix, _XmlNsDecl, _NewNss} = get_ns_prefix(Ns, Nss),
-    to_string({Prefix, Content});
+    to_string({Prefix, export_text(Content)});
 emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},
@@ -115,6 +115,31 @@ to_string({Ns, Name}) -> [Ns, ":", Name];
 to_string(Name) when is_atom(Name) -> atom_to_list(Name);
 to_string(Name) when is_binary(Name) -> binary_to_list(Name);
 to_string(Name) when is_list(Name) -> Name.
+
+%% Escape special characters `\r` `<' and `&', flattening the text.
+%% Also escapes `>', just for symmetry.
+
+export_text(T) ->
+    export_text(T, []).
+
+export_text([$\r | T], Cont) ->
+    "&#13;" ++ export_text(T, Cont);
+export_text([$< | T], Cont) ->
+    "&lt;" ++ export_text(T, Cont);
+export_text([$> | T], Cont) ->
+    "&gt;" ++ export_text(T, Cont);
+export_text([$& | T], Cont) ->
+    "&amp;" ++ export_text(T, Cont);
+export_text([C | T], Cont) when is_integer(C) ->
+    [C | export_text(T, Cont)];
+export_text([T | T1], Cont) ->
+    export_text(T, [T1 | Cont]);
+export_text([], [T | Cont]) ->
+    export_text(T, Cont);
+export_text([], []) ->
+    [];
+export_text(Bin, Cont) ->
+    export_text(binary_to_list(Bin), Cont).
 
 %% ----------------------------------------------------------------------------
 %% decode
