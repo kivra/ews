@@ -152,8 +152,8 @@ serialize(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
         {ok, Info} ->
             {ok, {Header, Body}} =
                 encode_service_ins(HeaderParts, BodyParts, Info, Model),
-            Envelope = ews_soap:make_envelope(Header, Body),
-            [?XML_HDR, ews_xml:encode(Envelope)]
+            SOAP = ews_soap:make_soap(Header, Body),
+            iolist_to_binary(SOAP)
     end.
 
 encode_out(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->

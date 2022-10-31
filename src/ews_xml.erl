@@ -1,6 +1,11 @@
 -module(ews_xml).
 
--export([encode/1, decode/1, compare/2]).
+-export([encode/1,
+         encode/2,
+         decode/1,
+         compare/2,
+         get_all_nss/1
+        ]).
 
 -define(XML_NS, "http://www.w3.org/XML/1998/namespace").
 
@@ -11,11 +16,17 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
--spec encode(xml_data()) -> iolist().
+-spec encode(xml_data() | list(xml_data())) -> iolist().
 encode(Data) when is_tuple(Data) andalso size(Data) == 3 ->
     emit_tag(Data, []);
 encode(Data) when is_list(Data) ->
     [ emit_tag(D, []) || D <- Data ].
+
+
+encode(Data, Nss) when is_tuple(Data) andalso size(Data) == 3 ->
+    emit_tag(Data, Nss);
+encode(Data, Nss) when is_list(Data) ->
+    [ emit_tag(D, Nss) || D <- Data ].
 
 -spec decode(string()|binary()) -> xml_data() | [xml_data()].
 decode(XmlString) when is_binary(XmlString) ->
@@ -23,6 +34,25 @@ decode(XmlString) when is_binary(XmlString) ->
 decode(XmlString) when is_list(XmlString) ->
     Tokens = scan_tag(XmlString, [], [], []),
     parse_xml(Tokens, [], []).
+
+get_all_nss(Data) when is_tuple(Data) andalso size(Data) == 3 ->
+    do_get_all_nss([Data], #{?XML_NS => false});
+get_all_nss(Data) when is_list(Data) ->
+    do_get_all_nss(Data, #{?XML_NS => false}).
+
+do_get_all_nss([Head | Tail], NssMap) ->
+    NewNssMap = ns_tag(Head, NssMap),
+    do_get_all_nss(Tail, NewNssMap);
+do_get_all_nss([], NssMap0) ->
+    NssMap1 = maps:filter(fun(_, V) -> V end, NssMap0),
+    NssList = lists:reverse(maps:keys(NssMap1)),
+    {Attrs, NewNss} = lists:foldr(fun(Ns, {Acc, Nss0}) ->
+                                          {_, XmlDecl, Nss1} =
+                                              get_ns_prefix(Ns, Nss0),
+                                          {[XmlDecl | Acc], Nss1}
+                                  end,
+                                  {[], []}, NssList),
+    {lists:flatten(lists:reverse(Attrs)), NewNss}.
 
 %% ----------------------------------------------------------------------------
 %% encode
@@ -212,6 +242,45 @@ find_ns([{{P, N}, V} = A | Rest], Nss) ->
 find_ns([A | Rest], Nss) ->
     [A|find_ns(Rest, Nss)];
 find_ns([], _) -> [].
+
+%% ----------------------------------------------------------------------------
+%% Get All Nss
+ns_tag({txt, _Content}, NssMap) ->
+    NssMap;
+ns_tag({{Ns, txt}, _Content}, NssMap) ->
+    %% Ugly hack for namespaced txts
+    ns_add_prefix(Ns, NssMap);
+ns_tag({{Ns, _Name}, Attributes, Children}, NssMap0) ->
+    NssMap1 = ns_add_prefix(Ns, NssMap0),
+    NssMap2 = ns_attributes(Attributes, NssMap1),
+    ns_children(Children, NssMap2);
+ns_tag({_Name, Attributes, Children}, NssMap0) ->
+    NssMap1 = ns_attributes(Attributes, NssMap0),
+    ns_children(Children, NssMap1).
+
+ns_attributes([{{NsN, _N}, {NsV, _V}} | Attrs], NssMap0) ->
+    NssMap1 = ns_add_prefix(NsN, NssMap0),
+    NssMap2 = ns_add_prefix(NsV, NssMap1),
+    ns_attributes(Attrs, NssMap2);
+ns_attributes([{{Ns, _N}, _Value} | Attrs], NssMap0) ->
+    NssMap1 = ns_add_prefix(Ns, NssMap0),
+    ns_attributes(Attrs, NssMap1);
+ns_attributes([{_Key, _Value} | Attrs], NssMap) ->
+    ns_attributes(Attrs, NssMap);
+ns_attributes([], NssMap) ->
+    NssMap.
+
+ns_children([C | Children], NssMap0) ->
+    NssMap1 = ns_tag(C, NssMap0),
+    ns_children(Children, NssMap1);
+ns_children([], NssMap) ->
+    NssMap.
+
+ns_add_prefix(Ns, NssMap) ->
+    case maps:is_key(Ns, NssMap) of
+        true -> NssMap;
+        false -> NssMap#{Ns => true}
+    end.
 
 %% ----------------------------------------------------------------------------
 %% Xml utils
