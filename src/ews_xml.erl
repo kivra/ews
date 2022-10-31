@@ -151,6 +151,14 @@ scan_tag([$< | Rest], [], Txt, Acc) ->
 scan_tag([$> | Rest], Tag, [], Acc) ->
     Element = parse_tag(lists:reverse([$> | Tag])),
     scan_tag(Rest, [], [], [Element| Acc]);
+scan_tag([$&, $#, $1, $3, $; | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [], [$\r | Txt], Acc);
+scan_tag([$&, $l, $t, $; | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [], [$< | Txt], Acc);
+scan_tag([$&, $g, $t, $; | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [], [$> | Txt], Acc);
+scan_tag([$&, $a, $m, $p, $; | Rest], [], Txt, Acc) ->
+    scan_tag(Rest, [], [$& | Txt], Acc);
 scan_tag([C | Rest], [], Txt, Acc) ->
     scan_tag(Rest, [], [C | Txt], Acc);
 scan_tag([C | Rest], Stack, [], Acc) ->
