@@ -7,9 +7,6 @@
         , parse_envelope/1
         ]).
 
--define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
--define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
-
 -include("ews.hrl").
 
 %% ----------------------------------------------------------------------------
@@ -23,8 +20,7 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     HttpOpts = maps:get(http_options, Opts, []),
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
-    Envelope = make_envelope(Header, Body),
-    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
+    BodyIoList = make_soap(Header, Body),
     case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
         {ok, 200, HttpHdr, RespRef} ->
             {ok, RespEnv} = hackney:body(RespRef),
@@ -58,9 +54,10 @@ make_fault(FaultCode, FaultString, Detail) ->
     iolist_to_binary(BodyIoList).
 
 make_soap(Header, Body) ->
-    Envelope = make_envelope(Header, Body),
-    BodyIoList = [?XML_HDR, ews_xml:encode(Envelope)],
-    iolist_to_binary(BodyIoList).
+    {EnvTag, _, Rest} = Envelope0 = make_envelope(Header, Body),
+    {Attrs, Nss} = ews_xml:get_all_nss(Envelope0),
+    Envelope1 = {EnvTag, Attrs, Rest},
+    [?XML_HDR, ews_xml:encode(Envelope1, Nss)].
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};

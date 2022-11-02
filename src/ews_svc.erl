@@ -18,6 +18,7 @@
          get_model/1, get_service_models/1,
          list_simple_clashes/1, list_full_clashes/1, emit_model/2,
          call/5, call/6, encode/5, encode/6,
+         serialize/5,
          encode_out/6,
          encode_faults/6,
          decode/4, decode/5,
@@ -142,6 +143,18 @@ encode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     encode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts).
+
+serialize(ModelRef, ServiceName, OpName, HeaderParts, BodyParts) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case get_op_message_details(ModelRef, ServiceName, OpName) of
+        {error, Error} ->
+            {error, Error};
+        {ok, Info} ->
+            {ok, {Header, Body}} =
+                encode_service_ins(HeaderParts, BodyParts, Info, Model),
+            SOAP = ews_soap:make_soap(Header, Body),
+            iolist_to_binary(SOAP)
+    end.
 
 encode_out(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, _Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),

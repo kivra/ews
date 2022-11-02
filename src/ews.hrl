@@ -55,3 +55,6 @@
 -define(log(Expression), ok).
 -define(log(Format, Arguments), ok).
 -endif.
+
+-define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
+-define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
