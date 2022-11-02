@@ -7,8 +7,6 @@
         , parse_envelope/1
         ]).
 
--define(SOAPNS, "http://schemas.xmlsoap.org/soap/envelope/").
-
 -include("ews.hrl").
 
 %% ----------------------------------------------------------------------------

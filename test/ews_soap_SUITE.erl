@@ -1,5 +1,6 @@
 -module(ews_soap_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("ews/src/ews.hrl").
 
 %% CT functions
@@ -13,7 +14,8 @@
          no_header_response/1,
          full_response/1,
          fault_response/1,
-         not_an_envelope/1
+         not_an_envelope/1,
+         efficient_prefixes/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -27,7 +29,8 @@ groups() ->
        no_header_response,
        full_response,
        fault_response,
-       not_an_envelope
+       not_an_envelope,
+       efficient_prefixes
       ]}].
 
 init_per_group(soap_test, Config) ->
@@ -126,3 +129,51 @@ not_an_envelope(_Config) ->
     Opts = #{},
     {error, not_envelope} =
         ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
+
+efficient_prefixes(_Config) ->
+    Header = [],
+    Body = [{{"http://minameddelanden.gov.se/schema/Recipient/v2",
+              "storeAccountPreferences"},
+             [],
+             [{{"http://minameddelanden.gov.se/schema/Recipient/v2",
+                "preferences"},
+               [],
+               [{{"http://minameddelanden.gov.se/schema/Recipient",
+                  "AcceptedSenders"},
+                 [],
+                 [{{"http://minameddelanden.gov.se/schema/Sender","Id"},
+                   [],
+                   [{txt,<<"168">>}]}]},
+                {{"http://minameddelanden.gov.se/schema/Recipient",
+                  "AcceptedSenders"},
+                 [],
+                 [{{"http://minameddelanden.gov.se/schema/Sender","Id"},
+                   [],
+                   [{txt,<<"169">>}]}]}]},
+              {{"http://minameddelanden.gov.se/schema/Recipient/v2",
+                "AgreementText"},
+               [],
+               [{txt,<<"yo&\r\n<>öö/utf-8">>}]},
+              {{"http://minameddelanden.gov.se/schema/Recipient/v2",
+                "SignatureData"},
+               [],
+               [{{"http://minameddelanden.gov.se/schema/Common",
+                  "Signature"},
+                 [],
+                 [{txt,<<"boo">>}]}]}]}],
+    AllNss = find_nss(Body, []),
+    InNss = lists:usort([?SOAPNS | AllNss]),
+    XML = unicode:characters_to_list(ews_soap:make_soap(Header, Body), utf8),
+    Tokens = string:tokens(XML, " <>"),
+    XMLNss0 = [ begin [_, Ns1] = string:tokens(Ns0, "\""), Ns1 end ||
+                  "xmlns:"++Ns0 <- Tokens ],
+    ?assertEqual(length(InNss), length(XMLNss0)),
+    XMLNss1 = lists:usort(XMLNss0),
+    ?assertEqual(InNss, XMLNss1).
+
+find_nss([{{Ns, _},Attrs,Children} | T], Acc) ->
+    find_nss(T, find_nss(Attrs, [])++find_nss(Children, [])++[Ns | Acc]);
+find_nss([{txt, _} | T], Acc) ->
+    find_nss(T, Acc);
+find_nss([], Acc) ->
+    Acc.
