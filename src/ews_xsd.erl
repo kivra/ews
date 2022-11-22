@@ -455,7 +455,7 @@ insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
                        [Doc, Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #simple_type{} = St] ->
-                       [Doc, St#simple_type{name=qname(N, Ns)}]; 
+                       [Doc, St#simple_type{name=qname(N, Ns)}];
                    [{doc, Doc}] ->
                        [{doc, Doc}]
                end,
