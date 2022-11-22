@@ -454,6 +454,8 @@ insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
                        [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
                        [Doc, Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
+                   [Doc, #simple_type{} = St] ->
+                       [Doc, St#simple_type{name=qname(N, Ns)}]; 
                    [{doc, Doc}] ->
                        [{doc, Doc}]
                end,
@@ -660,3 +662,20 @@ no_ns({_NS, N}) -> N;
 no_ns(N) -> N.
 
 %% ----------------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+insert_nss_doc_simpletype_test() ->
+    SimpleType =
+        #simple_type{ name = undefined
+                    , order = undefined
+                    , restrictions =
+                          #restriction{base_type = "string"
+                                      , values = [{max_length, 2000}]}},
+    DocAnnotation = {doc, <<"fake docs, please ignore">>},
+    TestElem = #element{name="fake", parts=[DocAnnotation, SimpleType]},
+    ?assertMatch([#element{}], insert_nss([TestElem], "https://example.com", [])).
+
+-endif.
