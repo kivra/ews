@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://example.com/with_enum"
+        xmlns:with_enum="http://example.com/with_enum"
+        elementFormDefault="qualified">
+    <element name="FridayStatus" minOccurs="0">
+      <annotation>
+        <documentation>Is it Friday?</documentation>
+      </annotation>
+      <simpleType>
+        <restriction base="string">
+          <enumeration value="yes">
+            <annotation>
+              <documentation>Yes.</documentation>
+            </annotation>
+          </enumeration>
+          <enumeration value="no">
+            <annotation>
+              <documentation>Not yet.</documentation>
+            </annotation>
+          </enumeration>
+          <enumeration value="soon">
+            <annotation>
+              <documentation>It's Thursday</documentation>
+            </annotation>
+          </enumeration>
+        </restriction>
+      </simpleType>
+    </element>
+</schema>

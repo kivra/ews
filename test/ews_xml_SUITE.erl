@@ -10,6 +10,7 @@
 -export([tag_with_multiple_namespaces/1,
          namespace_owerwriting/1,
          forbidden_characters/1,
+         schema_with_string_enum/1,
          import_any_order/1
         ]).
 
@@ -21,7 +22,10 @@ groups() ->
        namespace_owerwriting,
        forbidden_characters
       ]},
-      {xsd_test, [shuffle], [import_any_order]}].
+      {xsd_test, [shuffle],
+       [import_any_order,
+        schema_with_string_enum
+       ]}].
 
 all() ->
     [{group, xml_test},
@@ -78,4 +82,22 @@ import_any_order(_Config) ->
     ?assertMatch(#elem{}, Signed),
     Sealed = ews_model:get({"http://example.com/importer","Sealed"}, TypeMap),
     ?assertMatch(#type{alias = sealed}, Sealed),
+    ok.
+
+schema_with_string_enum(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "with_enum.xsd"),
+    {ok, XsdBin} = file:read_file(File),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+
+    {Model, with_enum} = ews_xsd:parse_schema(Schema, {undefined, with_enum, Dir}),
+
+    ?assertMatch(#model{}, Model),
+    #model{type_map = TypeMap} = Model,
+
+    FridayStatus = ews_model:get_elem({"http://example.com/with_enum","FridayStatus"}, TypeMap),
+    ?assertMatch(#elem{}, FridayStatus),
     ok.
