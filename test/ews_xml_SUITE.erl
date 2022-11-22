@@ -1,14 +1,16 @@
 -module(ews_xml_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("ews/src/ews.hrl").
 
 %% CT functions
--export([suite/0, groups/0, all/0]).
+-export([suite/0, groups/0, all/0, init_per_suite/1, end_per_suite/1]).
 
 %% Tests
 -export([tag_with_multiple_namespaces/1,
          namespace_owerwriting/1,
-         forbidden_characters/1
+         forbidden_characters/1,
+         import_any_order/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -18,10 +20,18 @@ groups() ->
       [tag_with_multiple_namespaces,
        namespace_owerwriting,
        forbidden_characters
-      ]}].
+      ]},
+      {xsd_test, [shuffle], [import_any_order]}].
 
 all() ->
-    [{group, xml_test}].
+    [{group, xml_test},
+     {group, xsd_test}].
+
+init_per_suite(Config) ->
+    application:ensure_all_started(ews),
+    Config.
+end_per_suite(Config) ->
+    Config.
 
 tag_with_multiple_namespaces(_Config) ->
     XMLString = "<a:test xmlns:a=\"ns-a\" xmlns:b=\"ns-b\" ><b:test2/></a:test>",
@@ -47,3 +57,25 @@ forbidden_characters(_Config) ->
                   [{txt,<<"yo&\r\n<>öö/utf-8">>}]}]}]}],
     Output = ews_xml:decode(iolist_to_binary(ews_xml:encode(Input))),
     ?assertMatch(Input, Output).
+
+import_any_order(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "importer.xsd"),
+    {ok, XsdBin} = file:read_file(File),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+
+    {Model, default_testtest} = ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+
+    ?assertMatch(#model{}, Model),
+    #model{type_map = TypeMap} = Model,
+
+    Signatures = ews_model:get({"http://example.com/importee","Signatures"}, TypeMap),
+    ?assertMatch(#type{alias = signatures}, Signatures),
+    Signed = ews_model:get_elem({"http://example.com/importer","Signed"}, TypeMap),
+    ?assertMatch(#elem{}, Signed),
+    Sealed = ews_model:get({"http://example.com/importer","Sealed"}, TypeMap),
+    ?assertMatch(#type{alias = sealed}, Sealed),
+    ok.

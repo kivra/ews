@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://example.com/importee"
+        xmlns:importee="http://example.com/importee"
+        xmlns:sig="http://www.w3.org/2000/09/xmldsig#"
+        elementFormDefault="qualified">
+    <import namespace="http://www.w3.org/2000/09/xmldsig#" schemaLocation="xmldsig-core-schema.xsd"/>
+    <complexType name="Signatures">
+        <sequence>
+            <element ref="sig:Signature" minOccurs="1" maxOccurs="1"/>
+        </sequence>
+        <attribute name="Id" type="ID" use="optional"/>
+    </complexType>
+</schema>

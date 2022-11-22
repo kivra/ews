@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://example.com/importer"
+        xmlns:importer="http://example.com/importer"
+        xmlns:importee="http://example.com/importee"
+        elementFormDefault="qualified">
+    <import namespace="http://example.com/importee" schemaLocation="importee.xsd"/>
+    <complexType name="Sealed">
+        <sequence>
+            <element name="Signed" type="importee:Signatures" minOccurs="1" maxOccurs="1"/>
+        </sequence>
+        <attribute name="Id" type="ID" use="optional"/>
+    </complexType>
+</schema>
