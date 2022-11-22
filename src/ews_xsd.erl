@@ -516,8 +516,8 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
                     TypeMap, Model);
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
-            #base{} = Base = process_simple(Type),
-            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            Base = process_simple(Type),
+            Elem = #elem{qname=Qname, type=Base, meta=Meta},
             ews_model:put(Elem, Model, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
     end;
