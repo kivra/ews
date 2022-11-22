@@ -532,8 +532,8 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
             process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model);
         #elem{type = #base{}} = E1 ->
             process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model);
-        #elem{type = _} = Resolved ->
-            process([Resolved | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model)
+        #elem{type = _} = E1 ->
+            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
