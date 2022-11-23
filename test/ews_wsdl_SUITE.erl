@@ -63,7 +63,7 @@ init_per_group(mm_service, Config) ->
 end_per_group(google_v201306_campaignService, _Config) ->
     ok;
 end_per_group(mm_service, _Config) ->
-    ok.
+    ews:remove_model(ek_mm_test).
 
 google_v201306_ensure_record(Config) ->
     Wsdl = proplists:get_value(google_v201306_campaignService, Config),
