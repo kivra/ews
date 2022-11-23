@@ -45,6 +45,9 @@ get_elem({_,_} = Key, Table) ->
             Elem
     end.
 
+get_parts(Key, _Table) when is_list(Key) ->
+    ct:pal("warning: can't get parts for type ~p", [Key]),
+    [];
 get_parts(Key, Table) ->
     case ews_model:get(Key, Table) of
         #type{elems=Parts, extends=undefined} ->
