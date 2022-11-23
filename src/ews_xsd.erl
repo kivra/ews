@@ -203,6 +203,9 @@ parse_type(#xmlElement{} = Type) ->
             parse_restriction(Type);
         "complexContent" ->
             parse_complex_content(Type);
+        %% This is handled by parse_complex_type/1
+        %% "simpleContent" ->
+        %%     parse_simple_content(Type);
         "sequence" ->
             parse_sequence(Type);
         "all" ->
@@ -255,15 +258,28 @@ maybe_ref(Qname, _Element) ->
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
     Abstract = wh:get_attribute(ComplexType, abstract),
+    Children = wh:get_all_child_elements(ComplexType),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
     Extension = parse_type(wh:find_element(ComplexType, "extension")),
-    Types = [ parse_type(C) || C <- wh:get_all_child_elements(ComplexType) ],
-    {Order, Parts} = select_ordering(Types),
-    {Extends, ExtOrder, ExtendParts} = extract_extension(Extension),
-    #complex_type{name=Name, order=choose_order(Order, ExtOrder),
-                  extends=Extends, abstract=Abstract,
-                  restrictions=Restriction,
-                  parts=Parts++ExtendParts}.
+    case Children of
+        [#xmlElement{name = simpleContent} = SimpleContent] ->
+            RestrictionSC = parse_type(wh:find_element(SimpleContent,
+                                                       "restriction")),
+            ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
+            {Extends, ExtOrder, _ExtendParts} = extract_extension(ExtensionSC),
+            #complex_type{name=Name, order=ExtOrder,
+                          extends=Extends, abstract=Abstract,
+                          restrictions=RestrictionSC,
+                          parts=[]};
+        _ ->
+            Types = [ parse_type(C) || C <- Children ],
+            {Order, Parts} = select_ordering(Types),
+            {Extends, ExtOrder, ExtendParts} = extract_extension(Extension),
+            #complex_type{name=Name, order=choose_order(Order, ExtOrder),
+                          extends=Extends, abstract=Abstract,
+                          restrictions=Restriction,
+                          parts=Parts++ExtendParts}
+    end.
 
 extract_extension(undefined) -> {undefined, undefined, []};
 extract_extension(#extension{base=Base, parts=ExtParts}) ->
