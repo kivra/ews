@@ -218,7 +218,8 @@ merge_elem_lists(Elems1, Elems2) ->
                          end;
                      {_, []} when Min == 0 ->
                          {[E1 | Es], E2s};
-                     _ ->
+                     Error ->
+                         error({unmatched_element, Error, E1, Elems2}),
                          {error, {unmatched_element, E1, Elems2}}
                  end
          end,
