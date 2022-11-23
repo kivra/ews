@@ -1,6 +1,7 @@
 -module(ews_emit).
 
 -export([model_to_file/3]).
+-export([sort_types/2]).
 
 -include("ews.hrl").
 

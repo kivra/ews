@@ -465,6 +465,7 @@ compile_wsdl(Wsdl) ->
 
 compile_ops(#service{name=Name, ports=[Port]}, Messages, PortTypes, Bindings) ->
     #port{endpoint=Endpoint, binding=Binding} = Port,
+    ct:pal("Port: ~p~nBindings: ~p~n", [Port, Bindings]),
     case lists:keyfind(Binding, #binding.name, Bindings) of
         #binding{port_type=PortType,
                  style=Style,
