@@ -11,6 +11,7 @@
          namespace_owerwriting/1,
          forbidden_characters/1,
          schema_with_string_enum/1,
+         reference_in_parts/1,
          import_any_order/1
         ]).
 
@@ -24,6 +25,7 @@ groups() ->
       ]},
       {xsd_test, [shuffle],
        [import_any_order,
+        reference_in_parts,
         schema_with_string_enum
        ]}].
 
@@ -82,6 +84,27 @@ import_any_order(_Config) ->
     ?assertMatch(#elem{}, Signed),
     Sealed = ews_model:get({"http://example.com/importer","Sealed"}, TypeMap),
     ?assertMatch(#type{alias = sealed}, Sealed),
+    ok.
+
+reference_in_parts(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "importer.xsd"),
+    {ok, XsdBin} = file:read_file(File),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+
+    {Model, default_testtest} = ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+
+    ?assertMatch(#model{}, Model),
+    #model{type_map = TypeMap} = Model,
+
+    Signatures = ews_model:get({"http://example.com/importee","Signatures"}, TypeMap),
+    %% Make sure references are handled and put in type in model
+    ?assertMatch(#type{ alias = signatures
+                      , elems = [#elem{}]
+                      }, Signatures),
     ok.
 
 schema_with_string_enum(_Config) ->
