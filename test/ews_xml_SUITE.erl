@@ -12,6 +12,7 @@
          forbidden_characters/1,
          schema_with_string_enum/1,
          reference_in_parts/1,
+         choice_in_sequence/1,
          import_any_order/1
         ]).
 
@@ -26,6 +27,7 @@ groups() ->
       {xsd_test, [shuffle],
        [import_any_order,
         reference_in_parts,
+        choice_in_sequence,
         schema_with_string_enum
        ]}].
 
@@ -95,7 +97,8 @@ reference_in_parts(_Config) ->
                                       {namespace_conformant, true},
                                       {validation, schema}]),
 
-    {Model, default_testtest} = ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+    {Model, choice} =
+        ews_xsd:parse_schema(Schema, {undefined, choice, Dir}),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
@@ -112,6 +115,29 @@ reference_in_parts(_Config) ->
                                                     fixed = undefined,
                                                     max = 1,min = 1}}]
                       }, Signatures),
+    ok.
+
+choice_in_sequence(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "importer.xsd"),
+    {ok, XsdBin} = file:read_file(File),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+
+    {Model, default_testtest} =
+        ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+
+    ?assertMatch(#model{}, Model),
+    #model{type_map = TypeMap} = Model,
+
+    X509DT = ews_model:get({"http://www.w3.org/2000/09/xmldsig#","X509DataType"},
+                           TypeMap),
+    %% Make sure references are handled and put in type in model
+    ?assertMatch(#type{ alias = x509_data_type
+                      , elems = [_|_]
+                      }, X509DT),
     ok.
 
 schema_with_string_enum(_Config) ->
