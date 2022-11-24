@@ -103,7 +103,14 @@ reference_in_parts(_Config) ->
     Signatures = ews_model:get({"http://example.com/importee","Signatures"}, TypeMap),
     %% Make sure references are handled and put in type in model
     ?assertMatch(#type{ alias = signatures
-                      , elems = [#elem{}]
+                      , elems = [#elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                                "Signature"},
+                                       type = {"http://www.w3.org/2000/09/xmldsig#",
+                                               "SignatureType"},
+                                       meta = #meta{nillable = undefined,
+                                                    default = undefined,
+                                                    fixed = undefined,
+                                                    max = 1,min = 1}}]
                       }, Signatures),
     ok.
 
