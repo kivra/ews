@@ -75,7 +75,8 @@ import_any_order(_Config) ->
                                       {namespace_conformant, true},
                                       {validation, schema}]),
 
-    {Model, default_testtest} = ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+    {Model, default_testtest} =
+        ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
