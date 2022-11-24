@@ -574,12 +574,18 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
     end;
 process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Retry, Ts,
+process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model) ->
-    {AccWithSubTypes, SubElems, Retry2} = process(Ps, Retry, Ts, TypeAcc, [], TypeMap, Model),
-    Type = #type{qname=Qname, extends=Ext, elems=SubElems},
-    ews_model:put(Type, Model, TypeMap),
-    process(Rest, Retry2, Ts, [Type | AccWithSubTypes], ElemAcc, TypeMap, Model);
+    %% We don't want to pass in Retry in processing of parts
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model) of
+        {AccWithSubTypes, SubElems, []} ->
+            Type = #type{qname=Qname, extends=Ext, elems=SubElems},
+            ews_model:put(Type, Model, TypeMap),
+            process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
+                    TypeMap, Model);
+        {_, _, [_|_]} ->
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model)
+    end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
     io:format("error: unexpected ~p~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model);
