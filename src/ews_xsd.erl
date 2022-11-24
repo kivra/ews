@@ -13,6 +13,12 @@
         , print_schema_stats/1
         ]).
 
+-export([ process/2
+        , propagate_namespaces/1
+        , import_schema/2
+        , parse_types/1
+        ]).
+
 -include("ews.hrl").
 
 -define(HTTP_OPTS, [ {connect_options,
