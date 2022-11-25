@@ -14,7 +14,7 @@
 %% Tests
 -export([ google_v201306_ensure_record/1
         , google_v201306_correct_service/1
-        , restriction/1
+        , dont_emit_simplecontent/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -25,7 +25,7 @@ groups() ->
         google_v201306_correct_service
        ]}
     , {mm_service,
-       [restriction
+       [dont_emit_simplecontent
        ]}
     ].
 
@@ -74,7 +74,7 @@ google_v201306_correct_service(Config) ->
     [ResService] = Wsdl#wsdl.services,
     "CampaignService" = ResService#service.name.
 
-restriction(_Config) ->
+dont_emit_simplecontent(_Config) ->
     Dir = filename:join(code:priv_dir(ews), "../test"),
     File = filename:join(Dir, "mm_service.wsdl"),
     %% Mock request
@@ -84,4 +84,11 @@ restriction(_Config) ->
     #model{type_map=Tbl, simple_types=Ts} =
         ews_svc:get_model(ek_mm_test),
     Ret = ews_emit:sort_types(Tbl, Ts),
-    ?assertEqual(xxx, Ret).
+    %% Nothing should be unresolved
+    ?assertMatch({[], [_|_]}, Ret),
+    %% This simpleContent should not be in Tbl
+    ?assertEqual(false,
+                 ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
+                                "SignatureValueType"}
+                              , Tbl)),
+    ok.
