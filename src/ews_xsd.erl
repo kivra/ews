@@ -272,11 +272,13 @@ parse_complex_type(ComplexType) ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction")),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
-            {Extends, _ExtendParts} = extract_extension(ExtensionSC),
-            #complex_type{name=Name,
-                          extends=Extends, abstract=Abstract,
-                          restrictions=RestrictionSC,
-                          parts=[]};
+            %% TODO: handle extenstions without this ugly hack
+            %% This is converted to a simple_type since we don't want to emit
+            %% a record for a simpleContent
+            RestrictionFinal = extract_base(RestrictionSC, ExtensionSC),
+            #simple_type{name=Name,
+                         restrictions=RestrictionFinal
+                         };
         _ ->
             ChildTypes = [ parse_type(C) || C <- Children ],
             Parts = flatten_children(ChildTypes),
@@ -286,6 +288,11 @@ parse_complex_type(ComplexType) ->
                           restrictions=Restriction,
                           parts=Parts++ExtendParts}
     end.
+
+extract_base(undefined, #extension{base=Base}) ->
+    #restriction{base_type=Base};
+extract_base(Restriction, _) ->
+    Restriction.
 
 extract_extension(undefined) -> {undefined, []};
 extract_extension(#extension{base=Base, parts=ExtParts}) ->
