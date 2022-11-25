@@ -12,7 +12,7 @@
          forbidden_characters/1,
          schema_with_string_enum/1,
          reference_in_parts/1,
-         choice_in_sequence/1,
+         flatten_seq_choice_etc/1,
          import_any_order/1
         ]).
 
@@ -24,12 +24,12 @@ groups() ->
        namespace_owerwriting,
        forbidden_characters
       ]},
-      {xsd_test, [shuffle],
-       [import_any_order,
-        reference_in_parts,
-        choice_in_sequence,
-        schema_with_string_enum
-       ]}].
+     {xsd_test, [shuffle],
+      [import_any_order,
+       reference_in_parts,
+       flatten_seq_choice_etc,
+       schema_with_string_enum
+      ]}].
 
 all() ->
     [{group, xml_test},
@@ -45,7 +45,7 @@ tag_with_multiple_namespaces(_Config) ->
     XMLString = "<a:test xmlns:a=\"ns-a\" xmlns:b=\"ns-b\" ><b:test2/></a:test>",
     Terms = ews_xml:decode(XMLString),
     Terms = [{{"ns-a", "test"}, [],
-             [{{"ns-b","test2"}, [], []}]}].
+              [{{"ns-b","test2"}, [], []}]}].
 
 namespace_owerwriting(_Config) ->
     XMLString = "<test xmlns=\"a\" ><test2 xmlns=\"b\" /></test>",
@@ -71,9 +71,9 @@ import_any_order(_Config) ->
     File = filename:join(Dir, "importer.xsd"),
     {ok, XsdBin} = file:read_file(File),
     {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
-                                     [{space, normalize},
-                                      {namespace_conformant, true},
-                                      {validation, schema}]),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
 
     {Model, default_testtest} =
         ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
@@ -94,9 +94,9 @@ reference_in_parts(_Config) ->
     File = filename:join(Dir, "importer.xsd"),
     {ok, XsdBin} = file:read_file(File),
     {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
-                                     [{space, normalize},
-                                      {namespace_conformant, true},
-                                      {validation, schema}]),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
 
     {Model, choice} =
         ews_xsd:parse_schema(Schema, {undefined, choice, Dir}),
@@ -118,14 +118,14 @@ reference_in_parts(_Config) ->
                       }, Signatures),
     ok.
 
-choice_in_sequence(_Config) ->
+flatten_seq_choice_etc(_Config) ->
     Dir = filename:join(code:priv_dir(ews), "../test"),
     File = filename:join(Dir, "importer.xsd"),
     {ok, XsdBin} = file:read_file(File),
     {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
-                                     [{space, normalize},
-                                      {namespace_conformant, true},
-                                      {validation, schema}]),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
 
     {Model, default_testtest} =
         ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
@@ -133,12 +133,103 @@ choice_in_sequence(_Config) ->
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
 
-    X509DT = ews_model:get({"http://www.w3.org/2000/09/xmldsig#","X509DataType"},
+    X509DT = ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
+                            "X509DataType"},
                            TypeMap),
-    %% Make sure references are handled and put in type in model
-    ?assertMatch(#type{ alias = x509_data_type
-                      , elems = [_|_]
-                      }, X509DT),
+    %% Choice in Sequence get zero minoccurs
+    ?assertMatch(
+       #type{ alias = x509_data_type
+            , elems =
+                  [#elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                  "X509IssuerSerial"},
+                         type = {"http://www.w3.org/2000/09/xmldsig#",
+                                 "X509IssuerSerialType"},
+                         meta = #meta{max = 1,min = 0}},
+                   #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                  "X509SKI"},
+                         type = #base{xsd_type = {"no_ns","base64Binary"},
+                                      erl_type = string},
+                         meta = #meta{max = 1,min = 0}},
+                   #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                  "X509SubjectName"},
+                         type = #base{xsd_type = {"no_ns","string"},
+                                      erl_type = string},
+                         meta = #meta{max = 1,min = 0}},
+                   #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                  "X509Certificate"},
+                         type = #base{xsd_type = {"no_ns","base64Binary"},
+                                      erl_type = string},
+                         meta = #meta{max = 1,min = 0}},
+                   #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                  "X509CRL"},
+                         type = #base{xsd_type = {"no_ns","base64Binary"},
+                                      erl_type = string},
+                         meta = #meta{max = 1,min = 0}}]
+            }, X509DT),
+
+    DSAKeyValueType = ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
+                                     "DSAKeyValueType"},
+                                    TypeMap),
+    %% Sequences propagate down 0s
+    ?assertMatch(
+       #type{ alias = dsa_key_value_type
+            , elems = [#elem{qname = {"http://www.w3.org/2000/09/xmldsig#","P"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#","Q"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#","G"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#","Y"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 1}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#","J"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#","Seed"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                      "PgenCounter"},
+                             type = #base{xsd_type = "base64Binary",
+                                          erl_type = string,
+                                          restrictions = []},
+                             meta = #meta{max = 1,min = 0}}]},
+       DSAKeyValueType),
+
+
+    PGPDataType = ews_model:get({"http://www.w3.org/2000/09/xmldsig#","PGPDataType"},
+                                TypeMap),
+    %% choice of sequences merge identical elements
+    ?assertMatch(
+       #type{ alias = pgp_data_type
+            , elems = [
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                      "PGPKeyID"},
+                             type = #base{xsd_type = {"no_ns","base64Binary"},
+                                          erl_type = string},
+                             meta = #meta{max = 1,min = 0}},
+                       #elem{qname = {"http://www.w3.org/2000/09/xmldsig#",
+                                      "PGPKeyPacket"},
+                             type = #base{xsd_type = {"no_ns","base64Binary"},
+                                          erl_type = string},
+                             meta = #meta{max = 1,min = 0}}
+                      ]}, PGPDataType),
+
     ok.
 
 schema_with_string_enum(_Config) ->
@@ -146,9 +237,9 @@ schema_with_string_enum(_Config) ->
     File = filename:join(Dir, "with_enum.xsd"),
     {ok, XsdBin} = file:read_file(File),
     {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
-                                     [{space, normalize},
-                                      {namespace_conformant, true},
-                                      {validation, schema}]),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
 
     {Model, with_enum} = ews_xsd:parse_schema(Schema, {undefined, with_enum, Dir}),
 

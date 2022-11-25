@@ -272,30 +272,25 @@ parse_complex_type(ComplexType) ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction")),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
-            {Extends, ExtOrder, _ExtendParts} = extract_extension(ExtensionSC),
-            #complex_type{name=Name, order=ExtOrder,
+            {Extends, _ExtendParts} = extract_extension(ExtensionSC),
+            #complex_type{name=Name,
                           extends=Extends, abstract=Abstract,
                           restrictions=RestrictionSC,
                           parts=[]};
         _ ->
-            Types = [ parse_type(C) || C <- Children ],
-            {Order, Parts} = select_ordering(Types),
-            {Extends, ExtOrder, ExtendParts} = extract_extension(Extension),
-            #complex_type{name=Name, order=choose_order(Order, ExtOrder),
+            ChildTypes = [ parse_type(C) || C <- Children ],
+            Parts = flatten_children(ChildTypes),
+            {Extends, ExtendParts} = extract_extension(Extension),
+            #complex_type{name=Name,
                           extends=Extends, abstract=Abstract,
                           restrictions=Restriction,
                           parts=Parts++ExtendParts}
     end.
 
-extract_extension(undefined) -> {undefined, undefined, []};
+extract_extension(undefined) -> {undefined, []};
 extract_extension(#extension{base=Base, parts=ExtParts}) ->
-    {Order, Parts} = select_ordering(ExtParts),
-    {Base, Order, Parts}.
-
-
-choose_order(undefined, O2) -> O2;
-choose_order(O1, undefined) -> O1;
-choose_order(O1, _) -> O1.
+    Parts = flatten_children(ExtParts),
+    {Base, Parts}.
 
 parse_simple_type(Simple) ->
     Name = wh:get_attribute(Simple, name),
@@ -386,20 +381,47 @@ parse_annotation(Annotation) ->
 %% ----------------------------------------------------------------------------
 %% Utility functions
 
-select_ordering(Types) ->
-    Sequence = lists:keyfind(sequence, 1, Types),
-    Choice = lists:keyfind(choice, 1, Types),
-    All = lists:keyfind(all, 1, Types),
-    case {Sequence, Choice, All} of
-        {false, false, false} ->
-            {undefined, []};
-        {false, false, #all{min_occurs=Min, max_occurs=Max, parts=Parts}} ->
-            {{all, Min, Max}, Parts};
-        {false, #choice{min_occurs=Min, max_occurs=Max, parts=Parts}, _} ->
-            {{choice, Min, Max}, Parts};
-        {#sequence{min_occurs=Min, max_occurs=Max, parts=Parts}, _, _} ->
-            {{sequence, Min, Max}, Parts}
-    end.
+flatten_children(Types) ->
+
+    %% We lose some accuracy here, the nesting disappears but
+    %% we don't use it for now anyway.
+
+    %% common case:
+    %%   just a flat sequence, with only elements
+    %% special case, sequence of choices:
+    %%   get all choice elements as if they were the sequence, all minoccurs:=0
+    %% special case, choice of sequences:
+    %%   recurse through sequences, find parts, merge, remove dupes
+    %% 
+    %% after this do some uniqueness.
+    %%
+    Children = lists:flatten([ flatten_children(T, false) || T <- Types ]),
+    UniqueChildren = lists:foldl(
+        fun (Child, Acc) ->
+            case lists:member(Child, Acc) of
+                false -> Acc ++ [Child];
+                true -> Acc
+            end
+        end,
+        [],
+        Children
+    ),
+    UniqueChildren.
+
+flatten_children(Types, PropUndefined) when is_list(Types) ->
+    [ flatten_children(T, PropUndefined) || T <- Types ];
+flatten_children(#sequence{min_occurs=0, parts=Parts}, _PropUndefined) ->
+    [ flatten_children(T, true) || T <- Parts ];
+flatten_children(#sequence{min_occurs=_, parts=Parts}, PropUndefined) ->
+    [ flatten_children(T, PropUndefined) || T <- Parts ];
+flatten_children(#choice{min_occurs=_, parts=Parts}, _PropUndefined) ->
+    [ flatten_children(T, true) || T <- Parts ];
+flatten_children(#all{min_occurs=_, parts=Parts}, PropUndefined) ->
+    [ flatten_children(T, PropUndefined) || T <- Parts ];
+flatten_children(#element{} = E, true) ->
+    E#element{min_occurs=0};
+flatten_children(Any, _PropUndefined) ->
+    Any.
 
 print_all_schema_stats(Schemas) ->
     [ print_schema_stats(S) || {_, _, S} <- Schemas ].

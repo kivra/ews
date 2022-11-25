@@ -24,7 +24,7 @@
                   min_occurs=1, max_occurs=1, parts}).
 -record(simple_type, {name, order, restrictions}).
 -record(attribute, {name, type, use, default, fixed}).
--record(complex_type, {name, order, extends, abstract, restrictions, parts}).
+-record(complex_type, {name, extends, abstract, restrictions, parts}).
 -record(reference, {name}).
 
 -record(restriction, {base_type, values}).
