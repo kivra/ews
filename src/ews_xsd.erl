@@ -399,7 +399,7 @@ flatten_children(Types) ->
     %%   get all choice elements as if they were the sequence, all minoccurs:=0
     %% special case, choice of sequences:
     %%   recurse through sequences, find parts, merge, remove dupes
-    %% 
+    %%
     %% after this do some uniqueness.
     %%
     Children = lists:flatten([ flatten_children(T, false) || T <- Types ]),
