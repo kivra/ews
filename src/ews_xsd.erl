@@ -536,58 +536,61 @@ process(Types, Model) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     %% pass 1
-    {AllTypes, Elems} = case process(Types, [], Ts, [], [], TypeMap, Model) of
-        {A, E, []} -> {A, E};
-        {A, E, Retry} ->
-            %% pass 2
-            case process(Retry, [], Ts, [], [], TypeMap, Model) of
-                {A2, E2, []} -> {A2 ++ A, E2 ++ E};
-                {_, _, R2} -> error({cannot_resolve, R2})
-            end
+    {AllTypes, Elems} =
+        case process(Types, [], Ts, [], [], TypeMap, Model, root) of
+            {A, E, []} -> {A, E};
+            {A, E, Retry} ->
+                %% pass 2
+                case process(Retry, [], Ts, [], [], TypeMap, Model, root) of
+                    {A2, E2, []} -> {A2 ++ A, E2 ++ E};
+                    {_, _, R2} -> error({cannot_resolve, R2})
+                end
     end,
+    %% FIXME: remove these
     [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
     [ ews_model:put(Ex, Model, TypeMap) || Ex <- Elems ],
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     Meta = parse_meta(E),
     ?log("Elem ~p Ps: ~p~n", [Qname, Ps]),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
-            Elem = #elem{qname=Qname, type=Qname, meta=Meta},
-            ews_model:put(Elem, Model, TypeMap),
+            TypeName = type_name(Qname, Parent),
+            Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
+            ews_model:put_elem(Elem, Parent, TypeMap),
             {AccWithSubTypes, SubElems, Retry2} = process(Ps2, Retry, Ts, TypeAcc, [],
-                                                  TypeMap, Model),
-            Type = #type{qname=Qname, extends=Ext,
+                                                  TypeMap, Model, Parent),
+            Type = #type{qname=TypeName, extends=Ext,
                          abstract=Abstract, elems=SubElems},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry2, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
-                    TypeMap, Model);
+                    TypeMap, Model, Parent);
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type),
             Elem = #elem{qname=Qname, type=Base, meta=Meta},
-            ews_model:put(Elem, Model, TypeMap),
-            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+            ews_model:put_elem(Elem, Parent, TypeMap),
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
     end;
 process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
-        TypeMap, Model) ->
-    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model);
+        TypeMap, Model, Parent) ->
+    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
 process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model);
+            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
         #elem{type = #base{}} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model);
+            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent);
         #elem{type = _} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
+            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent)
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
     case to_base(Qtype) of
@@ -595,37 +598,42 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
                     Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
-                    ews_model:put(Elem, Model, TypeMap),
-                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model);
+                    ews_model:put_elem(Elem, Parent, TypeMap),
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent);
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
-                    ews_model:put(Elem, Model, TypeMap),
-                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+                    ews_model:put_elem(Elem, Parent, TypeMap),
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
             end;
         #base{} = Base ->
             Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
-            ews_model:put(Elem, Model, TypeMap),
-            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+            ews_model:put_elem(Elem, Parent, TypeMap),
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
     end;
-process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model);
+process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
 process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     %% We don't want to pass in Retry in processing of parts
-    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model) of
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname) of
         {AccWithSubTypes, SubElems, []} ->
             Type = #type{qname=Qname, extends=Ext, elems=SubElems},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
-                    TypeMap, Model);
+                    TypeMap, Model, Parent);
         {_, _, [_|_]} ->
-            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model)
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent)
     end;
-process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
+process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     io:format("error: unexpected ~p~n", [T]),
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model) ->
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry}.
+
+type_name({Ns, N}, {_, Parent}) ->
+    {Ns, Parent++"@"++N};
+type_name({Ns, N}, root) ->
+    {Ns, N}.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
     [{Qname, process_simple(S)} | process_all_simple(Rest) ];
