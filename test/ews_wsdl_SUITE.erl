@@ -105,24 +105,28 @@ colliding_types(_Config) ->
     #model{type_map=Tbl} = ews_svc:get_model(ek_mm_test),
     
     %% EmailMessage and SmsMessage should both have been parsed
-    ?assertMatch(#type{},
-                 ews_model:get({"http://example.com/importee",
-                                "EmailMessage"}
-                              , Tbl)),
-    ?assertMatch(#type{},
-                 ews_model:get({"http://example.com/importee",
+    EmailMessage = ews_model:get({"http://example.com/importee",
+                                  "EmailMessage"}
+                                , Tbl),
+    SmsMessage = ews_model:get({"http://example.com/importee",
                                 "SmsMessage"}
-                              , Tbl)),
+                              , Tbl),
+    ?assertMatch(#type{elems = [#elem{qname={_, "header"}}|_]}, EmailMessage),
+    ?assertMatch(#type{elems = [#elem{qname={_, "header"}}|_]}, SmsMessage),
+    [#elem{type = EmailHeaderType}|_] = EmailMessage#type.elems,
+    [#elem{type = SmsHeaderType}|_] = SmsMessage#type.elems,
+    ?assertEqual({ "http://example.com/importee"
+                 , "EmailMessage@header"
+                 }, EmailHeaderType),
+    ?assertEqual({ "http://example.com/importee"
+                 , "SmsMessage@header"
+                 }, SmsHeaderType),
     %% the header elements inside SmsMessage and EmailMessage
     %% should both resolve
-    ?assertMatch(#type{alias = header, elems=[_, _]},
-                 ews_model:get({"http://example.com/importee",
-                                "EmailMessage@header"}
-                              , Tbl)),
-    ?assertMatch(#type{alias = header_1, elems=[_]},
-                 ews_model:get({"http://example.com/importee",
-                                "SmsMessage@header"}
-                              , Tbl)),
+    ?assertMatch(#type{alias=header, elems=[_, _]},
+                 ews_model:get(EmailHeaderType, Tbl)),
+    ?assertMatch(#type{alias=header_1, elems=[_]},
+                 ews_model:get(SmsHeaderType, Tbl)),
     ok.
 
 test_wsdl_file(Basename) ->
