@@ -80,7 +80,8 @@ code_change(_, State, _) ->
 %% >-----------------------------------------------------------------------< %%
 
 create_alias({Ns, N}, Model, Map) when is_atom(Model) ->
-    Alias = to_underscore(N),
+    N2 = remove_parent(N),
+    Alias = to_underscore(N2),
     case get_qname(Alias, Model, Map) of
         false ->
             ets:insert(Map, {{Ns, N}, Alias, Model}),
@@ -98,6 +99,12 @@ create_alias({Ns, N}, Model, Map) when is_atom(Model) ->
                 AnAlias ->
                     AnAlias
             end
+    end.
+
+remove_parent(Name) ->
+    case string:tokens(Name, "@") of
+        [_, N] -> N;
+        [N] -> N
     end.
 
 create_new_alias([Alias]) ->
