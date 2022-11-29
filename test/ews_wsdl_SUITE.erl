@@ -100,9 +100,29 @@ colliding_types(_Config) ->
     meck:new(hackney),
     meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
 
-    X = ews:add_wsdl_to_model(ek_mm_test, test_wsdl_file("mm_notification.wsdl")),
+    {ok, _} = ews:add_wsdl_to_model(ek_mm_test, test_wsdl_file("mm_notification.wsdl")),
 
-    ?assertEqual(todo, X),
+    #model{type_map=Tbl} = ews_svc:get_model(ek_mm_test),
+    
+    %% EmailMessage and SmsMessage should both have been parsed
+    ?assertMatch(#type{},
+                 ews_model:get({"http://example.com/importee",
+                                "EmailMessage"}
+                              , Tbl)),
+    ?assertMatch(#type{},
+                 ews_model:get({"http://example.com/importee",
+                                "SmsMessage"}
+                              , Tbl)),
+    %% the header elements inside SmsMessage and EmailMessage
+    %% should both resolve
+    ?assertMatch(#type{alias = header, elems=[_, _]},
+                 ews_model:get({"http://example.com/importee",
+                                "EmailMessage@header"}
+                              , Tbl)),
+    ?assertMatch(#type{alias = header_1, elems=[_]},
+                 ews_model:get({"http://example.com/importee",
+                                "SmsMessage@header"}
+                              , Tbl)),
     ok.
 
 test_wsdl_file(Basename) ->
