@@ -84,17 +84,17 @@ create_alias({Ns, N}, Model, Map) when is_atom(Model) ->
     Alias = to_underscore(N2),
     case get_qname(Alias, Model, Map) of
         false ->
-            ets:insert(Map, {{Ns, N}, Alias, Model}),
+            ets:insert(Map, {{Ns, N}, Alias, Alias, Model}),
             Alias;
         {Ns, N} ->
             Alias;
-        {_, N} ->
+        {_, _} ->
             case get_alias({Ns, N}, Model, Map) of
                 false ->
                     Aliases =
-                        [ A || [A] <- ets:match(Map, {{'_', N}, '$1', Model}) ],
+                        [ A || [A] <- ets:match(Map, {'_', '$1', Alias, Model}) ],
                     NewAlias = create_new_alias(Aliases),
-                    ets:insert(Map, {{Ns, N}, NewAlias, Model}),
+                    ets:insert(Map, {{Ns, N}, NewAlias, Alias, Model}),
                     NewAlias;
                 AnAlias ->
                     AnAlias
@@ -127,7 +127,7 @@ find_postfix(Alias) ->
     end.
 
 get_alias({Ns, N}, Model, Map) when is_atom(Model) ->
-    case ets:match(Map, {{Ns,N}, '$0', Model}) of
+    case ets:match(Map, {{Ns,N}, '$0', '_', Model}) of
         [] ->
             false;
         [[Alias]] ->
@@ -135,7 +135,7 @@ get_alias({Ns, N}, Model, Map) when is_atom(Model) ->
     end.
 
 get_qname(Alias, Model, Map) when is_atom(Model) ->
-    case ets:match(Map, {'$0', Alias, Model}) of
+    case ets:match(Map, {'$0', Alias, '_', Model}) of
         [] ->
             false;
         [[Qname]] ->
@@ -143,7 +143,7 @@ get_qname(Alias, Model, Map) when is_atom(Model) ->
     end.
 
 process_alias_map(AliasMap, Model) ->
-    Matches = ets:match(AliasMap, {{'$0', '$1'}, '$2', Model}),
+    Matches = ets:match(AliasMap, {{'$0', '$1'}, '$2', '_', Model}),
     [ {{Ns, N}, A} || [Ns, N, A] <- Matches ].
 
 to_underscore(Word) ->
