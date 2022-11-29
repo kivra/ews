@@ -14,6 +14,7 @@
 %% Tests
 -export([ google_v201306_ensure_record/1
         , google_v201306_correct_service/1
+        , colliding_types/1
         , dont_emit_simplecontent/1
         ]).
 
@@ -25,7 +26,8 @@ groups() ->
         google_v201306_correct_service
        ]}
     , {mm_service,
-       [dont_emit_simplecontent
+       [ dont_emit_simplecontent
+       , colliding_types
        ]}
     ].
 
@@ -92,3 +94,18 @@ dont_emit_simplecontent(_Config) ->
                                 "SignatureValueType"}
                               , Tbl)),
     ok.
+
+colliding_types(_Config) ->
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+
+    X = ews:add_wsdl_to_model(ek_mm_test, test_wsdl_file("mm_notification.wsdl")),
+
+    ?assertEqual(todo, X),
+    ok.
+
+test_wsdl_file(Basename) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, Basename),
+    File.
