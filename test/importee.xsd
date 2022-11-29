@@ -11,4 +11,47 @@
         </sequence>
         <attribute name="Id" type="ID" use="optional"/>
     </complexType>
+    <complexType name="EmailMessage">
+        <sequence>
+            <element name="header">
+                <complexType>
+                    <sequence>
+                        <element name="From" type="string"/>
+                        <element name="Subject">
+                            <simpleType>
+                                <restriction base="string">
+                                    <maxLength value="254"/>
+                                </restriction>
+                            </simpleType>
+                        </element>
+                    </sequence>
+                </complexType>
+            </element>
+            <element name="text" type="string"/>
+        </sequence>
+    </complexType>
+    <complexType name="SmsMessage">
+        <sequence>
+            <element name="header">
+                <complexType>
+                    <sequence>
+                        <element name="From">
+                            <simpleType>
+                                <restriction base="string">
+                                    <maxLength value="11"/>
+                                </restriction>
+                            </simpleType>
+                        </element>
+                    </sequence>
+                </complexType>
+            </element>
+            <element name="text">
+                <simpleType>
+                    <restriction base="string">
+                        <maxLength value="160"/>
+                    </restriction>
+                </simpleType>
+            </element>
+        </sequence>
+    </complexType>
 </schema>
