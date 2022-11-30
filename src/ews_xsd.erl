@@ -235,8 +235,8 @@ parse_type(#xmlElement{} = Type) ->
         "notation" ->
             notation;
         Other ->
-            io:format("ERROR: unrecognized xsd-element: ~p~n",
-                      [Other]),
+            ?log("ERROR: unrecognized xsd-element: ~p~n",
+                 [Other]),
             {error, {unknown_type, Other}}
     end.
 
@@ -625,7 +625,7 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, T
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent)
     end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
-    io:format("error: unexpected ~p~n", [T]),
+    ?log("warning: unhandled ~p~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
 process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry}.
