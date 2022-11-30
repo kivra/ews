@@ -108,10 +108,12 @@ encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
             Records = string:join(Aliases, ", "),
             error({"expected one of " ++ Records, Term})
     end;
-encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey} = Elem, Tbl) ->
     [Name|_] = tuple_to_list(Term),
     #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
     SuperKey = ews_model:get_super(Name, Tbl),
+    ct:pal("Term: ~p~nElem: ~p~nInheritedType: ~p~nSuperKey: ~p~n",
+           [Term, Elem, InheritedType, SuperKey]),
     case TypeKey of
         InheritedTypeKey ->
             {Qname, [], encode_term(Term, InheritedType, Tbl)};

@@ -11,6 +11,7 @@
         </sequence>
         <attribute name="Id" type="ID" use="optional"/>
     </complexType>
+    <element name="EmailMessage" type="importee:EmailMessage"/>
     <complexType name="EmailMessage">
         <sequence>
             <element name="header">
@@ -30,6 +31,7 @@
             <element name="text" type="string"/>
         </sequence>
     </complexType>
+    <element name="SmsMessage" type="importee:SmsMessage"/>
     <complexType name="SmsMessage">
         <sequence>
             <element name="header">

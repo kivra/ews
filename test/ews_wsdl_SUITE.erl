@@ -15,6 +15,7 @@
 -export([ google_v201306_ensure_record/1
         , google_v201306_correct_service/1
         , colliding_types/1
+        , serialize_deserialize/1
         , dont_emit_simplecontent/1
         ]).
 
@@ -28,6 +29,7 @@ groups() ->
     , {mm_service,
        [ dont_emit_simplecontent
        , colliding_types
+       , serialize_deserialize
        ]}
     ].
 
@@ -127,6 +129,49 @@ colliding_types(_Config) ->
                  ews_model:get(EmailHeaderType, Tbl)),
     ?assertMatch(#type{alias=header_1, elems=[_]},
                  ews_model:get(SmsHeaderType, Tbl)),
+    ok.
+
+serialize_deserialize(_Config) ->
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+
+    {ok, _} = ews:add_wsdl_to_model(serialize, test_wsdl_file("mm_notification.wsdl")),
+    EmailMessage =
+        {email_message,
+         {header_1,
+          <<"moose@sausage.com">>, <<"Hej">>},
+         <<"apa">>},
+    EmailSOAP = ews:serialize_service_op( serialize
+                                        , "notification"
+                                        , "pokeball"
+                                        , []
+                                        , [EmailMessage]
+                                        ),
+    SmsMessage =
+        {sms_message,
+         {header,
+          <<"0015551212">>},
+          <<"bepa">>},
+    SmsSOAP = iolist_to_binary(
+                ews:encode_service_op_result( serialize
+                                            , "notification"
+                                            , "pokeball"
+                                            , []
+                                            , [SmsMessage]
+                                            )),
+    %% XmlTerm = ews_xml:decode(EmailSOAP),
+    %% {ok, {[], Resp}} = ews_soap:parse_envelope(XmlTerm),
+    %% OpIn = ews:decode_service_op_result( serialize
+    %%                                    , "notification"
+    %%                                    , "pokeball"
+    %%                                    , Resp
+    %%                                    ),
+    {ok, {Svc, OpName, OpIn}} = ews:decode_in(serialize, EmailSOAP),
+    ?assertMatch("notification", Svc),
+    ?assertMatch("pokeball", OpName),
+    ?assertMatch(EmailMessage, OpIn),
+    ?assertMatch(yyy, SmsSOAP),
     ok.
 
 test_wsdl_file(Basename) ->
