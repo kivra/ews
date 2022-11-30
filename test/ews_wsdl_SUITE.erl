@@ -103,7 +103,7 @@ colliding_types(_Config) ->
     {ok, _} = ews:add_wsdl_to_model(ek_mm_test, test_wsdl_file("mm_notification.wsdl")),
 
     #model{type_map=Tbl} = ews_svc:get_model(ek_mm_test),
-    
+
     %% EmailMessage and SmsMessage should both have been parsed
     EmailMessage = ews_model:get({"http://example.com/importee",
                                   "EmailMessage"}
