@@ -83,7 +83,10 @@ import_any_order(_Config) ->
 
     Signatures = ews_model:get({"http://example.com/importee","Signatures"}, TypeMap),
     ?assertMatch(#type{alias = signatures}, Signatures),
-    Signed = ews_model:get_elem({"http://example.com/importer","Signed"}, TypeMap),
+    Signed = ews_model:get_elem( {"http://example.com/importer","Signed"}
+                               , {"http://example.com/importer","Sealed"}
+                               , TypeMap
+                               ),
     ?assertMatch(#elem{}, Signed),
     Sealed = ews_model:get({"http://example.com/importer","Sealed"}, TypeMap),
     ?assertMatch(#type{alias = sealed}, Sealed),
