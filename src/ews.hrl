@@ -41,12 +41,6 @@
 -record(enum, {type, values, list=false, union=false}).
 -record(meta, {nillable=false, default, fixed, max, min}).
 
-%% Service related records
--record(op, {name, doc, input, output, faults, style, endpoint, action}).
--record(model, {type_map, elems, clashes=dict:new(),
-                pre_hooks=[], post_hooks=[], simple_types=[]}).
--record(fault, {code, string, actor, detail}).
-
 %% Macro definitions
 -ifdef(DEBUG).
 -define(log(Expression), Expression).

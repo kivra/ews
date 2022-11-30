@@ -35,6 +35,7 @@
 -record(state, {services=#{}, models=#{}, service_index=#{}}).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 %% >-----------------------------------------------------------------------< %%
 

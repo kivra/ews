@@ -4,6 +4,7 @@
 -export([sort_types/2]).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),

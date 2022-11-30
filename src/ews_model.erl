@@ -7,6 +7,7 @@
          is_root/2, append_model/3]).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 %% ---
 %% TODO: Also put elements in and give them properties that are easy to inspect
