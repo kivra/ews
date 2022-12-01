@@ -537,7 +537,7 @@ process(Types, Model) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
     %% pass 1
-    {AllTypes, Elems} =
+    {_AllTypes, _Elems} =
         case process(Types, [], Ts, [], [], TypeMap, Model, root) of
             {A, E, []} -> {A, E};
             {A, E, Retry} ->
@@ -626,7 +626,7 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, T
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent)
     end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
-    ?log("warning: unhandled ~p~n", [T]),
+    io:format("warning: unhandled ~p~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
 process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry}.
