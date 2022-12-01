@@ -2,6 +2,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("ews/src/ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 %% CT functions
 -export([suite/0, groups/0, all/0, init_per_suite/1, end_per_suite/1]).
