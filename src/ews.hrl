@@ -47,7 +47,7 @@
 -define(log(Format, Arguments), io:format(Format, Arguments)).
 -else.
 -define(log(Expression), ok).
--define(log(Format, Arguments), ok).
+-define(log(Format, Arguments), _ = {Format, Arguments}).
 -endif.
 
 -define(XML_HDR, <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>">>).
