@@ -552,7 +552,6 @@ process(Types, Model) ->
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     Meta = parse_meta(E),
-    %%?log("Elem ~p Ps: ~p~n", [Qname, Ps]),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
