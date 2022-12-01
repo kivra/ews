@@ -187,7 +187,6 @@ merge_types(CurrentMap, NewMap, ClashDict, ModelName) ->
                 true ->
                     Clashes;
                 false ->
-                     %% borken
                     OldElem = get_elem(Key, Parent, CurrentMap),
                     case merge_elem(OldElem, NewElem) of
                         OldElem ->
