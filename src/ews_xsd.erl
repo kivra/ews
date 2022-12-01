@@ -547,9 +547,6 @@ process(Types, Model) ->
                     {_, _, R2} -> error({cannot_resolve, R2})
                 end
     end,
-    %% FIXME: remove these
-    %% [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
-    %% [ ews_model:put(Ex, Model, TypeMap) || Ex <- Elems ],
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
