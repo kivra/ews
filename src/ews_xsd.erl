@@ -13,7 +13,14 @@
         , print_schema_stats/1
         ]).
 
+-export([ process/2
+        , propagate_namespaces/1
+        , import_schema/2
+        , parse_types/1
+        ]).
+
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 -define(HTTP_OPTS, [ {connect_options,
                       [ {connect_timeout, timer:seconds(400)}
@@ -203,6 +210,9 @@ parse_type(#xmlElement{} = Type) ->
             parse_restriction(Type);
         "complexContent" ->
             parse_complex_content(Type);
+        %% This is handled by parse_complex_type/1
+        %% "simpleContent" ->
+        %%     parse_simple_content(Type);
         "sequence" ->
             parse_sequence(Type);
         "all" ->
@@ -226,8 +236,8 @@ parse_type(#xmlElement{} = Type) ->
         "notation" ->
             notation;
         Other ->
-            io:format("ERROR: unrecognized xsd-element: ~p~n",
-                      [Other]),
+            ?log("ERROR: unrecognized xsd-element: ~p~n",
+                 [Other]),
             {error, {unknown_type, Other}}
     end.
 
@@ -255,25 +265,40 @@ maybe_ref(Qname, _Element) ->
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
     Abstract = wh:get_attribute(ComplexType, abstract),
+    Children = wh:get_all_child_elements(ComplexType),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
     Extension = parse_type(wh:find_element(ComplexType, "extension")),
-    Types = [ parse_type(C) || C <- wh:get_all_child_elements(ComplexType) ],
-    {Order, Parts} = select_ordering(Types),
-    {Extends, ExtOrder, ExtendParts} = extract_extension(Extension),
-    #complex_type{name=Name, order=choose_order(Order, ExtOrder),
-                  extends=Extends, abstract=Abstract,
-                  restrictions=Restriction,
-                  parts=Parts++ExtendParts}.
+    case Children of
+        [#xmlElement{name = simpleContent} = SimpleContent] ->
+            RestrictionSC = parse_type(wh:find_element(SimpleContent,
+                                                       "restriction")),
+            ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
+            %% TODO: handle extenstions without this ugly hack
+            %% This is converted to a simple_type since we don't want to emit
+            %% a record for a simpleContent
+            RestrictionFinal = extract_base(RestrictionSC, ExtensionSC),
+            #simple_type{name=Name,
+                         restrictions=RestrictionFinal
+                         };
+        _ ->
+            ChildTypes = [ parse_type(C) || C <- Children ],
+            Parts = flatten_children(ChildTypes),
+            {Extends, ExtendParts} = extract_extension(Extension),
+            #complex_type{name=Name,
+                          extends=Extends, abstract=Abstract,
+                          restrictions=Restriction,
+                          parts=Parts++ExtendParts}
+    end.
 
-extract_extension(undefined) -> {undefined, undefined, []};
+extract_base(undefined, #extension{base=Base}) ->
+    #restriction{base_type=Base};
+extract_base(Restriction, _) ->
+    Restriction.
+
+extract_extension(undefined) -> {undefined, []};
 extract_extension(#extension{base=Base, parts=ExtParts}) ->
-    {Order, Parts} = select_ordering(ExtParts),
-    {Base, Order, Parts}.
-
-
-choose_order(undefined, O2) -> O2;
-choose_order(O1, undefined) -> O1;
-choose_order(O1, _) -> O1.
+    Parts = flatten_children(ExtParts),
+    {Base, Parts}.
 
 parse_simple_type(Simple) ->
     Name = wh:get_attribute(Simple, name),
@@ -364,20 +389,47 @@ parse_annotation(Annotation) ->
 %% ----------------------------------------------------------------------------
 %% Utility functions
 
-select_ordering(Types) ->
-    Sequence = lists:keyfind(sequence, 1, Types),
-    Choice = lists:keyfind(choice, 1, Types),
-    All = lists:keyfind(all, 1, Types),
-    case {Sequence, Choice, All} of
-        {false, false, false} ->
-            {undefined, []};
-        {false, false, #all{min_occurs=Min, max_occurs=Max, parts=Parts}} ->
-            {{all, Min, Max}, Parts};
-        {false, #choice{min_occurs=Min, max_occurs=Max, parts=Parts}, _} ->
-            {{choice, Min, Max}, Parts};
-        {#sequence{min_occurs=Min, max_occurs=Max, parts=Parts}, _, _} ->
-            {{sequence, Min, Max}, Parts}
-    end.
+flatten_children(Types) ->
+
+    %% We lose some accuracy here, the nesting disappears but
+    %% we don't use it for now anyway.
+
+    %% common case:
+    %%   just a flat sequence, with only elements
+    %% special case, sequence of choices:
+    %%   get all choice elements as if they were the sequence, all minoccurs:=0
+    %% special case, choice of sequences:
+    %%   recurse through sequences, find parts, merge, remove dupes
+    %%
+    %% after this do some uniqueness.
+    %%
+    Children = lists:flatten([ flatten_children(T, false) || T <- Types ]),
+    UniqueChildren = lists:foldl(
+        fun (Child, Acc) ->
+            case lists:member(Child, Acc) of
+                false -> Acc ++ [Child];
+                true -> Acc
+            end
+        end,
+        [],
+        Children
+    ),
+    UniqueChildren.
+
+flatten_children(Types, PropUndefined) when is_list(Types) ->
+    [ flatten_children(T, PropUndefined) || T <- Types ];
+flatten_children(#sequence{min_occurs=0, parts=Parts}, _PropUndefined) ->
+    [ flatten_children(T, true) || T <- Parts ];
+flatten_children(#sequence{min_occurs=_, parts=Parts}, PropUndefined) ->
+    [ flatten_children(T, PropUndefined) || T <- Parts ];
+flatten_children(#choice{min_occurs=_, parts=Parts}, _PropUndefined) ->
+    [ flatten_children(T, true) || T <- Parts ];
+flatten_children(#all{min_occurs=_, parts=Parts}, PropUndefined) ->
+    [ flatten_children(T, PropUndefined) || T <- Parts ];
+flatten_children(#element{} = E, true) ->
+    E#element{min_occurs=0};
+flatten_children(Any, _PropUndefined) ->
+    Any.
 
 print_all_schema_stats(Schemas) ->
     [ print_schema_stats(S) || {_, _, S} <- Schemas ].
@@ -454,6 +506,8 @@ insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
                        [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
                    [Doc, #complex_type{parts=CtPs} = Ct] ->
                        [Doc, Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
+                   [Doc, #simple_type{} = St] ->
+                       [Doc, St#simple_type{name=qname(N, Ns)}];
                    [{doc, Doc}] ->
                        [{doc, Doc}]
                end,
@@ -482,47 +536,58 @@ to_string(Val) -> Val.
 process(Types, Model) ->
     Ts = process_all_simple(Types),
     TypeMap = ews_model:new(),
-    {AllTypes, Elems} = process(Types, Ts, [], [], TypeMap, Model),
-    [ ews_model:put(T, Model, TypeMap) || T <- AllTypes ],
-    [ ews_model:put(E, Model, TypeMap) || E <- Elems ],
+    %% pass 1
+    {_AllTypes, _Elems} =
+        case process(Types, [], Ts, [], [], TypeMap, Model, root) of
+            {A, E, []} -> {A, E};
+            {A, E, Retry} ->
+                %% pass 2
+                case process(Retry, [], Ts, [], [], TypeMap, Model, root) of
+                    {A2, E2, []} -> {A2 ++ A, E2 ++ E};
+                    {_, _, R2} -> error({cannot_resolve, R2})
+                end
+    end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
-process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     Meta = parse_meta(E),
-    ?log("Elem ~p Ps: ~p~n", [Qname, Ps]),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
-            Elem = #elem{qname=Qname, type=Qname, meta=Meta},
-            ews_model:put(Elem, Model, TypeMap),
-            {AccWithSubTypes, SubElems} = process(Ps2, Ts, TypeAcc, [],
-                                                  TypeMap, Model),
-            Type = #type{qname=Qname, extends=Ext,
+            TypeName = type_name(Qname, Parent),
+            Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
+            ews_model:put_elem(Elem, Parent, TypeMap),
+            {AccWithSubTypes, SubElems, Retry2} = process(Ps2, Retry, Ts, TypeAcc, [],
+                                                  TypeMap, Model, Parent),
+            Type = #type{qname=TypeName, extends=Ext,
                          abstract=Abstract, elems=SubElems},
             ews_model:put(Type, Model, TypeMap),
-            process(Rest, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
-                    TypeMap, Model);
+            process(Rest, Retry2, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
+                    TypeMap, Model, Parent);
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
-            #base{} = Base = process_simple(Type),
-            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
-            ews_model:put(Elem, Model, TypeMap),
-            process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+            Base = process_simple(Type),
+            Elem = #elem{qname=Qname, type=Base, meta=Meta},
+            ews_model:put_elem(Elem, Parent, TypeMap),
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
     end;
-process([#element{parts=[{doc, _}]} = E | Rest], Ts, TypeAcc, ElemAcc,
-        TypeMap, Model) ->
-    process([E#element{parts=[]} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = _E | Rest], Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
+        TypeMap, Model, Parent) ->
+    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+    %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            error({cant_find_in_typemap, Qname});
+            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
         #elem{type = #base{}} = E1 ->
-            process(Rest, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model)
+            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent);
+        #elem{type = _} = E1 ->
+            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent)
     end;
-process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
+process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
     case to_base(Qtype) of
@@ -530,31 +595,42 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Ts,
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
                     Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
-                    ews_model:put(Elem, Model, TypeMap),
-                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model);
+                    ews_model:put_elem(Elem, Parent, TypeMap),
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent);
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
-                    ews_model:put(Elem, Model, TypeMap),
-                    process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+                    ews_model:put_elem(Elem, Parent, TypeMap),
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
             end;
         #base{} = Base ->
             Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
-            ews_model:put(Elem, Model, TypeMap),
-            process(Rest, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model)
+            ews_model:put_elem(Elem, Parent, TypeMap),
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
     end;
-process([#simple_type{} | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
-    process(Rest, Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([#complex_type{name=Qname, extends=Ext, parts=Ps} | Rest], Ts,
-        TypeAcc, ElemAcc, TypeMap, Model) ->
-    {AccWithSubTypes, SubElems} = process(Ps, Ts, TypeAcc, [], TypeMap, Model),
-    Type = #type{qname=Qname, extends=Ext, elems=SubElems},
-    ews_model:put(Type, Model, TypeMap),
-    process(Rest, Ts, [Type | AccWithSubTypes], ElemAcc, TypeMap, Model);
-process([T | Rest], Ts, TypeAcc, ElemAcc, TypeMap, Model) ->
-    io:format("error: unexpected ~p~n", [T]),
-    process(Rest, Ts, TypeAcc, ElemAcc, TypeMap, Model);
-process([], _, TypeAcc, ElemAcc, _TypeMap, _Model) ->
-    {TypeAcc, lists:reverse(ElemAcc)}.
+process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+    %% We don't want to pass in Retry in processing of parts
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname) of
+        {AccWithSubTypes, SubElems, []} ->
+            Type = #type{qname=Qname, extends=Ext, elems=SubElems},
+            ews_model:put(Type, Model, TypeMap),
+            process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
+                    TypeMap, Model, Parent);
+        {_, _, [_|_]} ->
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent)
+    end;
+process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+    ?log("warning: unhandled ~p~n", [T]),
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent) ->
+    {TypeAcc, lists:reverse(ElemAcc), Retry}.
+
+type_name({Ns, N}, {_, Parent}) ->
+    {Ns, Parent++"@"++N};
+type_name({Ns, N}, root) ->
+    {Ns, N}.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
     [{Qname, process_simple(S)} | process_all_simple(Rest) ];
@@ -660,3 +736,20 @@ no_ns({_NS, N}) -> N;
 no_ns(N) -> N.
 
 %% ----------------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+insert_nss_doc_simpletype_test() ->
+    SimpleType =
+        #simple_type{ name = undefined
+                    , order = undefined
+                    , restrictions =
+                          #restriction{base_type = "string"
+                                      , values = [{max_length, 2000}]}},
+    DocAnnotation = {doc, <<"fake docs, please ignore">>},
+    TestElem = #element{name="fake", parts=[DocAnnotation, SimpleType]},
+    ?assertMatch([#element{}], insert_nss([TestElem], "https://example.com", [])).
+
+-endif.

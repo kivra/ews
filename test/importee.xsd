@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://example.com/importee"
+        xmlns:importee="http://example.com/importee"
+        xmlns:sig="http://www.w3.org/2000/09/xmldsig#"
+        elementFormDefault="qualified">
+    <import namespace="http://www.w3.org/2000/09/xmldsig#" schemaLocation="xmldsig-core-schema.xsd"/>
+    <complexType name="Signatures">
+        <sequence>
+            <element ref="sig:Signature" minOccurs="1" maxOccurs="1"/>
+        </sequence>
+        <attribute name="Id" type="ID" use="optional"/>
+    </complexType>
+    <element name="EmailMessage" type="importee:EmailMessage"/>
+    <complexType name="EmailMessage">
+        <sequence>
+            <element name="header">
+                <complexType>
+                    <sequence>
+                        <element name="From" type="string"/>
+                        <element name="Subject">
+                            <simpleType>
+                                <restriction base="string">
+                                    <maxLength value="254"/>
+                                </restriction>
+                            </simpleType>
+                        </element>
+                    </sequence>
+                </complexType>
+            </element>
+            <element name="text" type="string"/>
+        </sequence>
+    </complexType>
+    <element name="SmsMessage" type="importee:SmsMessage"/>
+    <complexType name="SmsMessage">
+        <sequence>
+            <element name="header">
+                <complexType>
+                    <sequence>
+                        <element name="From">
+                            <simpleType>
+                                <restriction base="string">
+                                    <maxLength value="11"/>
+                                </restriction>
+                            </simpleType>
+                        </element>
+                    </sequence>
+                </complexType>
+            </element>
+            <element name="text">
+                <simpleType>
+                    <restriction base="string">
+                        <maxLength value="160"/>
+                    </restriction>
+                </simpleType>
+            </element>
+        </sequence>
+    </complexType>
+</schema>

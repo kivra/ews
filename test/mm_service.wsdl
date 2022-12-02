@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<wsdl:definitions xmlns:tns="http://example.com/service"
+                  xmlns:importer="http://example.com/importer"
+                  xmlns:importee="http://example.com/importee"
+                  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                  xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                  name="service"
+                  targetNamespace="http://example.com/service">
+  <wsdl:types>
+    <xsd:schema>
+      <xsd:import namespace="http://example.com/importer"
+                  schemaLocation="importer.xsd"/>
+    </xsd:schema>
+  </wsdl:types>
+  <wsdl:message name="deliveredReq">
+    <wsdl:part name="parameters" element="importer:delivered"/>
+  </wsdl:message>
+  <wsdl:portType name="ExamplePort">
+    <wsdl:operation name="pokebowl">
+      <wsdl:input message="tns:deliveredReq"/>
+      <wsdl:output message="tns:deliveredReq"/>
+      <wsdl:fault name="fault" message="tns:deliveredReq"/>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="ExampleBinding" type="tns:ExamplePort">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="pokebowl">
+      <soap:operation soapAction=""/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="fault">
+        <soap:fault name="fault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="service">
+    <wsdl:port name="ExamplePort" binding="tns:ExampleBinding">
+      <soap:address location="http://bad.example/service"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

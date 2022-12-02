@@ -3,6 +3,7 @@
 -export([encode/3, decode/3, record_to_map/2]).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 -define(SCHEMA_INSTANCE_NS, "http://www.w3.org/2001/XMLSchema-instance").
 
@@ -239,10 +240,14 @@ validate_xml({Name, As, Cs}, #elem{qname={_,Name},type=Type}, Tbl) ->
     validate_xml({Name, As, Cs}, Type, Tbl);
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml({Qname, As, Cs}, Type, Tbl);
+validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
+    Type = ews_model:get(TypeKey, Tbl),
+    validate_xml(Es, Type, Tbl);
 validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml(Es, Type, Tbl);
 validate_xml(Es, Type, Tbl) when is_list(Es) ->
     [ validate_xml(E, Type, Tbl) || E <- Es ];
+%% type validation, single elems below TOMAYBEDO: separate element and type validation
 validate_xml({_, As, []}, #type{}, _Tbl) ->
     %% This is broken, an empty type that shouldn't be.
     case is_nil(As) of

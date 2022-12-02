@@ -16,6 +16,7 @@
         ]).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 -define(HTTP_OPTS, [ {connect_options,
                       [ {connect_timeout, timer:seconds(400)}

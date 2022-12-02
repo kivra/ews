@@ -1,11 +1,13 @@
 -module(ews_model).
 
--export([new/0, put/3, replace/2, get/2, get_elem/2, get_parts/2,
+-export([new/0, put/3, put_elem/3, replace/2, get/2, get_elem/2, get_elem/3,
+         get_parts/2,
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
          is_root/2, append_model/3]).
 
 -include("ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 %% ---
 %% TODO: Also put elements in and give them properties that are easy to inspect
@@ -19,6 +21,9 @@ put(#type{qname=Key} = T, Model, Table) when is_atom(Model) ->
     ets:insert_new(Table, {Key, Type});
 put(#elem{qname=Key} = E, _Model, Table) ->
     ets:insert_new(Table, {{Key, root}, E}).
+
+put_elem(#elem{qname=Key} = E, Parent, Table) ->
+    ets:insert_new(Table, {{Key, Parent}, E}).
 
 replace(#type{qname=Key} = Type, Table) ->
     ets:insert(Table, {Key, Type});
@@ -39,6 +44,16 @@ get_elem(#elem{qname=Key}, Table) ->
     get_elem(Key, Table);
 get_elem({_,_} = Key, Table) ->
     case ets:match(Table, {{Key, root}, '$1'}) of
+        [] ->
+            false;
+        [[Elem]] ->
+            Elem
+    end.
+
+get_elem(#elem{qname=Key}, Parent, Table) ->
+    get_elem(Key, Parent, Table);
+get_elem({_,_} = Key, Parent, Table) ->
+    case ets:match(Table, {{Key, Parent}, '$1'}) of
         [] ->
             false;
         [[Elem]] ->
@@ -112,11 +127,11 @@ append_model(CM = #model{type_map=CurrentMap, elems=E1, clashes=CurrentClashes},
 %% ----------------------------------------------------------------------------
 
 keys(Tbl) ->
-    case ets:match(Tbl, {'$0', '_'}) of
+    case ets:match(Tbl, {'$0', '$1'}) of
         [] ->
             [];
         Vals ->
-            [ V || [V = {_, Type}] <- Vals, Type /= root ]
+            [ V || [V = {_, _}, #type{}] <- Vals ]
     end.
 
 values(Tbl) ->
@@ -128,19 +143,19 @@ values(Tbl) ->
     end.
 
 elem_keys(Tbl) ->
-    case ets:match(Tbl, {{'$0', root}, '_'}) of
+    case ets:match(Tbl, {'$0', '$1'}) of
         [] ->
             [];
         Vals ->
-            [ V || [V] <- Vals ]
+            [ V || [V, #elem{}] <- Vals ]
     end.
 
 elem_values(Tbl) ->
-    case ets:match(Tbl, {{'_', root}, '$0'}) of
+    case ets:match(Tbl, {'_', '$0'}) of
         [] ->
             [];
         Vals ->
-            [ V || [V] <- Vals ]
+            [ V || [#elem{} = V] <- Vals ]
     end.
 
 %% ----------------------------------------------------------------------------
@@ -166,13 +181,13 @@ merge_types(CurrentMap, NewMap, ClashDict, ModelName) ->
                      end
              end
          end,
-    EF = fun(Key, Clashes) ->
-             NewElem = get_elem(Key, NewMap),
+    EF = fun({Key, Parent}, Clashes) ->
+             NewElem = get_elem(Key, Parent, NewMap),
              case ews_model:put(NewElem, ModelName, CurrentMap) of
                 true ->
                     Clashes;
                 false ->
-                    OldElem = get_elem(Key, CurrentMap),
+                    OldElem = get_elem(Key, Parent, CurrentMap),
                     case merge_elem(OldElem, NewElem) of
                         OldElem ->
                             Clashes;
@@ -218,7 +233,8 @@ merge_elem_lists(Elems1, Elems2) ->
                          end;
                      {_, []} when Min == 0 ->
                          {[E1 | Es], E2s};
-                     _ ->
+                     Error ->
+                         error({unmatched_element, Error, E1, Elems2}),
                          {error, {unmatched_element, E1, Elems2}}
                  end
          end,

@@ -4,6 +4,7 @@
 %%TODO header should be inside of include, but we need to rename the git repo
 %%to ews first
 -include("../src/ews.hrl").
+-include_lib("ews/include/ews.hrl").
 
 %% CT functions
 -export([suite/0, groups/0, all/0,

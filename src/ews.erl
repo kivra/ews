@@ -116,14 +116,14 @@ encode_service_op_faults(Model, Service, Op, FaultCode, FaultString, Body)
     ews_svc:encode_faults(Model, Service, Op, FaultCode, FaultString, Body).
 
 decode_service_op_result(Service, Op, Body) ->
-    ews_svc:decode(Service, Op, Body, #{}).
+    ews_svc:decode(Service, Op, Body, #{include_headers => false}).
 
 decode_service_op_result(Service, Op, Body, Opts)
   when is_list(Service) ->
     ews_svc:decode(Service, Op, Body, Opts);
 decode_service_op_result(Model, Service, Op, Body)
   when is_atom(Model) ->
-    ews_svc:decode(Model, Service, Op, Body, #{}).
+    ews_svc:decode(Model, Service, Op, Body, #{include_headers => false}).
 decode_service_op_result(Model, Service, Op, Body, Opts)
   when is_atom(Model) ->
     ews_svc:decode(Model, Service, Op, Body, Opts).
