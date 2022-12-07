@@ -63,7 +63,7 @@ forbidden_characters(_Config) ->
                 [{{"http://minameddelanden.gov.se/schema/Recipient",
                    "AgreementText"},
                   [],
-                  [{txt,<<"yo&\r\n<>öö/utf-8">>}]}]}]}],
+                  [{txt,<<"yo&\r\n<>öö"/utf8>>}]}]}]}],
     Output = ews_xml:decode(iolist_to_binary(ews_xml:encode(Input))),
     ?assertMatch(Input, Output).
 
