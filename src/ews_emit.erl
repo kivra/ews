@@ -21,13 +21,22 @@ output_typedef(#type{alias=Alias}) ->
     ["-type '#", atom_to_list(Alias), "'() :: tuple().  "
      "%% Needed due to circular type definition\n"].
 
-output_type(#type{qname=Qname, alias=Alias}, Tbl, ModelRef, Unresolved) ->
+output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved) ->
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line1, string:join(PartRows, JoinStr), "}).\n"].
+    [Line1, string:join(PartRows, JoinStr), "}).\n"];
+output_type(#type{qname=Qname, alias=Alias, attrs=_Attrs}, Tbl, ModelRef,
+            Unresolved) ->
+    Line1 = ["-record(", tick_word(Alias), ", {"],
+    Indent = iolist_size(Line1),
+    Attr = ["'__attrs',\n"],
+    PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
+                   P <- ews_model:get_parts(Qname, Tbl)],
+    JoinStr = ",\n"++lists:duplicate(Indent, $ ),
+    [Line1, Attr, string:join(PartRows, JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
