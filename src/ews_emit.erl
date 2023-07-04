@@ -36,7 +36,7 @@ output_type(#type{qname=Qname, alias=Alias, attrs=_Attrs}, Tbl, ModelRef,
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line1, Attr, string:join([Attr | PartRows], JoinStr), "}).\n"].
+    [Line1, string:join([Attr | PartRows], JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
