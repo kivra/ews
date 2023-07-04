@@ -558,7 +558,7 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             TypeName = type_name(Qname, Parent),
             Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
-            {AccWithSubTypes, SubElems, Retry2, []} =
+            {AccWithSubTypes, SubElems, Retry2, _} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
                         TypeMap, Model, Parent, AttrAcc),
             Type = #type{qname=TypeName, extends=Ext,
