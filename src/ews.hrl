@@ -21,10 +21,10 @@
 %% XSD parsing
 -record(schema, {namespace, url, types}).
 -record(element, {name, type, default, fixed, nillable=false,
-                  min_occurs=1, max_occurs=1, parts}).
+                  min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions}).
 -record(attribute, {name, type, use, default, fixed}).
--record(complex_type, {name, extends, abstract, restrictions, parts}).
+-record(complex_type, {name, extends, abstract, restrictions, parts, attrs=[]}).
 -record(reference, {name}).
 
 -record(restriction, {base_type, values}).
@@ -35,8 +35,8 @@
 -record(enumeration, {base_type, values}).
 
 %% Simplified XSD
--record(elem, {qname, type, meta}).
--record(type, {qname, alias, elems, extends, abstract}).
+-record(elem, {qname, type, meta, attrs=[]}).
+-record(type, {qname, alias, elems, extends, abstract, attrs=[]}).
 -record(base, {xsd_type, erl_type, restrictions, list=false, union=false}).
 -record(enum, {type, values, list=false, union=false}).
 -record(meta, {nillable=false, default, fixed, max, min}).
