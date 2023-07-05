@@ -196,7 +196,13 @@ parse_tag(Element) ->
 split_attribute(Attr) ->
     [Key | Vals] = string:tokens(Attr, "="),
     Val = string:join(Vals, "="),
-    [FinalVal|_] = string:tokens(Val, "\""),
+    FinalVal =
+        case string:tokens(Val, "\"") of
+            [Val1|_] ->
+                Val1;
+            [] ->
+                ""
+        end,
     {split_qname(Key), clean_attr(FinalVal)}.
 
 split_qname(QName) ->
