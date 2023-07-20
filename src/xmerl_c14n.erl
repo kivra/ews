@@ -162,11 +162,11 @@ c14n(#xmlPI{name = Name, value = Value}, _KnownNS, _ActiveNS, _Comments, _InclNs
 
 c14n(#xmlDocument{content = Kids}, KnownNS, ActiveNS, Comments, InclNs, Acc) ->
     case lists:foldl(fun(Kid, AccIn) ->
-        case c14n(Kid, KnownNS, ActiveNS, Comments, InclNs, AccIn) of
-            AccIn -> AccIn;
-            Other -> ["\n" | Other]
-        end
-    end, Acc, Kids) of
+                             case c14n(Kid, KnownNS, ActiveNS, Comments, InclNs, AccIn) of
+                                 AccIn -> AccIn;
+                                 Other -> ["\n" | Other]
+                             end
+                     end, Acc, Kids) of
         ["\n" | Rest] -> Rest;
         Other -> Other
     end;
