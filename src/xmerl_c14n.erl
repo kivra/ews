@@ -58,6 +58,7 @@ canon_name(#xmlElement{name = Name, nsinfo = Exp, namespace = Nsp}) ->
 %% @doc Compares two XML attributes for c14n purposes
 -spec attr_lte(A :: #xmlAttribute{}, B :: #xmlAttribute{}) -> true | false.
 attr_lte(AttrA, AttrB) ->
+    io:format("AttrA: ~p AttrB: ~p~n", [AttrA, AttrB]),
     A = canon_name(AttrA), B = canon_name(AttrB),
     PrefixedA = case AttrA#xmlAttribute.nsinfo of {_, _} -> true; _ -> false end,
     PrefixedB = case AttrB#xmlAttribute.nsinfo of {_, _} -> true; _ -> false end,
@@ -207,7 +208,7 @@ c14n(Elem = #xmlElement{}, KnownNSIn, ActiveNSIn, Comments, InclNs, Acc) ->
 
     % we need to append any xmlns: that our parent didn't have (ie, aren't in ActiveNS) but
     % that we need
-    NewNS = NeededNs -- ActiveNS,
+    NewNS = InclNs ++ NeededNs -- ActiveNS,
     NewActiveNS = ActiveNS ++ NewNS,
 
     % the opening tag
@@ -231,14 +232,14 @@ c14n(Elem = #xmlElement{}, KnownNSIn, ActiveNSIn, Comments, InclNs, Acc) ->
     end, Acc2, lists:sort(NewNS)),
     % any other attributes
     Acc4 = lists:foldl(fun(Attr, AccIn) ->
-        c14n(Attr, KnownNS, FinalActiveNS, Comments, InclNs, AccIn)
+        c14n(Attr, KnownNS, FinalActiveNS, Comments, [], AccIn)
     end, Acc3, Attrs),
     % close the opening tag
     Acc5 = [">" | Acc4],
 
     % now accumulate all our children
     Acc6 = lists:foldl(fun(Kid, AccIn) ->
-        c14n(Kid, KnownNS, FinalActiveNS, Comments, InclNs, AccIn)
+        c14n(Kid, KnownNS, FinalActiveNS, Comments, [], AccIn)
     end, Acc5, Elem#xmlElement.content),
 
     % and finally add the close tag
@@ -272,8 +273,38 @@ c14n(Elem, Comments) ->
 %% modified during canonicalization.
 -spec c14n(XmlThing :: xml_thing(), Comments :: boolean(), InclusiveNs :: [string()]) -> string().
 c14n(Elem, Comments, InclusiveNs) ->
-    lists:flatten(lists:reverse(c14n(Elem, [], [], Comments, InclusiveNs, []))).
+    {NakedNss, _} = naked_nss(Elem, #{}, 0),
+    io:format("NakedNss: ~p~n", [lists:keysort(2, maps:to_list(NakedNss))]),
+    SortedNss = [ Prefix || {Prefix, _} <-
+                               lists:keysort(2, maps:to_list(NakedNss)) ],
+    %% FIXME: This still won't work. "ns14" < "ns4" in erlang and c14n/6
+    %% will put prefixes in the wrong order.
+    FirstTagNss = lists:usort(InclusiveNs ++ SortedNss),
+    lists:flatten(lists:reverse(c14n(Elem, [], [], Comments, FirstTagNss, []))).
 
+naked_nss(#xmlElement{content = Kids} = E, NSMap1, Seq1) ->
+    NeededNS = needed_ns(E, []),
+    {NSMap2, Seq2} = insert_ns(NeededNS, NSMap1, Seq1),
+    naked_nss(Kids, NSMap2, Seq2);
+naked_nss(#xmlText{}, NSMap, Seq) ->
+    {NSMap, Seq};
+naked_nss(#xmlComment{}, NSMap, Seq) ->
+    {NSMap, Seq};
+naked_nss([H | T], NSMap1, Seq1) ->
+    {NSMap2, Seq2} = naked_nss(H, NSMap1, Seq1),
+    naked_nss(T, NSMap2, Seq2);
+naked_nss([], NSMap, Seq) ->
+    {NSMap, Seq}.
+
+insert_ns([NS | T], NSMap, Seq) ->
+    case maps:is_key(NS, NSMap) of
+        true ->
+            insert_ns(T, NSMap, Seq);
+        false ->
+            insert_ns(T, NSMap#{NS => Seq}, Seq+1)
+    end;
+insert_ns([], NSMap, Seq) ->
+    {NSMap, Seq}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
