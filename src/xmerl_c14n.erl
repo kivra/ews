@@ -16,6 +16,7 @@
 -module(xmerl_c14n).
 
 -export([c14n/3, c14n/2, c14n/1, xml_safe_string/2, xml_safe_string/1, canon_name/1]).
+-export([remove_xmlns_prefixes/1]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include_lib("public_key/include/public_key.hrl").
@@ -305,6 +306,63 @@ insert_ns([NS | T], NSMap, Seq) ->
     end;
 insert_ns([], NSMap, Seq) ->
     {NSMap, Seq}.
+
+remove_xmlns_prefixes(Xml) ->
+    do_remove_xmlns_prefixes(Xml, '').
+
+do_remove_xmlns_prefixes(#xmlElement{ content = Kids
+                                    , nsinfo = []
+                                    , attributes = Attrs
+                                    } = Element, DefaultNs) ->
+    NewKids = do_remove_xmlns_prefixes(Kids, DefaultNs),
+    NewAttrs = strip_xmlns_attrs(Attrs),
+    Element#xmlElement{content = NewKids, attributes = NewAttrs};
+do_remove_xmlns_prefixes(#xmlElement{ content = Kids
+                                    , nsinfo = {_Prefix, Name}
+                                    , attributes = Attrs
+                                    } = Element, DefaultNs) ->
+    NewDefaultNs = get_defaultns(Element),
+    NewKids = do_remove_xmlns_prefixes(Kids, NewDefaultNs),
+    NewName = list_to_atom(Name),
+    NewAttrs = add_defaultns(strip_xmlns_attrs(Attrs), DefaultNs, NewDefaultNs),
+    Element#xmlElement{content = NewKids
+                      , attributes = NewAttrs
+                      , name = NewName
+                      , expanded_name = NewName
+                      , nsinfo = []
+                      };
+do_remove_xmlns_prefixes(#xmlText{} = Text, _) ->
+    Text;
+do_remove_xmlns_prefixes(#xmlComment{} = Comment, _) ->
+    Comment;
+do_remove_xmlns_prefixes([H | T], DefaultNs) ->
+    NewKid = do_remove_xmlns_prefixes(H, DefaultNs),
+    [NewKid | do_remove_xmlns_prefixes(T, DefaultNs)];
+do_remove_xmlns_prefixes([], _) ->
+    [].
+
+strip_xmlns_attrs(Attrs) ->
+    lists:filter(fun strip_xmlns/1, Attrs).
+
+strip_xmlns(#xmlAttribute{nsinfo = {"xmlns", _}}) -> false;
+strip_xmlns(#xmlAttribute{}) -> true.
+
+add_defaultns(Attrs, '', '') ->
+    Attrs;
+add_defaultns(Attrs, DefaultNs, DefaultNs) ->
+    Attrs;
+add_defaultns(Attrs, _DefaultNs, NewDefaultNs) ->
+    [#xmlAttribute{ name = xmlns
+                  , pos = 1
+                  , value = atom_to_list(NewDefaultNs)
+                  , normalized = false
+                  } | Attrs].
+
+get_defaultns(#xmlElement{ nsinfo = {Prefix, _Name}
+                         , namespace = Nss
+                         }) ->
+    {Prefix, URI} = lists:keyfind(Prefix, 1, Nss#xmlNamespace.nodes),
+    URI.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

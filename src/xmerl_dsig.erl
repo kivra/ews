@@ -192,10 +192,10 @@ verify(Element, Fingerprints) ->
         [] ->
             {error, no_signature};
         Signatures when is_list(Signatures) ->
-            verify_signatures(lists:reverse(Signatures), Element, Fingerprints)
+            verify_signatures(Signatures, Element, Fingerprints)
     end.
 
-verify_signatures([Signature | _Tail], Element, Fingerprints) ->
+verify_signatures([Signature | Tail], Element, Fingerprints) ->
     DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
             {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
     [#xmlAttribute{value = SignatureMethodAlgorithm}] =
@@ -221,7 +221,7 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
         xmerl_xpath:string(
           "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
 
-    InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
+    _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
                                      C14nTx, [{namespace, DsNs}]) of
                  %% FIXME! -^
                  [] -> [];
@@ -232,8 +232,11 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
           "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@URI", Signature),
     io:format("Ref: ~p~n", [RefUri]),
     StrippedXml = strip_it(RefUri, TransformAlgo, Signature, Element),
-    CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
-    CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
+    CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
+    <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
+        unicode:characters_to_binary(CanonishXml, unicode, utf8),
+    %%CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
+    %%CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
     io:format("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU:~n~ts~n --~n", [CanonXmlUtf8]),
     CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
 
@@ -246,21 +249,23 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
             {error, {bad_digest, CanonSha, CanonSha2}};
 
        true ->
-            [SigInfo] = xmerl_xpath:string(
-                          "ds:Signature/ds:SignedInfo",
-                          Signature, [{namespace, DsNs}]),
+            [SigInfo] =
+                xmerl_xpath:string(
+                  "//*[\"SignedInfo\"=local-name() and \"http://www.w3.org/2000/"
+                  "09/xmldsig#\"=namespace-uri()]", Signature),
             SigInfoCanon = xmerl_c14n:c14n(SigInfo),
             Data = list_to_binary(SigInfoCanon),
 
             [#xmlText{value = Sig64}] =
                 xmerl_xpath:string(
-                  "ds:Signature//ds:SignatureValue/text()",
-                  Signature, [{namespace, DsNs}]),
+                  "//*[\"SignatureValue\"=local-name() and \"http://www.w3.org/2000/"
+                  "09/xmldsig#\"=namespace-uri()]/text()", Signature),
             Sig = base64:decode(Sig64),
 
             [#xmlText{value = Cert64}] =
-                xmerl_xpath:string("ds:Signature//ds:X509Certificate/text()",
-                                   Signature, [{namespace, DsNs}]),
+                xmerl_xpath:string(
+                  "//*[\"X509Certificate\"=local-name() and \"http://www.w3.org/2000/"
+                  "09/xmldsig#\"=namespace-uri()]/text()", Signature),
             CertBin = base64:decode(Cert64),
             CertHash = crypto:hash(sha, CertBin),
             CertHash2 = crypto:hash(sha256, CertBin),
@@ -276,7 +281,7 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
                 true ->
                     case Fingerprints of
                         any ->
-                            ok;
+                            verify_signatures(Tail, Element, Fingerprints);
                         _ ->
                             case lists:any(
                                    fun(X) ->
@@ -284,7 +289,7 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
                                    end, [CertHash, {sha,CertHash},
                                          {sha256,CertHash2}]) of
                                 true ->
-                                    ok;
+                                    verify_signatures(Tail, Element, Fingerprints);
                                 false ->
                                     {error, cert_not_accepted}
                             end
@@ -292,7 +297,18 @@ verify_signatures([Signature | _Tail], Element, Fingerprints) ->
                 false ->
                     {error, bad_signature}
             end
-    end.
+    end;
+verify_signatures([], _, _) ->
+    ok.
+
+replicate_bugs(#xmlElement{name = 'ns0:deliverSecure'} = Element) ->
+    io:format("replacing 'ns0:deliverSecure'~n"),
+    Element#xmlElement{ name = 'ns6:SealedDelivery'
+                      , expanded_name = 'ns6:SealedDelivery'
+                      , nsinfo = {"ns6", "SealedDelivery"}
+                      };
+replicate_bugs(Element) ->
+    Element.
 
 %% @doc Verifies an XML digital signature, trusting any valid certificate.
 %%
@@ -312,8 +328,14 @@ strip_it(_Id,
     ParentXpath = string:join(ParentStrings, "/"),
     [Gimmie] = xmerl_xpath:string("//"++ParentXpath, Element),
     %%Gimmie = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",Element),
-    io:format("GimmieEnv: ~p~n", [Gimmie]),
-    Gimmie;
+    #xmlElement{content = Kids} = Gimmie,
+    NewKids = lists:filter(fun strip_sig_child/1, Kids),
+    GimmieEnv = Gimmie#xmlElement{content = NewKids},
+    C14N = c14n_tags(GimmieEnv),
+    Bugged = replicate_bugs(C14N),
+    Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
+    io:format("GimmieEnv: ~p~n", [Stripped]),
+    Stripped;
 strip_it("", _, Signature, Element) ->
     strip_signature(Element, Signature);
 strip_it([$# | Id],
@@ -324,6 +346,23 @@ strip_it([$# | Id],
     Gimmie = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",Element),
     io:format("GimmieEverything: ~p~n", [Gimmie]),
     hd(Gimmie).
+
+strip_sig_child(#xmlElement{nsinfo = {_, "Signature"}}) -> false;
+strip_sig_child(#xmlElement{name = 'Signature'}) -> false;
+strip_sig_child(_) -> true.
+
+c14n_tags(#xmlElement{name=Name, content=[]} = Element) ->
+    %% no empy tags in c14n, this forces <foo></foo>
+    io:format("C14N of ~p~n", [Name]),
+    Element#xmlElement{content=[#xmlText{pos=1,value=""}]};
+c14n_tags(#xmlElement{content=Kids} = Element) ->
+    Element#xmlElement{content=c14n_tags(Kids)};
+c14n_tags([H | T]) ->
+    [c14n_tags(H) | c14n_tags(T)];
+c14n_tags([]) ->
+    [];
+c14n_tags(Other) ->
+    Other.
 
 -spec signature_props(atom() | string()) -> {HashFunction :: atom(), DigestMethodUrl :: string(), SignatureMethodUrl :: string()}.
 signature_props("http://www.w3.org/2000/09/xmldsig#rsa-sha1") ->
