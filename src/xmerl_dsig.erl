@@ -253,8 +253,12 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                 xmerl_xpath:string(
                   "//*[\"SignedInfo\"=local-name() and \"http://www.w3.org/2000/"
                   "09/xmldsig#\"=namespace-uri()]", Signature),
-            SigInfoCanon = xmerl_c14n:c14n(SigInfo),
-            Data = list_to_binary(SigInfoCanon),
+            SigInfoStripped = xmerl_c14n:remove_xmlns_prefixes(SigInfo),
+            SigInfoCanon = c14n_tags(SigInfoStripped),
+            SigInfoXml = xmerl:export_simple([SigInfoCanon], xmerl_xml),
+            <<"<?xml version=\"1.0\"?>", Data/binary>> =
+                unicode:characters_to_binary(SigInfoXml, unicode, utf8),
+            io:format("SigInfoCanonData:~n~p~n", [Data]),
 
             [#xmlText{value = Sig64}] =
                 xmerl_xpath:string(
