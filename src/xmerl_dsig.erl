@@ -180,10 +180,15 @@ digest(Element, HashFunction) ->
 %% Fingerprints is a list of valid cert fingerprints that can be
 %% accepted.
 %%
+%% If Fingerprints is a list of #'OTPCertificate'{} it will check that
+%% the cert is issued by one of the IssuerCerts in this list.
+%%
 %% Will throw badmatch errors if you give it XML that is not signed
 %% according to the xml-dsig spec. If you're using something other
 %% than rsa+sha1 or sha256 this will asplode. Don't say I didn't warn you.
--spec verify(Element :: #xmlElement{}, Fingerprints :: [fingerprint()] | any) -> ok | {error, bad_digest | bad_signature | cert_not_accepted}.
+-spec verify(Element :: #xmlElement{},
+             Fingerprints :: [#'OTPCertificate'{}] | [fingerprint()] | any) ->
+          ok | {error, bad_digest | bad_signature | cert_not_accepted}.
 verify(Element, Fingerprints) ->
     %% xmerl_xpath:string("//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]", OpusXML, [{namespace, EsNs}]).
     case xmerl_xpath:string(
@@ -286,6 +291,19 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                     case Fingerprints of
                         any ->
                             verify_signatures(Tail, Element, Fingerprints);
+                        [#'OTPCertificate'{}|_] ->
+                            io:format("Cert: ~p~n",
+                                      [public_key:pkix_decode_cert(CertBin, otp)]),
+                            case lists:any(
+                                   fun(C) ->
+                                           public_key:pkix_is_issuer(
+                                             CertBin, C)
+                                   end, Fingerprints) of
+                                true ->
+                                    verify_signatures(Tail, Element, Fingerprints);
+                                false ->
+                                    {error, cert_not_accepted}
+                            end;
                         _ ->
                             case lists:any(
                                    fun(X) ->
