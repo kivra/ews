@@ -96,7 +96,7 @@ get_subs(Key, Table) ->
     Children ++ lists:append(LowerDescendants).
 
 get_from_alias(Alias, Tbl) ->
-    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_'}}) of
+    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_', '_'}}) of
         [] ->
             false;
         [[Key]] ->
