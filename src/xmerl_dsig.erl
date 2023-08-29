@@ -49,15 +49,15 @@ strip_signature(Doc, #xmlElement{name = Name, parents = Parents}) ->
 
 do_strip_signature(#xmlElement{name = Match, content = Kids} = Elem, Name,
                    [{Match, _Pos} | Parents]) ->
-    io:format("Match: ~p~n", [Match]),
+    logger:debug("Match: ~p~n", [Match]),
     NewKids = do_strip_signature(Kids, Name, Parents),
     Elem#xmlElement{content = NewKids};
 do_strip_signature([#xmlElement{name = Signature} | Tail], Signature, _) ->
-    io:format("Signature: ~p~n~n", [Signature]),
+    logger:debug("Signature: ~p~n~n", [Signature]),
     Tail;
 do_strip_signature([#xmlElement{name = Match, content = Kids} = Elem | Tail], Name,
                    [{Match, _Pos} | Parents]) ->
-    io:format("Match: ~p~n", [Match]),
+    logger:debug("Match: ~p~n", [Match]),
     NewKids = do_strip_signature(Kids, Name, Parents),
     [Elem#xmlElement{content = NewKids} | Tail];
 do_strip_signature([#xmlElement{name = _NoMatch} = Elem | Tail], Name,
@@ -235,21 +235,21 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
     [#xmlAttribute{value = RefUri}] =
         xmerl_xpath:string(
           "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@URI", Signature),
-    io:format("Ref: ~p~n", [RefUri]),
+    logger:debug("Ref: ~p~n", [RefUri]),
     StrippedXml = strip_it(RefUri, TransformAlgo, Signature, Element),
     CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
     <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
         unicode:characters_to_binary(CanonishXml, unicode, utf8),
     %%CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
     %%CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
-    io:format("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU:~n~ts~n --~n", [CanonXmlUtf8]),
+    logger:debug("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU:~n~ts~n --~n", [CanonXmlUtf8]),
     CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
 
     [#xmlText{value = Sha64}] =
         xmerl_xpath:string(
           "//*[\"DigestValue\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/text()", Signature),
     CanonSha2 = base64:decode(Sha64),
-    io:format("ComputedDigest: ~p~nDocumentDigest: ~p~n", [CanonSha, CanonSha2]),
+    logger:debug("ComputedDigest: ~p~nDocumentDigest: ~p~n", [CanonSha, CanonSha2]),
     if not (CanonSha =:= CanonSha2) ->
             {error, {bad_digest, CanonSha, CanonSha2}};
 
@@ -263,7 +263,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
             SigInfoXml = xmerl:export_simple([SigInfoCanon], xmerl_xml),
             <<"<?xml version=\"1.0\"?>", Data/binary>> =
                 unicode:characters_to_binary(SigInfoXml, unicode, utf8),
-            io:format("SigInfoCanonData:~n~p~n", [Data]),
+            logger:debug("SigInfoCanonData:~n~p~n", [Data]),
 
             [#xmlText{value = Sig64}] =
                 xmerl_xpath:string(
@@ -292,7 +292,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                         any ->
                             verify_signatures(Tail, Element, Fingerprints);
                         [#'OTPCertificate'{}|_] ->
-                            io:format("Cert: ~p~n",
+                            logger:debug("Cert: ~p~n",
                                       [public_key:pkix_decode_cert(CertBin, otp)]),
                             case lists:any(
                                    fun(C) ->
@@ -324,7 +324,7 @@ verify_signatures([], _, _) ->
     ok.
 
 replicate_bugs(#xmlElement{name = 'ns0:deliverSecure'} = Element) ->
-    io:format("replacing 'ns0:deliverSecure'~n"),
+    logger:debug("replacing 'ns0:deliverSecure'~n"),
     Element#xmlElement{ name = 'ns6:SealedDelivery'
                       , expanded_name = 'ns6:SealedDelivery'
                       , nsinfo = {"ns6", "SealedDelivery"}
@@ -344,7 +344,7 @@ strip_it(_Id,
          [#xmlAttribute{
              value = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"}],
          Signature, Element) ->
-    %%io:format("Id: ~p~n", [Id]),
+    %%logger:debug("Id: ~p~n", [Id]),
     Parents = lists:reverse(Signature#xmlElement.parents),
     ParentStrings = [ atom_to_list(P) || {P, _} <- Parents ],
     ParentXpath = string:join(ParentStrings, "/"),
@@ -356,7 +356,7 @@ strip_it(_Id,
     C14N = c14n_tags(GimmieEnv),
     Bugged = replicate_bugs(C14N),
     Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
-    io:format("GimmieEnv: ~p~n", [Stripped]),
+    logger:debug("GimmieEnv: ~p~n", [Stripped]),
     Stripped;
 strip_it("", _, Signature, Element) ->
     strip_signature(Element, Signature);
@@ -364,9 +364,9 @@ strip_it([$# | Id],
          [#xmlAttribute{
              name = "http://www.w3.org/2001/10/xml-exc-c14n#"}],
          _Signature, Element) ->
-    io:format("Id: ~p~n", [Id]),
+    logger:debug("Id: ~p~n", [Id]),
     Gimmie = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",Element),
-    io:format("GimmieEverything: ~p~n", [Gimmie]),
+    logger:debug("GimmieEverything: ~p~n", [Gimmie]),
     hd(Gimmie).
 
 strip_sig_child(#xmlElement{nsinfo = {_, "Signature"}}) -> false;
@@ -375,7 +375,7 @@ strip_sig_child(_) -> true.
 
 c14n_tags(#xmlElement{name=Name, content=[]} = Element) ->
     %% no empy tags in c14n, this forces <foo></foo>
-    io:format("C14N of ~p~n", [Name]),
+    logger:debug("C14N of ~p~n", [Name]),
     Element#xmlElement{content=[#xmlText{pos=1,value=""}]};
 c14n_tags(#xmlElement{content=Kids} = Element) ->
     Element#xmlElement{content=c14n_tags(Kids)};
