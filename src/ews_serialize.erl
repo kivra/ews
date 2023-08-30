@@ -111,19 +111,19 @@ encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
     end;
 encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
     [Name|_] = tuple_to_list(Term),
-    #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
+    #type{qname=InheritedTypeKey}= InheritedType = ews_model:get(Name, Tbl),
     SuperKey = ews_model:get_super(Name, Tbl),
     case TypeKey of
         InheritedTypeKey ->
-            {Qname, [], encode_term(Term, InheritedType, Tbl)};
+            make_xml(Qname, [], encode_term(Term, InheritedType, Tbl));
         SuperKey ->
             TypeDecl = {{?SCHEMA_INSTANCE_NS, "type"}, InheritedTypeKey},
             Super = ews_model:get(SuperKey, Tbl),
-            {Qname, [TypeDecl], encode_term(Term, Super, Tbl)}
+            make_xml(Qname, [TypeDecl], encode_term(Term, Super, Tbl))
     end;
 encode_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], encode_term(Term, Type, Tbl)};
-encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
+encode_term(Term, #type{qname=Key, alias=A, attrs=[]}, Tbl) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
     Super = ews_model:get_super(Name, Tbl),
     case ews_model:get(Name, Tbl) of
@@ -137,6 +137,31 @@ encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
             Parts = lists:zip(Values, Elems),
             lists:flatten([ encode_term(V, E, Tbl) ||
                             {V, E} <- Parts, V /= undefined ]);
+        #type{qname=_Qname} ->
+            #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
+            error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
+        false ->
+            error({"expected #"++atom_to_list(A)++"{}", Term})
+    end;
+encode_term(Term, #type{qname=Key, alias=A, attrs=[_|_]=PossAttrs}, Tbl)
+  when is_tuple(Term) ->
+    logger:debug("PossAttrs: ~p~n", [PossAttrs]),
+    [Name, Attrs|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
+    EncAttrs = encode_attributes(Attrs, PossAttrs, Key),
+    Super = ews_model:get_super(Name, Tbl),
+    case ews_model:get(Name, Tbl) of
+        #type{qname=InheritedKey} when Super == Key ->
+            Elems = ews_model:get_parts(InheritedKey, Tbl),
+            Parts = lists:zip(Values, Elems),
+            {EncAttrs,
+             lists:flatten([ encode_term(V, E, Tbl) ||
+                               {V, E} <- Parts, V /= undefined ])};
+        #type{qname=Key} ->
+            Elems = ews_model:get_parts(Key, Tbl),
+            Parts = lists:zip(Values, Elems),
+            {EncAttrs,
+             lists:flatten([ encode_term(V, E, Tbl) ||
+                               {V, E} <- Parts, V /= undefined ])};
         #type{qname=_Qname} ->
             #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
             error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
@@ -166,6 +191,33 @@ encode_term(Term, #enum{values=Values, list=IsList}, _) ->
         false ->
             [{txt, encode_single_enum(Term, Values)}]
     end.
+
+make_xml(Name, Typedef, {Attrs, Elems}) ->
+  {Name, Typedef++Attrs, Elems};
+make_xml(Name, Typedef, Elems) ->
+  {Name, Typedef, Elems}.
+
+encode_attributes(Attrs, PossAttrs, Name) when is_map(Attrs) ->
+    do_encode_attributes(maps:to_list(Attrs), PossAttrs, Name, []);
+encode_attributes(undefined, _, _) ->
+    [].
+
+do_encode_attributes([Attr | Tail], PossAttrs, Name, Acc) ->
+    EncAttr = encode_attr(PossAttrs, Attr, Name),
+    do_encode_attributes(Tail, PossAttrs, Name, [EncAttr | Acc]);
+do_encode_attributes([], _, _, Acc) ->
+    lists:sort(Acc).
+
+encode_attr(Attrs, {Id, Value}, Name) when is_binary(Id) ->
+    %% If the attribute is utf-8 encoded this will ensure the string is
+    %% too and not a unicode string.
+    encode_attr(Attrs, {binary_to_list(Id), Value}, Name);
+encode_attr([#attribute{name = {_, Id}} | _Tail], {Id, Value}, _Name) ->
+    {Id, Value};
+encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
+    encode_attr(Tail, {Id, Value}, Name);
+encode_attr([], {Id, _Value}, Name) ->
+    error({unexpected_attribute_for_type, Id, Name}).
 
 encode_single_base(Term, BaseType) ->
     case BaseType of
