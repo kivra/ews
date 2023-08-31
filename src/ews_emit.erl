@@ -28,15 +28,18 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
     [Line1, string:join(PartRows, JoinStr), "}).\n"];
-output_type(#type{qname=Qname, alias=Alias, attrs=_Attrs}, Tbl, ModelRef,
+output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
+    Line0 = "%% Possible keys for '__attrs'\n",
+    AttrDocs = [ ["%% <<\"", A, "\">> :: ",T,"\n"] ||
+                   #attribute{name={_,A},type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
-    Attr = ["'__attrs'"],
+    Attr = ["'__attrs' :: map() | undefined"],
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line1, string:join([Attr | PartRows], JoinStr), "}).\n"].
+    [Line0, AttrDocs, Line1, string:join([Attr | PartRows], JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
