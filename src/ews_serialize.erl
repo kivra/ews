@@ -391,6 +391,8 @@ match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], [], Res) ->
     match_children_elems([], Es, [], [{undefined,E}|Res]);
 match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
     match_children_elems([], Es, [], [{undefined,E},lists:reverse(Acc)|Res]);
+match_children_elems([], [#elem{qname=Name,meta=#meta{min=_N}}|_], _, _) ->
+    error({missing_non_optional_element, Name});
 match_children_elems([], [], Acc, Res) ->
     [lists:reverse(Acc) | lists:reverse(Res)].
 
