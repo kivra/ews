@@ -300,6 +300,24 @@ validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
 validate_xml(Es, Type, Tbl) when is_list(Es) ->
     [ validate_xml(E, Type, Tbl) || E <- Es ];
 %% type validation, single elems below TOMAYBEDO: separate element and type validation
+validate_xml({_, [_|_] = As, []}, #type{qname=Key, alias=Alias,
+                                        attrs=[_|_]=PossAttrs}, Tbl) ->
+    %% Empty element with possible attributes
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            Elems = case has_inherited_type(As, Tbl, Key) of
+                        false ->
+                            ews_model:get_parts(Key, Tbl);
+                        #type{qname=InheritedKey} ->
+                            ews_model:get_parts(InheritedKey, Tbl)
+                    end,
+            Pairs = match_children_elems([], Elems, [], []),
+            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            Attrs = validate_attrs(As, PossAttrs, #{}),
+            list_to_tuple([Alias, Attrs | ValidatedXml])
+    end;
 validate_xml({_, As, []}, #type{}, _Tbl) ->
     %% This is broken, an empty type that shouldn't be.
     case is_nil(As) of
@@ -308,7 +326,7 @@ validate_xml({_, As, []}, #type{}, _Tbl) ->
         false ->
             undefined
     end;
-validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
+validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=[]}, Tbl) ->
     case is_nil(As) of
         true ->
             nil;
@@ -322,6 +340,22 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
             Pairs = match_children_elems(Cs, Elems, [], []),
             ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
             list_to_tuple([Alias | ValidatedXml])
+    end;
+validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=PossAttrs}, Tbl) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            Elems = case has_inherited_type(As, Tbl, Key) of
+                        false ->
+                            ews_model:get_parts(Key, Tbl);
+                        #type{qname=InheritedKey} ->
+                            ews_model:get_parts(InheritedKey, Tbl)
+                    end,
+            Pairs = match_children_elems(Cs, Elems, [], []),
+            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            Attrs = validate_attrs(As, PossAttrs, #{}),
+            list_to_tuple([Alias, Attrs | ValidatedXml])
     end;
 validate_xml({_Qname, As, []}, #base{}, _) ->
     case is_nil(As) of
@@ -395,6 +429,23 @@ match_children_elems([], [#elem{qname=Name,meta=#meta{min=_N}}|_], _, _) ->
     error({missing_non_optional_element, Name});
 match_children_elems([], [], Acc, Res) ->
     [lists:reverse(Acc) | lists:reverse(Res)].
+
+validate_attrs([{?SCHEMA_INSTANCE_NS, _} | As], PossAttrs, Acc) ->
+    validate_attrs(As, PossAttrs, Acc);
+validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
+    case [ P || #attribute{name = {_, N}} = P <- PossAttrs, N == Name ] of
+        [] ->
+            logger:notice("Unexpected attribute: ~p~n", [Name]),
+            validate_attrs(As, PossAttrs, Acc);
+        [#attribute{}] ->
+            %% TODO: validate the type
+            %% TODO: how to we handle utf8 in both Name and Value?
+            NameBin = list_to_binary(Name),
+            ValueBin = list_to_binary(Value),
+            validate_attrs(As, PossAttrs, Acc#{NameBin => ValueBin})
+    end;
+validate_attrs([], _, Acc) ->
+    Acc.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
 to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
