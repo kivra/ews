@@ -208,10 +208,8 @@ do_encode_attributes([Attr | Tail], PossAttrs, Name, Acc) ->
 do_encode_attributes([], _, _, Acc) ->
     lists:sort(Acc).
 
-encode_attr(Attrs, {Id, Value}, Name) when is_binary(Id) ->
-    %% If the attribute is utf-8 encoded this will ensure the string is
-    %% too and not a unicode string.
-    encode_attr(Attrs, {binary_to_list(Id), Value}, Name);
+encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
+    encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
 encode_attr([#attribute{name = {_, Id}} | _Tail], {Id, Value}, _Name) ->
     {Id, Value};
 encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
@@ -440,9 +438,11 @@ validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
         [#attribute{}] ->
             %% TODO: validate the type
             %% TODO: how to we handle utf8 in both Name and Value?
-            NameBin = list_to_binary(Name),
+            %% By compiling with debug_info the typespec in the records should
+            %% load all possible atoms.
+            NameAtom = list_to_existing_atom(Name),
             ValueBin = list_to_binary(Value),
-            validate_attrs(As, PossAttrs, Acc#{NameBin => ValueBin})
+            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBin})
     end;
 validate_attrs([], _, Acc) ->
     Acc.
