@@ -31,15 +31,22 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
     Line0 = "%% Possible keys for '__attrs'\n",
-    AttrDocs = [ ["%% <<\"", A, "\">> :: ",T,"\n"] ||
+    AttrDocs = [ ["%% ", tick_word(A), " :: ",T,"\n"] ||
                    #attribute{name={_,A},type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
-    Attr = ["'__attrs' :: map() | undefined"],
+    Attr = ["'__attrs' :: #{"],
+    AttrIndent = Indent + iolist_size(Attr),
+    AttrEnd = ["} | undefined"],
+    AttrRows = [[tick_word(A), " => string() | binary()"] ||
+                   #attribute{name={_,A}} <- Attrs],
+    JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
+    AttrStr = [Attr, string:join(AttrRows, JoinAttrs), AttrEnd],
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line0, AttrDocs, Line1, string:join([Attr | PartRows], JoinStr), "}).\n"].
+    [Line0, AttrDocs, Line1, string:join([AttrStr | PartRows],
+                                         JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
