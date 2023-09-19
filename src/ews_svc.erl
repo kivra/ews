@@ -680,7 +680,7 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             HookArgs = [Endpoint, OpName, Action, EncodedHeader, EncodedBody, Opts],
             [NewEndpoint, _NewOpName, NewAction, NewHeader, NewBody, NewOpts] =
                 run_hooks(PreHooks, HookArgs),
-            case ews_soap:call(NewEndpoint, NewAction, NewHeader, NewBody,
+            case ews_soap:call(NewEndpoint, OpName, NewAction, NewHeader, NewBody,
                                NewOpts, PrePostHooks) of
                 {error, Error} ->
                     {error, Error};
