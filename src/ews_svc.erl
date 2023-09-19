@@ -650,9 +650,11 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             Action = proplists:get_value(action, Info),
             PreHooks = proplists:get_value(pre_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
-            HookArgs = [Endpoint, Action, EncodedHeader, EncodedBody, Opts],
-            Args = [_, _, _, _, NewOpts] = run_hooks(PreHooks, HookArgs),
-            case apply(ews_soap, call, Args) of
+            HookArgs = [Endpoint, OpName, Action, EncodedHeader, EncodedBody, Opts],
+            [NewEndpoint, _NewOpName, NewAction, NewHeader, NewBody, NewOpts] =
+                run_hooks(PreHooks, HookArgs),
+            case ews_soap:call(NewEndpoint, NewAction, NewHeader, NewBody,
+                               NewOpts) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {ResponseHeader, ResponseBody}} ->
