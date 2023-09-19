@@ -168,7 +168,7 @@ add_pre_hook(Model, Hook) ->
 %%  Endpoint:      The service endpoint that will be used for the call
 %%  Operation:     Service operation
 %%  SOAP:          Body after XML encoding as an IOList
-%%  Options:       Map supplied in the call_service_op call
+%%  HttpOptions:   Options sent to hackney call
 %% It should return a list of the same kind, with potentially updated
 %% values that are to be used in the call.
 %% The value returned for Operation will be ignored on return from hooks.
