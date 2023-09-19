@@ -142,14 +142,17 @@ record_to_map(Model, R) ->
 
 %% Add a pre-call hook which is called just before making the actual
 %% SOAP call. A pre hook is a function of one argument, which will be
-%% a list [EndPoint, Operation, EncodedHeader, EncodedBody, Options] where:
+%% a list [EndPoint, Operation, SoapAction, EncodedHeader, EncodedBody,
+%%         Options] where:
 %%  Endpoint:      The service endpoint that will be used for the call
 %%  Operation:     Service operation
+%%  SoapAction:    SOAPAction as string or binary, usually ""
 %%  EncodedHeader: Header after XML encoding
 %%  EncodedBody:   Body after XML encoding
 %%  Options:       Map supplied in the call_service_op call
 %% It should return a list of the same kind, with potentially updated
 %% values that are to be used in the call.
+%% The value returned for Operation will be ignored on return from hooks.
 %% Hooks are called in the order they were added, each hook being passed
 %% the output of the previous hook.
 add_pre_hook(Hook) ->
