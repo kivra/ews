@@ -28,7 +28,7 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
     BodyIoList = make_soap(Header, Body),
     HookArgs = [Endpoint, OpName, BodyIoList, HttpOpts],
     [NewEndpoint, _NewOpName, NewSoap, NewHttpOpts] =
-        ews_svc:run_Hooks(PrePostHooks, HookArgs),
+        ews_svc:run_hooks(PrePostHooks, HookArgs),
     case hackney:request(post, NewEndpoint, Hdrs, NewSoap, NewHttpOpts) of
         {ok, 200, HttpHdr, RespRef} ->
             {ok, RespEnv} = hackney:body(RespRef),
