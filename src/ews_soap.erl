@@ -1,6 +1,7 @@
 -module(ews_soap).
 
--export([ call/5
+-export([ call/6
+        , call/7
         , make_fault/3
         , make_soap/2
         , make_envelope/2
@@ -12,7 +13,10 @@
 
 %% ----------------------------------------------------------------------------
 
-call(Endpoint, SoapAction, Header, Body, Opts) ->
+call(Endpoint, OpName, SoapAction, Header, Body, Opts) ->
+    call(Endpoint, OpName, SoapAction, Header, Body, Opts, []).
+
+call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
     %% FIXME: get the timeout into hackney
     _Timeout = maps:get(timeout, Opts, DefaultTimeout),
@@ -22,7 +26,10 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     BodyIoList = make_soap(Header, Body),
-    case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
+    HookArgs = [Endpoint, OpName, BodyIoList, HttpOpts],
+    [NewEndpoint, _NewOpName, NewSoap, NewHttpOpts] =
+        ews_svc:run_Hooks(PrePostHooks, HookArgs),
+    case hackney:request(post, NewEndpoint, Hdrs, NewSoap, NewHttpOpts) of
         {ok, 200, HttpHdr, RespRef} ->
             {ok, RespEnv} = hackney:body(RespRef),
             XmlTerm = ews_xml:decode(RespEnv),

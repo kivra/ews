@@ -17,6 +17,7 @@
          decode_in/1, decode_in/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
+         add_pre_post_hook/1, add_pre_post_hook/2,
          add_post_hook/1, add_post_hook/2,
          remove_pre_hook/1, remove_pre_hook/2,
          remove_post_hook/1, remove_post_hook/2,
@@ -147,8 +148,8 @@ record_to_map(Model, R) ->
 %%  Endpoint:      The service endpoint that will be used for the call
 %%  Operation:     Service operation
 %%  SoapAction:    SOAPAction as string or binary, usually ""
-%%  EncodedHeader: Header after XML encoding
-%%  EncodedBody:   Body after XML encoding
+%%  EncodedHeader: Header after XML encoding in ews format
+%%  EncodedBody:   Body after XML encoding in ews format
 %%  Options:       Map supplied in the call_service_op call
 %% It should return a list of the same kind, with potentially updated
 %% values that are to be used in the call.
@@ -159,6 +160,24 @@ add_pre_hook(Hook) ->
     ews_svc:add_pre_hook(default, Hook).
 add_pre_hook(Model, Hook) ->
     ews_svc:add_pre_hook(Model, Hook).
+
+%% Add a pre-call hook which is called just before making the actual
+%% SOAP call, and after Header and Body has been converted to XML in an iolist.
+%% A pre hook is a function of one argument, which will be
+%% a list [EndPoint, Operation, SOAP, Options] where:
+%%  Endpoint:      The service endpoint that will be used for the call
+%%  Operation:     Service operation
+%%  SOAP:          Body after XML encoding as an IOList
+%%  Options:       Map supplied in the call_service_op call
+%% It should return a list of the same kind, with potentially updated
+%% values that are to be used in the call.
+%% The value returned for Operation will be ignored on return from hooks.
+%% Hooks are called in the order they were added, each hook being passed
+%% the output of the previous hook.
+add_pre_post_hook(Hook) ->
+    ews_svc:add_pre_post_hook(default, Hook).
+add_pre_post_hook(Model, Hook) ->
+    ews_svc:add_pre_post_hook(Model, Hook).
 
 %% Add a post-call hook which is called after making the actual
 %% SOAP call. A post hook is a function of one argument, which will be
