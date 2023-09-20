@@ -73,15 +73,18 @@ do_strip_signature([], _, _) ->
 %%
 %% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary()) -> #xmlElement{}.
-sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin) when is_binary(CertBin) ->
-    sign(ElementIn, PrivateKey, CertBin, "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256").
+sign(ElementIn, PrivateKeyFun, CertBin) when is_binary(CertBin) ->
+    sign(ElementIn, PrivateKeyFun, CertBin,
+         "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256").
 
 -spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary(), SignatureMethod :: sig_method() | sig_method_uri()) -> #xmlElement{}.
-sign(ElementIn, PrivateKey = #'RSAPrivateKey'{}, CertBin, SigMethod) when is_binary(CertBin) ->
-    % get rid of any previous signature
+sign(ElementIn, PrivateKeyFun, CertBin, SigMethod) when
+      is_binary(CertBin) ->
+    PrivateKey = #'RSAPrivateKey'{} = PrivateKeyFun(),
+    %% get rid of any previous signature
     ElementStrip = strip(ElementIn),
 
-    % make sure the root element has an ID... if it doesn't yet, add one
+    %% make sure the root element has an ID... if it doesn't yet, add one
     {Element, Id} = case lists:keyfind('ID', 2, ElementStrip#xmlElement.attributes) of
         #xmlAttribute{value = CapId} -> {ElementStrip, CapId};
         _ ->
