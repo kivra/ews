@@ -259,8 +259,16 @@ maybe_ref(undefined, Element) ->
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
-maybe_ref(Qname, _Element) ->
-    #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
+maybe_ref(Qname, Element) ->
+    Default = wh:get_attribute(Element, default),
+    Fixed = wh:get_attribute(Element, fixed),
+    Nillable = wh:get_attribute(Element, nillable),
+    MinOccurs = to_integer(wh:get_attribute(Element, minOccurs)),
+    MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
+    #element{name=Qname, type=#reference{name=Qname},
+             default=Default, fixed=Fixed, nillable=Nillable,
+             min_occurs=MinOccurs, max_occurs=MaxOccurs,
+             parts=[]}.
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
@@ -581,16 +589,21 @@ process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
 process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
+    Meta = parse_meta(E),
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
             process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model,
+            %% Override with meta from element with reference
+            Elem = E1#elem{meta = Meta},
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = _} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model,
+            %% Override with meta from element with reference
+            Elem = E1#elem{meta = Meta},
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
