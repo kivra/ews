@@ -109,7 +109,7 @@ encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
             Records = string:join(Aliases, ", "),
             error({"expected one of " ++ Records, Term})
     end;
-encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) when is_tuple(Term) ->
     [Name|_] = tuple_to_list(Term),
     #type{qname=InheritedTypeKey}= InheritedType = ews_model:get(Name, Tbl),
     SuperKey = ews_model:get_super(Name, Tbl),
@@ -121,6 +121,8 @@ encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
             Super = ews_model:get(SuperKey, Tbl),
             make_xml(Qname, [TypeDecl], encode_term(Term, Super, Tbl))
     end;
+encode_term([], #elem{qname=_Qname, type={_,_}, meta=#meta{min=0}}, _Tbl) ->
+    [];
 encode_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], encode_term(Term, Type, Tbl)};
 encode_term(Term, #type{qname=Key, alias=A, attrs=[]}, Tbl) when is_tuple(Term) ->
