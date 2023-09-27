@@ -88,7 +88,7 @@ do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
         [] ->
             [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
-            ?log("Imports: ~p~n", [Imports]),
+            logger:debug("Imports: ~p~n", [Imports]),
             ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
                             basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
@@ -451,15 +451,15 @@ print_schema_stats(Schema) ->
     AttributeGroups = wh:get_children(Schema, "attributeGroup"),
     Notations = wh:get_children(Schema, "notation"),
     Annotations = wh:get_children(Schema, "annotation"),
-    io:format("e: ~p, s: ~p, c: ~p, g: ~p, a: ~p, ag: ~p, n: ~p, an: ~p~n",
-              [length(Elements),
-               length(SimpleTypes),
-               length(ComplexTypes),
-               length(Groups),
-               length(Attributes),
-               length(AttributeGroups),
-               length(Notations),
-               length(Annotations)]).
+    logger:debug("e: ~p, s: ~p, c: ~p, g: ~p, a: ~p, ag: ~p, n: ~p, an: ~p~n",
+                 [length(Elements),
+                  length(SimpleTypes),
+                  length(ComplexTypes),
+                  length(Groups),
+                  length(Attributes),
+                  length(AttributeGroups),
+                  length(Notations),
+                  length(Annotations)]).
 
 to_integer(undefined) -> 1;
 to_integer("unbounded") -> infinite;
