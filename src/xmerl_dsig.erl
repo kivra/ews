@@ -523,15 +523,11 @@ subject_name(CertBin) ->
 
 translate(#'AttributeTypeAndValue'{
              type = {2,5,4,3},
-             value = {printableString,CN}}) ->
+             value = CN}) ->
     "CN="++quote(CN);
 translate(#'AttributeTypeAndValue'{
              type = {2,5,4,10},
-             value = {printableString,O}}) ->
-    "O="++quote(O);
-translate(#'AttributeTypeAndValue'{
-             type = {2,5,4,10},
-             value = {teletexString,O}}) ->
+             value = O}) ->
     "O="++quote(O);
 translate(#'AttributeTypeAndValue'{type = {2,5,4,6},
                                    value = C}) ->
@@ -543,7 +539,13 @@ translate(#'AttributeTypeAndValue'{type = {A,B,C,D},
                                    value = Value}) ->
     io_lib:format("~p.~p.~p.~p=", [A,B,C,D]) ++ quote(Value).
 
-quote(String) ->
+quote({printableString, String}) ->
+    quote(String);
+quote({teletexString, String}) ->
+    quote(String);
+quote({utf8String, Binary}) ->
+    quote(unicode:characters_to_list(Binary, utf8));
+quote(String) when is_list(String) ->
     case lists:member($ , String) of
         true -> "'"++String++"'";
         false -> String
