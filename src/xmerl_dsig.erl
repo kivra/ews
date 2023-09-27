@@ -20,14 +20,12 @@
 %% enveloped mode.
 -module(xmerl_dsig).
 
--export([verify/1, verify/2, sign/3, sign/4, strip/1, digest/1]).
+-export([verify/1, verify/2, sign/3, strip/1, digest/1]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include_lib("public_key/include/public_key.hrl").
 
 -type xml_thing() :: #xmlDocument{} | #xmlElement{} | #xmlAttribute{} | #xmlPI{} | #xmlText{} | #xmlComment{}.
--type sig_method() :: rsa_sha1 | rsa_sha256.
--type sig_method_uri() :: string().
 -type fingerprint() :: binary() | {sha | sha256, binary()}.
 
 %% @doc Returns an xmlelement without any ds:Signature elements that are inside it.
@@ -72,85 +70,176 @@ do_strip_signature([], _, _) ->
 %%      the element with the signature added.
 %%
 %% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
--spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary()) -> #xmlElement{}.
-sign(ElementIn, PrivateKeyFun, CertBin) when is_binary(CertBin) ->
-    sign(ElementIn, PrivateKeyFun, CertBin,
-         "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256").
-
--spec sign(Element :: #xmlElement{}, PrivateKey :: #'RSAPrivateKey'{}, CertBin :: binary(), SignatureMethod :: sig_method() | sig_method_uri()) -> #xmlElement{}.
-sign(ElementIn, PrivateKeyFun, CertBin, SigMethod) when
+%% This function has now been modified to do Skatteverket's funky removing of
+%% all namespace prefixes before doing a digest. Also there is function
+%% that recreates bugs, which can be removed if you are not implementing
+%% the Skatteverket API.
+%% The private key is now hidden inside a fun so it isn't visible in crashes.
+%% It will now sign all signatures inside the SOAP structure.
+-spec sign(Element :: #xmlElement{},
+           PrivateKeyFun :: fun(() -> #'RSAPrivateKey'{}),
+           CertBin :: binary()) -> #xmlElement{}.
+sign(ElementIn, PrivateKeyFun, CertBin) when
       is_binary(CertBin) ->
+    case xmerl_xpath:string(
+           "//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/09/"
+           "xmldsig#\"=namespace-uri()]", ElementIn) of
+        [] ->
+            {error, no_signature};
+        Signatures when is_list(Signatures) ->
+            sign_signatures(lists:reverse(Signatures), ElementIn, PrivateKeyFun,
+                            CertBin)
+    end.
+
+sign_signatures([Signature|Tail], ElementIn, PrivateKeyFun, CertBin) ->
     PrivateKey = #'RSAPrivateKey'{} = PrivateKeyFun(),
-    %% get rid of any previous signature
-    ElementStrip = strip(ElementIn),
+    logger:debug("Signature: ~p~n", [Signature]),
+    TransformAlgo =
+        xmerl_xpath:string(
+          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+    [#xmlAttribute{value = SignatureMethodAlgorithm}] =
+        xmerl_xpath:string(
+          "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/"
+          "09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+    {HashFunction, _DigestMethod, SignatureMethodAlgorithm} =
+        signature_props(SignatureMethodAlgorithm),
 
-    %% make sure the root element has an ID... if it doesn't yet, add one
-    {Element, Id} = case lists:keyfind('ID', 2, ElementStrip#xmlElement.attributes) of
-        #xmlAttribute{value = CapId} -> {ElementStrip, CapId};
-        _ ->
-            case lists:keyfind('id', 2, ElementStrip#xmlElement.attributes) of
-                #xmlAttribute{value = LowId} -> {ElementStrip, LowId};
-                _ ->
-                    NewId = esaml_util:unique_id(),
-                    Attr = #xmlAttribute{name = 'ID', value = NewId, namespace = #xmlNamespace{}},
-                    NewAttrs = [Attr | ElementStrip#xmlElement.attributes],
-                    Elem = ElementStrip#xmlElement{attributes = NewAttrs},
-                    {Elem, NewId}
-            end
-    end,
+    [#xmlAttribute{value = "http://www.w3.org/2001/10/xml-exc-c14n#"}] =
+        xmerl_xpath:string(
+          "//*[\"CanonicalizationMethod\"=local-name() and \"http://www.w3.org/"
+          "2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+    [#xmlAttribute{value = SignatureMethodAlgorithm}] =
+        xmerl_xpath:string(
+          "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/"
+          "09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+    [_C14nTx = #xmlElement{}] =
+        xmerl_xpath:string(
+          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]", Signature),
+         %% xmerl_xpath:string(
+         %%  "ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform"
+         %%  "[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']",
+         %%  Signature, [{namespace, DsNs}]),
+    TransformAlgo =
+        xmerl_xpath:string(
+          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
 
-    {HashFunction, DigestMethod, SignatureMethodAlgorithm} = signature_props(SigMethod),
 
-    % first we need the digest, to generate our SignedInfo element
-    CanonXml = xmerl_c14n:c14n(Element),
-    DigestValue = base64:encode_to_string(
-        crypto:hash(HashFunction, unicode:characters_to_binary(CanonXml, unicode, utf8))),
+    %% first we need the digest, to generate our SignedInfo element
+    [#xmlAttribute{value = RefUri}] =
+        xmerl_xpath:string(
+          "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/@URI", Signature),
+    logger:debug("Ref: ~p~n", [RefUri]),
+    StrippedXml = strip_it(RefUri, TransformAlgo, Signature, ElementIn),
+    CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
+    <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
+        unicode:characters_to_binary(CanonishXml, unicode, utf8),
+    %%CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
+    %%CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
+    logger:debug("DigestInput:~n~ts~n --~n",
+                  [CanonXmlUtf8]),
+    DigestValue = crypto:hash(HashFunction, CanonXmlUtf8),
+    %% CanonXml = xmerl_c14n:c14n(ElementStrip),
+    %% DigestValue = base64:encode_to_string(
+    %%     crypto:hash(HashFunction,
+    %%                 unicode:characters_to_binary(CanonXml, unicode, utf8))),
+    DigestB64 = base64:encode(DigestValue),
+    logger:debug("DigestValue: ~s~nDigestB64:~p~n",
+                  [[io_lib:format("~2.16.0B",[X]) || <<X:8>> <= DigestValue ],
+                   DigestB64]),
 
-    Ns = #xmlNamespace{nodes = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'}]},
-    SigInfo = esaml_util:build_nsinfo(Ns, #xmlElement{
-        name = 'ds:SignedInfo',
-        content = [
-            #xmlElement{name = 'ds:CanonicalizationMethod',
-                attributes = [#xmlAttribute{name = 'Algorithm', value = "http://www.w3.org/2001/10/xml-exc-c14n#"}]},
-            #xmlElement{name = 'ds:SignatureMethod',
-                attributes = [#xmlAttribute{name = 'Algorithm', value = SignatureMethodAlgorithm}]},
-            #xmlElement{name = 'ds:Reference',
-                attributes = [#xmlAttribute{name = 'URI', value = lists:flatten(["#" | Id])}],
-                content = [
-                    #xmlElement{name = 'ds:Transforms', content = [
-                        #xmlElement{name = 'ds:Transform',
-                            attributes = [#xmlAttribute{name = 'Algorithm', value = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"}]},
-                        #xmlElement{name = 'ds:Transform',
-                            attributes = [#xmlAttribute{name = 'Algorithm', value = "http://www.w3.org/2001/10/xml-exc-c14n#"}]}]},
-                    #xmlElement{name = 'ds:DigestMethod',
-                        attributes = [#xmlAttribute{name = 'Algorithm', value = DigestMethod}]},
-                    #xmlElement{name = 'ds:DigestValue',
-                        content = [#xmlText{value = DigestValue}]}
-                ]}
-        ]
-    }),
+    NameSpaces = Signature#xmlElement.namespace#xmlNamespace.nodes,
+    logger:debug("NameSpaces: ~p", [NameSpaces]),
+    [DsPrefix] = [ P || {P, 'http://www.w3.org/2000/09/xmldsig#'} <- NameSpaces ],
+    logger:debug("DsPrefix: ~p", [DsPrefix]),
+    SigInfo = get_child(DsPrefix, "SignedInfo", Signature),
+    Ref = get_child(DsPrefix, "Reference", SigInfo),
+    Digest = get_child(DsPrefix, "DigestValue", Ref),
+    NewDigest = Digest#xmlElement{ content = [#xmlText{value = DigestB64}]},
+    NewRef = replace_child(NewDigest, Ref),
+    NewSigInfo = replace_child(NewRef, SigInfo),
+    logger:debug("Child: ~p~n", [NewSigInfo]),
 
-    % now we sign the SignedInfo element...
-    SigInfoCanon = xmerl_c14n:c14n(SigInfo),
-    Data = unicode:characters_to_binary(SigInfoCanon, unicode, utf8),
+    %% now we sign the SignedInfo element...
+    SigInfoStripped = xmerl_c14n:remove_xmlns_prefixes(NewSigInfo),
+    SigInfoCanon = c14n_tags(SigInfoStripped),
+    SigInfoXml = xmerl:export_simple([SigInfoCanon], xmerl_xml),
+    <<"<?xml version=\"1.0\"?>", Data/binary>> =
+        unicode:characters_to_binary(SigInfoXml, unicode, utf8),
+    logger:debug("SigInfoCanonData:~n~p~n", [Data]),
 
-    Signature = public_key:sign(Data, HashFunction, PrivateKey),
-    Sig64 = base64:encode_to_string(Signature),
+    Sig = public_key:sign(Data, HashFunction, PrivateKey),
+    Sig64 = base64:encode_to_string(Sig),
+    logger:debug("CertBin: ~p~n", [CertBin]),
     Cert64 = base64:encode_to_string(CertBin),
+    SubjectName = subject_name(CertBin),
 
-    % and wrap it all up with the signature and certificate
-    SigElem = esaml_util:build_nsinfo(Ns, #xmlElement{
-        name = 'ds:Signature',
-        attributes = [#xmlAttribute{name = 'xmlns:ds', value = "http://www.w3.org/2000/09/xmldsig#"}],
-        content = [
-            SigInfo,
-            #xmlElement{name = 'ds:SignatureValue', content = [#xmlText{value = Sig64}]},
-            #xmlElement{name = 'ds:KeyInfo', content = [
-                #xmlElement{name = 'ds:X509Data', content = [
-                    #xmlElement{name = 'ds:X509Certificate', content = [#xmlText{value = Cert64} ]}]}]}
-        ]
-    }),
-    Element#xmlElement{content = [SigElem | Element#xmlElement.content]}.
+    %% and wrap it all up with the signature and certificate
+    SigValue = get_child(DsPrefix, "SignatureValue", Signature),
+    NewSigValue = SigValue#xmlElement{
+                    content = [#xmlText{value = Sig64}]},
+    Sig0 = replace_child(NewSigValue, Signature),
+    Sig1 = replace_child(NewSigInfo, Sig0),
+    KeyInfo = get_child(DsPrefix, "KeyInfo", Signature),
+    X509Data = get_child(DsPrefix, "X509Data", KeyInfo),
+    X509SubjectName = get_child(DsPrefix, "X509SubjectName", X509Data),
+    NewX509SubjectName =
+        X509SubjectName#xmlElement{
+          content = [#xmlText{value = SubjectName}]},
+    X509Certificate = get_child(DsPrefix, "X509Certificate", X509Data),
+    NewX509Certificate =
+        X509Certificate#xmlElement{
+          content = [#xmlText{value = Cert64}]},
+    NewX509Data = replace_child(NewX509Certificate, X509Data),
+    FinalX509Data = replace_child(NewX509SubjectName, NewX509Data),
+    NewKeyInfo = replace_child(FinalX509Data, KeyInfo),
+    FinalSig = replace_child(NewKeyInfo, Sig1),
+    ElementOut = dreplace_child(FinalSig, ElementIn),
+    logger:debug("ElementOut: ~p~n", [ElementOut]),
+    sign_signatures(Tail, ElementOut, PrivateKeyFun, CertBin);
+sign_signatures([], ElementIn, _, _) ->
+    ElementIn.
+
+get_child(Prefix, Name, #xmlElement{name = Pname, content = Content} = _Elem) ->
+    Qname = list_to_atom(Prefix ++ ":" ++ Name),
+    case [ E || #xmlElement{name = N} = E <- Content, N == Qname ] of
+        [] ->
+            error({no_such_child, Qname, Pname});
+        [Child] ->
+            Child
+    end.
+
+replace_child(#xmlElement{parents = [{Pname, _}|_], pos = N} = Elem,
+              #xmlElement{name = Pname, content = Content} = Parent) ->
+    Len = length(Content),
+    Pre = lists:sublist(Content, N-1),
+    Post = lists:sublist(Content, N+1, Len - N),
+    %%logger:debug("Pre: ~p~nPost: ~p~n", [Pre, Post]),
+    Parent#xmlElement{content = Pre ++ [Elem | Post]}.
+
+dreplace_child(#xmlElement{parents = Parents} = Elem, Root) ->
+    logger:debug("Parents: ~p~n", [Parents]),
+    do_dreplace_child(lists:reverse(Parents), Elem, Root).
+
+do_dreplace_child([{P, _}], #xmlElement{parents = [{P, _}|_], pos = N} = Elem,
+                  #xmlElement{name = P, content = Content} = Parent) ->
+    Len = length(Content),
+    Pre = lists:sublist(Content, N-1),
+    Post = lists:sublist(Content, N+1, Len - N),
+    logger:debug("PreLen: ~p~nPostLen: ~p~n", [length(Pre), length(Post)]),
+    Parent#xmlElement{content = Pre ++ [Elem | Post]};
+do_dreplace_child([{P, _}|T], Elem,
+                  #xmlElement{name = P, content = Content} = Parent) ->
+    logger:debug("P: ~p~nContent: ~p", [P, Content]),
+    Parent#xmlElement{content = do_find_content(Content, T, Elem)}.
+
+do_find_content([#xmlElement{name = P} = Parent|PTail], [{P,_}|_]=Ps, Elem) ->
+    [do_dreplace_child(Ps, Elem, Parent)] ++ PTail;
+do_find_content([Head | PTail], Parents, Elem) ->
+    [Head] ++ do_find_content(PTail, Parents, Elem).
 
 %% @doc Returns the canonical digest of an (optionally signed) element
 %%
@@ -189,14 +278,19 @@ digest(Element, HashFunction) ->
 %% Will throw badmatch errors if you give it XML that is not signed
 %% according to the xml-dsig spec. If you're using something other
 %% than rsa+sha1 or sha256 this will asplode. Don't say I didn't warn you.
+%%
+%% This function has now been modified to do Skatteverket's funky removing of
+%% all namespace prefixes before doing a digest. Also there is function
+%% that recreates bugs, which can be removed if you are not implementing
+%% the Skatteverket API.
+%% It will now verify all signatures inside the SOAP structure.
 -spec verify(Element :: #xmlElement{},
              Fingerprints :: [#'OTPCertificate'{}] | [fingerprint()] | any) ->
           ok | {error, bad_digest | bad_signature | cert_not_accepted}.
 verify(Element, Fingerprints) ->
-    %% xmerl_xpath:string("//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]", OpusXML, [{namespace, EsNs}]).
     case xmerl_xpath:string(
-           "//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\""
-           "=namespace-uri()]", Element) of
+           "//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/"
+           "09/xmldsig#\"=namespace-uri()]", Element) of
         [] ->
             {error, no_signature};
         Signatures when is_list(Signatures) ->
@@ -204,8 +298,8 @@ verify(Element, Fingerprints) ->
     end.
 
 verify_signatures([Signature | Tail], Element, Fingerprints) ->
-    DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
-            {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
+    %% DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
+    %%         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
     [#xmlAttribute{value = SignatureMethodAlgorithm}] =
         xmerl_xpath:string(
           "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/09/"
@@ -214,43 +308,43 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
 
     [#xmlAttribute{value = "http://www.w3.org/2001/10/xml-exc-c14n#"}] =
         xmerl_xpath:string(
-          "//*[\"CanonicalizationMethod\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+          "//*[\"CanonicalizationMethod\"=local-name() and \"http://www.w3.org"
+          "/2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
     [#xmlAttribute{value = SignatureMethodAlgorithm}] =
         xmerl_xpath:string(
-          "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
-    [C14nTx = #xmlElement{}] =
+          "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/"
+          "09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+    [_C14nTx = #xmlElement{}] =
         xmerl_xpath:string(
-          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]", Signature),
-         %% xmerl_xpath:string(
-         %%  "ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform"
-         %%  "[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']",
-         %%  Signature, [{namespace, DsNs}]),
+          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]", Signature),
     TransformAlgo =
         xmerl_xpath:string(
-          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
+          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
 
-    _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
-                                     C14nTx, [{namespace, DsNs}]) of
-                 %% FIXME! -^
-                 [] -> [];
-                 [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
-             end,
+    %% _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
+    %%                                  C14nTx, [{namespace, DsNs}]) of
+    %%              %% FIXME! -^
+    %%              [] -> [];
+    %%              [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
+    %%          end,
     [#xmlAttribute{value = RefUri}] =
         xmerl_xpath:string(
-          "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/@URI", Signature),
+          "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/@URI", Signature),
     logger:debug("Ref: ~p~n", [RefUri]),
     StrippedXml = strip_it(RefUri, TransformAlgo, Signature, Element),
     CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
     <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
         unicode:characters_to_binary(CanonishXml, unicode, utf8),
-    %%CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
-    %%CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
-    logger:debug("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU:~n~ts~n --~n", [CanonXmlUtf8]),
+    logger:debug("DigestInput:~n~ts~n --~n", [CanonXmlUtf8]),
     CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
 
     [#xmlText{value = Sha64}] =
         xmerl_xpath:string(
-          "//*[\"DigestValue\"=local-name() and \"http://www.w3.org/2000/09/xmldsig#\"=namespace-uri()]/text()", Signature),
+          "//*[\"DigestValue\"=local-name() and \"http://www.w3.org/2000/09/"
+          "xmldsig#\"=namespace-uri()]/text()", Signature),
     CanonSha2 = base64:decode(Sha64),
     logger:debug("ComputedDigest: ~p~nDocumentDigest: ~p~n", [CanonSha, CanonSha2]),
     if not (CanonSha =:= CanonSha2) ->
@@ -283,12 +377,19 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
             CertHash2 = crypto:hash(sha256, CertBin),
 
             Cert = public_key:pkix_decode_cert(CertBin, plain),
-            KeyBin = case Cert#'Certificate'.tbsCertificate#'TBSCertificate'.subjectPublicKeyInfo#'SubjectPublicKeyInfo'.subjectPublicKey of
+            #'Certificate'{
+               tbsCertificate =
+                   #'TBSCertificate'{
+                      subjectPublicKeyInfo =
+                          #'SubjectPublicKeyInfo'{
+                             subjectPublicKey =
+                                 PubKey}}} = Cert,
+            KeyBin = case PubKey of
                          {_, KeyBin2} -> KeyBin2;
                          KeyBin3 -> KeyBin3
                      end,
-            Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin, not_encrypted}),
-
+            Key = public_key:pem_entry_decode({'RSAPublicKey', KeyBin,
+                                               not_encrypted}),
             case public_key:verify(Data, HashFunction, Sig, Key) of
                 true ->
                     case Fingerprints of
@@ -326,11 +427,15 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
 verify_signatures([], _, _) ->
     ok.
 
-replicate_bugs(#xmlElement{name = 'ns0:deliverSecure'} = Element) ->
-    logger:debug("replacing 'ns0:deliverSecure'~n"),
-    Element#xmlElement{ name = 'ns6:SealedDelivery'
-                      , expanded_name = 'ns6:SealedDelivery'
-                      , nsinfo = {"ns6", "SealedDelivery"}
+replicate_bugs(#xmlElement{nsinfo = {_, "deliverSecure"}} = Element) ->
+    logger:debug("replacing 'deliverSecure' with 'SealedDelivery'\n"),
+    Nss = Element#xmlElement.namespace#xmlNamespace.nodes,
+    {Prefix, _} = lists:keyfind('http://minameddelanden.gov.se/schema/Message/v3',
+                                2, Nss),
+    NewName = list_to_atom(Prefix ++ ":SealedDelivery"),
+    Element#xmlElement{ name = NewName
+                      , expanded_name = NewName
+                      , nsinfo = {Prefix, "SealedDelivery"}
                       };
 replicate_bugs(Element) ->
     Element.
@@ -404,6 +509,45 @@ signature_props(rsa_sha256) ->
     DigestMethod = "http://www.w3.org/2001/04/xmlenc#sha256",
     Url = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
     {HashFunction, DigestMethod, Url}.
+
+subject_name(CertBin) ->
+    #'OTPCertificate'{
+       tbsCertificate =
+           #'OTPTBSCertificate'{
+              subject = {rdnSequence, Subject}
+             }} = public_key:pkix_decode_cert(CertBin, otp),
+    SubjectFlat = lists:reverse(lists:flatten(Subject)),
+    Parts = [ translate(A) || A <- SubjectFlat ],
+    SubjectString = string:join(Parts, ";"),
+    unicode:characters_to_binary(SubjectString, unicode, utf8).
+
+translate(#'AttributeTypeAndValue'{
+             type = {2,5,4,3},
+             value = {printableString,CN}}) ->
+    "CN="++quote(CN);
+translate(#'AttributeTypeAndValue'{
+             type = {2,5,4,10},
+             value = {printableString,O}}) ->
+    "O="++quote(O);
+translate(#'AttributeTypeAndValue'{
+             type = {2,5,4,10},
+             value = {teletexString,O}}) ->
+    "O="++quote(O);
+translate(#'AttributeTypeAndValue'{type = {2,5,4,6},
+                                   value = C}) ->
+    "C="++quote(C);
+translate(#'AttributeTypeAndValue'{type = {2,5,4,5},
+                                   value = SNr}) when is_list(SNr) ->
+    "SERIALNUMBER="++quote(SNr);
+translate(#'AttributeTypeAndValue'{type = {A,B,C,D},
+                                   value = Value}) ->
+    io_lib:format("~p.~p.~p.~p=", [A,B,C,D]) ++ quote(Value).
+
+quote(String) ->
+    case lists:member($ , String) of
+        true -> "'"++String++"'";
+        false -> String
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
