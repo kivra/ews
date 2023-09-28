@@ -686,9 +686,9 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
                     {error, Error};
                 {ok, {ResponseHeader, ResponseBody}} ->
                     PostHookArgs = [ResponseHeader, ResponseBody, NewOpts],
-                    [NewHeader, NewBody, LastOpts] =
+                    [PostHeader, PostBody, LastOpts] =
                         run_hooks(PostHooks, PostHookArgs),
-                    decode_service_out(NewHeader, NewBody, Info, Model,
+                    decode_service_out(PostHeader, PostBody, Info, Model,
                                        LastOpts);
                 {fault, Fault} ->
                     {error, parse_fault(Fault, Info, Model)}
