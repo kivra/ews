@@ -389,8 +389,9 @@ one_model_remove_hook(_Config) ->
     meck:expect(ews_serialize, encode, 3, encoded),
     meck:expect(ews_serialize, decode, fun (B,_,_) -> [B] end),
 
-    R1 = ews:add_pre_hook(fun ([_, _, _, _, O]) -> [a, b, c, d, O] end),
-    R2 = ews:add_pre_hook(fun ([_, _, _, _, O]) -> [a1, b1, c1, d1, O] end),
+    R1 = ews:add_pre_hook(fun ([_, _, _, _, _, O]) -> [a, b, c, d, e, O] end),
+    R2 = ews:add_pre_hook(fun ([_, _, _, _, _, O]) ->
+                                  [a1, b1, c1, d1, e1, O] end),
     R3 = ews:add_post_hook(fun ([H, _, O]) -> [H, {hooked_response, O}, O] end),
     ok = ews:remove_pre_hook(R2),
     {ok, {hooked_response, Opts}} =
