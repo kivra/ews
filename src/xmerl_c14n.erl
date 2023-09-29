@@ -297,6 +297,8 @@ naked_nss(#xmlText{}, NSMap, Seq) ->
     {NSMap, Seq};
 naked_nss(#xmlComment{}, NSMap, Seq) ->
     {NSMap, Seq};
+naked_nss(#xmlPI{}, NSMap, Seq) ->
+    {NSMap, Seq};
 naked_nss([H | T], NSMap1, Seq1) ->
     {NSMap2, Seq2} = naked_nss(H, NSMap1, Seq1),
     naked_nss(T, NSMap2, Seq2);
