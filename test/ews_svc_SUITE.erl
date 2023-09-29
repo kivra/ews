@@ -269,7 +269,8 @@ one_model_call(_Config) ->
         meck:history(ews_soap),
     EndPoint = "https://adwords.google.com/api/adwords/"
                "cm/v201306/CampaignService",
-    [EndPoint, [], encoded, encoded, Opts] = CallArgs,
+    Op = "get",
+    [EndPoint, Op, [], encoded, encoded, Opts, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
@@ -313,7 +314,7 @@ one_model_pre_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a2, b2, c2, d2, #{x := 3}] = CallArgs,
+    [a2, Op, b2, c2, d2, #{x := 3}, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
