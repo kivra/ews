@@ -314,7 +314,7 @@ one_model_pre_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a2, b2, c2, d2, e2, #{x := 3}, []] = CallArgs,
+    [a2, Op, c2, d2, e2, #{x := 3}, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
