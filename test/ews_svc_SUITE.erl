@@ -255,7 +255,8 @@ one_model_call(_Config) ->
     Opts = #{include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 5, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -292,7 +293,8 @@ one_model_pre_hook(_Config) ->
     Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 5, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -335,7 +337,8 @@ one_model_post_hook(_Config) ->
     Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 5, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -378,7 +381,8 @@ one_model_remove_hook(_Config) ->
     Opts = #{include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 5, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
