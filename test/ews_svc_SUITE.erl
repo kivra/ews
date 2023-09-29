@@ -304,7 +304,7 @@ one_model_pre_hook(_Config) ->
     R1 = ews:add_pre_hook(fun ([_, _, _, _, _, O = #{x := 1}]) ->
                                   [a1, b1, c1, d1, e1, O#{x => 2}]
                           end),
-    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, O = #{x := 2}]) ->
+    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, e1, O = #{x := 2}]) ->
                                   [a2, b2, c2, d2, e1, O#{x => 3}]
                           end),
     {ok, decoded} =
