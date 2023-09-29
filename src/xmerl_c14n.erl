@@ -366,6 +366,20 @@ get_defaultns(#xmlElement{ nsinfo = {Prefix, _Name}
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-spec build_nsinfo(#xmlNamespace{}, #xmlElement{}) -> #xmlElement{}.
+build_nsinfo(Ns, Attr = #xmlAttribute{name = Name}) ->
+    case string:tokens(atom_to_list(Name), ":") of
+        [NsPrefix, Rest] -> Attr#xmlAttribute{namespace = Ns, nsinfo = {NsPrefix, Rest}};
+        _ -> Attr#xmlAttribute{namespace = Ns}
+    end;
+build_nsinfo(Ns, Elem = #xmlElement{name = Name, content = Kids, attributes = Attrs}) ->
+    Elem2 = case string:tokens(atom_to_list(Name), ":") of
+        [NsPrefix, Rest] -> Elem#xmlElement{namespace = Ns, nsinfo = {NsPrefix, Rest}};
+        _ -> Elem#xmlElement{namespace = Ns}
+    end,
+    Elem2#xmlElement{attributes = [build_nsinfo(Ns, Attr) || Attr <- Attrs],
+                    content = [build_nsinfo(Ns, Kid) || Kid <- Kids]};
+build_nsinfo(_Ns, Other) -> Other.
 
 canon_name_test() ->
     "urn:foo:Blah" = canon_name("foo", "Blah", #xmlNamespace{nodes = [{"foo", 'urn:foo:'}]}),
@@ -386,16 +400,16 @@ canon_name_default_ns_test() ->
 needed_ns_test() ->
     Ns = #xmlNamespace{nodes = [{"foo", 'urn:foo:'}, {"bar", 'urn:bar:'}]},
 
-    E1 = esaml_util:build_nsinfo(Ns, #xmlElement{name = 'foo:Blah', attributes = [#xmlAttribute{name = 'bar:name', value="foo"}]}),
+    E1 = build_nsinfo(Ns, #xmlElement{name = 'foo:Blah', attributes = [#xmlAttribute{name = 'bar:name', value="foo"}]}),
     ["bar", "foo"] = lists:sort(needed_ns(E1, [])),
 
-    E2 = esaml_util:build_nsinfo(Ns, #xmlElement{name = 'Blah', attributes = [#xmlAttribute{name = 'bar:name', value = "foo"}]}),
+    E2 = build_nsinfo(Ns, #xmlElement{name = 'Blah', attributes = [#xmlAttribute{name = 'bar:name', value = "foo"}]}),
     ["bar"] = needed_ns(E2, []),
 
-    E3 = esaml_util:build_nsinfo(Ns, #xmlElement{name = 'Blah', attributes = [#xmlAttribute{name = 'name', value = "foo"}], content = [#xmlElement{name = 'foo:InnerBlah'}]}),
+    E3 = build_nsinfo(Ns, #xmlElement{name = 'Blah', attributes = [#xmlAttribute{name = 'name', value = "foo"}], content = [#xmlElement{name = 'foo:InnerBlah'}]}),
     [] = needed_ns(E3, []),
 
-    E4 = esaml_util:build_nsinfo(Ns, #xmlElement{name = 'Blah'}),
+    E4 = build_nsinfo(Ns, #xmlElement{name = 'Blah'}),
     [] = needed_ns(E4, []),
     [] = needed_ns(E4, ["foo"]),
 
