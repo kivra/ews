@@ -301,11 +301,11 @@ one_model_pre_hook(_Config) ->
     meck:expect(ews_serialize, encode, 3, encoded),
     meck:expect(ews_serialize, decode, 3, [decoded]),
 
-    R1 = ews:add_pre_hook(fun ([_, _, _, _, O = #{x := 1}]) ->
-                                  [a1, b1, c1, d1, O#{x => 2}]
+    R1 = ews:add_pre_hook(fun ([_, _, _, _, _, O = #{x := 1}]) ->
+                                  [a1, b1, c1, d1, e1, O#{x => 2}]
                           end),
-    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, O = #{x := 2}]) ->
-                                  [a2, b2, c2, d2, O#{x => 3}]
+    R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, e1, O = #{x := 2}]) ->
+                                  [a2, b2, c2, d2, e2, O#{x => 3}]
                           end),
     {ok, decoded} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts, Opts),
@@ -314,7 +314,7 @@ one_model_pre_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a2, Op, b2, c2, d2, #{x := 3}, []] = CallArgs,
+    [a2, Op, c2, d2, e2, #{x := 3}, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
