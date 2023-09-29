@@ -357,7 +357,7 @@ one_model_post_hook(_Config) ->
         meck:history(ews_soap),
     EndPoint = "https://adwords.google.com/api/adwords/"
                "cm/v201306/CampaignService",
-    [EndPoint, [], encoded, encoded, Opts] = CallArgs,
+    [EndPoint, Op, [], encoded, encoded, Opts, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
@@ -400,7 +400,7 @@ one_model_remove_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a, b, c, d, Opts] = CallArgs,
+    [a, Op, b, c, d, Opts, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
