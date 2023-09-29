@@ -305,7 +305,7 @@ one_model_pre_hook(_Config) ->
                                   [a1, b1, c1, d1, e1, O#{x => 2}]
                           end),
     R2 = ews:add_pre_hook(fun ([a1, b1, c1, d1, e1, O = #{x := 2}]) ->
-                                  [a2, b2, c2, d2, e1, O#{x => 3}]
+                                  [a2, b2, c2, d2, e2, O#{x => 3}]
                           end),
     {ok, decoded} =
         ews_svc:call(default, Service, Op, HeaderParts, BodyParts, Opts),
