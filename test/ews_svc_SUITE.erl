@@ -401,7 +401,7 @@ one_model_remove_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a, Op, b, c, d, Opts, []] = CallArgs,
+    [a, Op, c, d, e, Opts, []] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
