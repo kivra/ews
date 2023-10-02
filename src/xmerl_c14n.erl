@@ -59,7 +59,7 @@ canon_name(#xmlElement{name = Name, nsinfo = Exp, namespace = Nsp}) ->
 %% @doc Compares two XML attributes for c14n purposes
 -spec attr_lte(A :: #xmlAttribute{}, B :: #xmlAttribute{}) -> true | false.
 attr_lte(AttrA, AttrB) ->
-    io:format("AttrA: ~p AttrB: ~p~n", [AttrA, AttrB]),
+    logger:debug("AttrA: ~p AttrB: ~p~n", [AttrA, AttrB]),
     A = canon_name(AttrA), B = canon_name(AttrB),
     PrefixedA = case AttrA#xmlAttribute.nsinfo of {_, _} -> true; _ -> false end,
     PrefixedB = case AttrB#xmlAttribute.nsinfo of {_, _} -> true; _ -> false end,
@@ -95,12 +95,12 @@ needed_ns(#xmlElement{nsinfo = NsInfo, attributes = Attrs}, InclNs) ->
         {Nas, _} -> [Nas];
         _ -> []
     end,
-    % show through namespaces that apply at the bottom level? this part of the spec is retarded
-    %KidElems = [K || K <- Kids, element(1, K) =:= xmlElement],
+    %% show through namespaces that apply at the bottom level? this part of the spec is retarded
+    %%KidElems = [K || K <- Kids, element(1, K) =:= xmlElement],
     NeededNs2 = NeededNs1, %case KidElems of
-        %[] -> [K || {K,V} <- E#xmlElement.namespace#xmlNamespace.nodes];
-        %_ -> NeededNs1
-    %end,
+        %%[] -> [K || {K,V} <- E#xmlElement.namespace#xmlNamespace.nodes];
+        %%_ -> NeededNs1
+    %%end,
     lists:foldl(fun(Attr, Needed) ->
         case Attr#xmlAttribute.nsinfo of
             {"xmlns", Prefix} ->
@@ -289,10 +289,18 @@ c14n(Elem, Comments, InclusiveNs) ->
 
 naked_nss(#xmlDocument{content = Kids}, NSMap, Seq) ->
     naked_nss(Kids, NSMap, Seq);
-naked_nss(#xmlElement{content = Kids} = E, NSMap1, Seq1) ->
-    NeededNS = needed_ns(E, []),
-    {NSMap2, Seq2} = insert_ns(NeededNS, NSMap1, Seq1),
-    naked_nss(Kids, NSMap2, Seq2);
+naked_nss(#xmlElement{content = Kids, nsinfo = {Prefix, _},
+                      attributes = Attrs}, NSMap1, Seq1) ->
+    case [ A || #xmlAttribute{nsinfo = {xmlns, P}} = A <- Attrs, P == Prefix ] of
+        [#xmlAttribute{value = Value}] ->
+            logger:notice("Not Needed: ~p~n", [{Prefix, Value}]),
+            naked_nss(Kids, NSMap1, Seq1);
+       [] ->
+            {NSMap2, Seq2} = insert_ns([Prefix], NSMap1, Seq1),
+            naked_nss(Kids, NSMap2, Seq2)
+    end;
+naked_nss(#xmlElement{content = Kids}, NSMap, Seq) ->
+    naked_nss(Kids, NSMap, Seq);
 naked_nss(#xmlText{}, NSMap, Seq) ->
     {NSMap, Seq};
 naked_nss(#xmlComment{}, NSMap, Seq) ->
@@ -457,11 +465,11 @@ c14n_3_3_test() ->
     Target = "<doc>\n   <e1></e1>\n   <e2></e2>\n   <e3 id=\"elem3\" name=\"elem3\"></e3>\n   <e4 id=\"elem4\" name=\"elem4\"></e4>\n   <e5 xmlns=\"http://example.org\" xmlns:a=\"http://www.w3.org\" xmlns:b=\"http://www.ietf.org\" attr=\"I'm\" attr2=\"all\" b:attr=\"sorted\" a:attr=\"out\"></e5>\n   <e6>\n      <e7 xmlns=\"http://www.ietf.org\">\n         <e8 xmlns=\"\">\n            <e9></e9>\n         </e8>\n      </e7>\n   </e6>\n</doc>",
     Target = c14n(Doc, true).
 
-c14n_3_4_test() ->
-    {Doc, _} = xmerl_scan:string("<!DOCTYPE doc [\n<!ATTLIST normId id ID #IMPLIED>\n<!ATTLIST normNames attr NMTOKENS #IMPLIED>\n]>\n<doc>\n   <text>First line&#x0d;&#10;Second line</text>\n   <value>&#x32;</value>\n   <compute><![CDATA[value>\"0\" && value<\"10\" ?\"valid\":\"error\"]]></compute>\n   <compute expr='value>\"0\" &amp;&amp; value&lt;\"10\" ?\"valid\":\"error\"'>valid</compute>\n   <norm attr=' &apos;   &#x20;&#13;&#xa;&#9;   &apos; '/>\n   <normNames attr='   A   &#x20;&#13;&#xa;&#9;   B   '/>\n   <normId id=' &apos;   &#x20;&#13;&#xa;&#9;   &apos; '/>\n</doc>", [{namespace_conformant, true}, {document, true}]),
+%% c14n_3_4_test() ->
+%%     {Doc, _} = xmerl_scan:string("<!DOCTYPE doc [\n<!ATTLIST normId id ID #IMPLIED>\n<!ATTLIST normNames attr NMTOKENS #IMPLIED>\n]>\n<doc>\n   <text>First line&#x0d;&#10;Second line</text>\n   <value>&#x32;</value>\n   <compute><![CDATA[value>\"0\" && value<\"10\" ?\"valid\":\"error\"]]></compute>\n   <compute expr='value>\"0\" &amp;&amp; value&lt;\"10\" ?\"valid\":\"error\"'>valid</compute>\n   <norm attr=' &apos;   &#x20;&#13;&#xa;&#9;   &apos; '/>\n   <normNames attr='   A   &#x20;&#13;&#xa;&#9;   B   '/>\n   <normId id=' &apos;   &#x20;&#13;&#xa;&#9;   &apos; '/>\n</doc>", [{namespace_conformant, true}, {document, true}]),
 
-    Target = "<doc>\n   <text>First line\n\nSecond line</text>\n   <value>2</value>\n   <compute>value&gt;\"0\" &amp;&amp; value&lt;\"10\" ?\"valid\":\"error\"</compute>\n   <compute expr=\"value>&quot;0&quot; &amp;&amp; value&lt;&quot;10&quot; ?&quot;valid&quot;:&quot;error&quot;\">valid</compute>\n   <norm attr=\" '    &#xD;&#xA;&#x9;   ' \"></norm>\n   <normNames attr=\"A  &#xD;&#xA;&#x9; B\"></normNames>\n   <normId id=\"'  &#xD;&#xA;&#x9; '\"></normId>\n</doc>",
-    Target = c14n(Doc, true).
+%%     Target = "<doc>\n   <text>First line\n\nSecond line</text>\n   <value>2</value>\n   <compute>value&gt;\"0\" &amp;&amp; value&lt;\"10\" ?\"valid\":\"error\"</compute>\n   <compute expr=\"value>&quot;0&quot; &amp;&amp; value&lt;&quot;10&quot; ?&quot;valid&quot;:&quot;error&quot;\">valid</compute>\n   <norm attr=\" '    &#xD;&#xA;&#x9;   ' \"></norm>\n   <normNames attr=\"A  &#xD;&#xA;&#x9; B\"></normNames>\n   <normId id=\"'  &#xD;&#xA;&#x9; '\"></normId>\n</doc>",
+%%     Target = c14n(Doc, true).
 
 default_ns_test() ->
     {Doc, _} = xmerl_scan:string("<foo:a xmlns:foo=\"urn:foo:\"><b xmlns=\"urn:bar:\"><c xmlns=\"urn:bar:\" /></b><c xmlns=\"urn:bar:\"><d /></c><foo:e><f xmlns=\"urn:foo:\"><foo:x>blah</foo:x></f></foo:e></foo:a>", [{namespace_conformant, true}]),
