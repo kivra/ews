@@ -288,14 +288,21 @@ c14n(Elem, Comments, InclusiveNs) ->
 naked_nss(#xmlDocument{content = Kids}, NSMap, Seq) ->
     naked_nss(Kids, NSMap, Seq);
 naked_nss(#xmlElement{content = Kids, nsinfo = {Prefix, _},
-                      attributes = Attrs}, NSMap1, Seq1) ->
+                      attributes = Attrs, namespace = Ns}, NSMap1, Seq1) ->
     case [ A || #xmlAttribute{nsinfo = {"xmlns", P}} = A <- Attrs, P == Prefix ] of
-        [#xmlAttribute{value = Value}] ->
-            logger:notice("Not Needed: ~p~n", [{Prefix, Value}]),
+        [#xmlAttribute{}] ->
+            %% ns defined here, so not needed
             naked_nss(Kids, NSMap1, Seq1);
-       [] ->
-            {NSMap2, Seq2} = insert_ns([Prefix], NSMap1, Seq1),
-            naked_nss(Kids, NSMap2, Seq2)
+        [] ->
+            case Ns#xmlNamespace.default of
+                [] ->
+                    %% No defaultns, so we need this
+                    {NSMap2, Seq2} = insert_ns([Prefix], NSMap1, Seq1),
+                    naked_nss(Kids, NSMap2, Seq2);
+                _ ->
+                    %% Element has defaultns, so not needed
+            naked_nss(Kids, NSMap1, Seq1)
+            end
     end;
 naked_nss(#xmlElement{content = Kids}, NSMap, Seq) ->
     naked_nss(Kids, NSMap, Seq);
