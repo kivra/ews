@@ -38,10 +38,10 @@ output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
     Attr = ["'__attrs' :: #{"],
     AttrIndent = Indent + iolist_size(Attr),
     AttrEnd = ["} | undefined"],
-    AttrRows = [[tick_word(A), " => string() | binary()"] ||
+    AttrRows = [lists:flatten([tick_word(A), " => string() | binary()"]) ||
                    #attribute{name={_,A}} <- Attrs],
     JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
-    AttrStr = [Attr, string:join(AttrRows, JoinAttrs), AttrEnd],
+    AttrStr = lists:flatten([Attr, string:join(AttrRows, JoinAttrs), AttrEnd]),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
