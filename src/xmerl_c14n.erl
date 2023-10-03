@@ -151,17 +151,14 @@ xml_safe_string(Term, Quotes) ->
 
 c14n(#xmlText{value = Text}, _KnownNS, _ActiveNS, _Comments, _InclNs, Acc) ->
     [xml_safe_string(Text) | Acc];
-
 c14n(#xmlComment{value = Text}, _KnownNS, _ActiveNS, true, _InclNs, Acc) ->
     ["-->", xml_safe_string(Text), "<!--" | Acc];
-
 c14n(#xmlPI{name = Name, value = Value}, _KnownNS, _ActiveNS, _Comments, _InclNs, Acc) ->
     NameString = if is_atom(Name) -> atom_to_list(Name); true -> string:strip(Name) end,
     case string:strip(Value) of
         [] -> ["?>", NameString, "<?" | Acc];
         _ -> ["?>", Value, " ", NameString, "<?" | Acc]
     end;
-
 c14n(#xmlDocument{content = Kids}, KnownNS, ActiveNS, Comments, InclNs, Acc) ->
     case lists:foldl(fun(Kid, AccIn) ->
                              case c14n(Kid, KnownNS, ActiveNS, Comments, InclNs, AccIn) of
@@ -172,7 +169,6 @@ c14n(#xmlDocument{content = Kids}, KnownNS, ActiveNS, Comments, InclNs, Acc) ->
         ["\n" | Rest] -> Rest;
         Other -> Other
     end;
-
 c14n(#xmlAttribute{nsinfo = NsInfo, name = Name, value = Value}, _KnownNs, ActiveNS, _Comments, _InclNs, Acc) ->
     case NsInfo of
         {Ns, NName} ->
@@ -183,75 +179,77 @@ c14n(#xmlAttribute{nsinfo = NsInfo, name = Name, value = Value}, _KnownNs, Activ
         _ ->
             ["\"",xml_safe_string(Value, true),"=\"",atom_to_list(Name)," " | Acc]
     end;
-
 c14n(Elem = #xmlElement{}, KnownNSIn, ActiveNSIn, Comments, InclNs, Acc) ->
     Namespace = Elem#xmlElement.namespace,
     Default = case Elem#xmlElement.nsinfo of
-        [] -> Namespace#xmlNamespace.default;
-        _ -> [] % omit a default namespace if it is not visibly utilized.
-    end,
+                  [] -> Namespace#xmlNamespace.default;
+                  _ -> [] % omit a default namespace if it is not visibly utilized.
+              end,
     {ActiveNS, ParentDefault} = case ActiveNSIn of
-        [{default, P} | Rest] -> {Rest, P};
-        Other -> {Other, ''}
-    end,
-    % add any new namespaces this element has that we haven't seen before
+                                    [{default, P} | Rest] -> {Rest, P};
+                                    Other -> {Other, ''}
+                                end,
+    %% add any new namespaces this element has that we haven't seen before
     KnownNS = lists:foldl(fun({Ns, Uri}, Nss) ->
-        case proplists:is_defined(Ns, Nss) of
-            true -> Nss;
-            _ -> [{Ns, atom_to_list(Uri)} | Nss]
-        end
-    end, KnownNSIn, Namespace#xmlNamespace.nodes),
+                                  case proplists:is_defined(Ns, Nss) of
+                                      true -> Nss;
+                                      _ -> [{Ns, atom_to_list(Uri)} | Nss]
+                                  end
+                          end, KnownNSIn, Namespace#xmlNamespace.nodes),
 
-    % now figure out the minimum set of namespaces we need at this level
+    %% now figure out the minimum set of namespaces we need at this level
     NeededNs = needed_ns(Elem, InclNs),
-    % and all of the attributes that aren't xmlns
+    %% and all of the attributes that aren't xmlns
     Attrs = clean_sort_attrs(Elem#xmlElement.attributes),
 
-    % we need to append any xmlns: that our parent didn't have (ie, aren't in ActiveNS) but
-    % that we need
+    %% we need to append any xmlns: that our parent didn't have (ie, aren't in ActiveNS) but
+    %% that we need
     NewNS = InclNs ++ NeededNs -- ActiveNS,
     NewActiveNS = ActiveNS ++ NewNS,
 
-    % the opening tag
+    %% the opening tag
     Acc1 = case Elem#xmlElement.nsinfo of
-        {ENs, EName} ->
-            [EName, ":", ENs, "<" | Acc];
-        _ ->
-            [atom_to_list(Elem#xmlElement.name), "<" | Acc]
-    end,
-    % xmlns definitions
-    {Acc2, FinalActiveNS} = if
-        not (Default =:= []) andalso not (Default =:= ParentDefault) ->
-            {["\"", xml_safe_string(Default, true), " xmlns=\"" | Acc1], [{default, Default} | NewActiveNS]};
-        not (Default =:= []) ->
-            {Acc1, [{default, Default} | NewActiveNS]};
-        true ->
-            {Acc1, NewActiveNS}
-    end,
+               {ENs, EName} ->
+                   [EName, ":", ENs, "<" | Acc];
+               _ ->
+                   [atom_to_list(Elem#xmlElement.name), "<" | Acc]
+           end,
+    %% xmlns definitions
+    {Acc2, FinalActiveNS} =
+        if
+            not (Default =:= []) andalso not (Default =:= ParentDefault) ->
+                {["\"", xml_safe_string(Default, true), " xmlns=\"" | Acc1],
+                 [{default, Default} | NewActiveNS]};
+            not (Default =:= []) ->
+                {Acc1, [{default, Default} | NewActiveNS]};
+            true ->
+                {Acc1, NewActiveNS}
+        end,
     Acc3 = lists:foldl(fun(Ns, AccIn) ->
-        ["\"",xml_safe_string(proplists:get_value(Ns, KnownNS, ""), true),"=\"",Ns,":"," xmlns" | AccIn]
-    end, Acc2, lists:sort(NewNS)),
-    % any other attributes
+                               ["\"",xml_safe_string(
+                                       proplists:get_value(Ns, KnownNS, ""),
+                                       true),"=\"",Ns,":"," xmlns" | AccIn]
+                       end, Acc2, lists:sort(NewNS)),
+    %% any other attributes
     Acc4 = lists:foldl(fun(Attr, AccIn) ->
-        c14n(Attr, KnownNS, FinalActiveNS, Comments, [], AccIn)
-    end, Acc3, Attrs),
-    % close the opening tag
+                               c14n(Attr, KnownNS, FinalActiveNS, Comments, [], AccIn)
+                       end, Acc3, Attrs),
+    %% close the opening tag
     Acc5 = [">" | Acc4],
 
-    % now accumulate all our children
+    %% now accumulate all our children
     Acc6 = lists:foldl(fun(Kid, AccIn) ->
-        c14n(Kid, KnownNS, FinalActiveNS, Comments, [], AccIn)
-    end, Acc5, Elem#xmlElement.content),
+                               c14n(Kid, KnownNS, FinalActiveNS, Comments, [], AccIn)
+                       end, Acc5, Elem#xmlElement.content),
 
-    % and finally add the close tag
+    %% and finally add the close tag
     case Elem#xmlElement.nsinfo of
         {Ns, Name} ->
             [">", Name, ":", Ns, "</" | Acc6];
         _ ->
             [">",atom_to_list(Elem#xmlElement.name),"</" | Acc6]
     end;
-
-% I do not give a shit
+%% I do not give a shit
 c14n(_, _KnownNS, _ActiveNS, _Comments, _InclNs, Acc) ->
     Acc.
 
