@@ -291,7 +291,7 @@ naked_nss(#xmlDocument{content = Kids}, NSMap, Seq) ->
     naked_nss(Kids, NSMap, Seq);
 naked_nss(#xmlElement{content = Kids, nsinfo = {Prefix, _},
                       attributes = Attrs}, NSMap1, Seq1) ->
-    case [ A || #xmlAttribute{nsinfo = {xmlns, P}} = A <- Attrs, P == Prefix ] of
+    case [ A || #xmlAttribute{nsinfo = {"xmlns", P}} = A <- Attrs, P == Prefix ] of
         [#xmlAttribute{value = Value}] ->
             logger:notice("Not Needed: ~p~n", [{Prefix, Value}]),
             naked_nss(Kids, NSMap1, Seq1);
