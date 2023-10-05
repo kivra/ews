@@ -90,7 +90,9 @@ Returns a list with detailed information about the given operation.
 
 It is possible to add pre-call hook functions that are called between the encoding of operation parameters and the HTTP call. You can also add post-call hook functions that are called between the response reception and the decoding of the response. This can be useful for metrics, logging, trouble shooting or to be able to handle strange stuff that WSDL authors come up with :)
 
-A pre-call hook function is a fun of one argument which is a list `[Endpoint :: list(), Operation :: list, Headers :: list(), Body :: term(), Options :: map()]` which should return a list of the same type where the elements might be updated. This includes the `Options` map, which can be used to pass information to other pre-call and post-call hooks.
+A pre-call hook function is a fun of one argument which is a list `[Endpoint :: list(), Operation :: list, SoapAction :: list(), Headers :: list(), Body :: term(), Options :: map()]` which should return a list of the same type where the elements might be updated. This includes the `Options` map, which can be used to pass information to other pre-call and post-call hooks.
+
+A pre-post-call hook function is a fun of one argument which is a list `[Endpoint :: list(), Operation :: list, XMLBody :: binary(), Options :: prop_list()]` which should return a list of the same type where the elements might be updated.
 
 A post-call hook is a fun which takes as arument a list `[Headers :: list(), Body :: term(), Options :: map()]` and which should return a list of the same type.
 
@@ -100,6 +102,10 @@ If there are multiple pre- or post-call hooks they will be called in the order t
 
 Adds a pre-call hook to the specified model.
 
+`ews:add_pre_post_hook(Model :: atom(), Hook :: fun()) -> HookRef :: ref()`
+
+Adds a pre-post-call hook to the specified model.
+
 `ews:add_post_hook(Model :: atom(), Hook :: fun()) -> HookRef :: ref()`
 
 Adds a post-call hook to the specified model.
@@ -107,6 +113,10 @@ Adds a post-call hook to the specified model.
 `ews:remove_pre_hook(Model :: atom(), HookRef :: ref()) -> ok`
 
 Removes a pre-call hook. The HookRef specified should be what the `add_pre_hook` call returned when the hook was added.
+
+`ews:remove_pre_post_hook(Model :: atom(), HookRef :: ref()) -> ok`
+
+Removes a pre-post-call hook. The HookRef specified should be what the `add_pre_hook` call returned when the hook was added.
 
 `ews:remove_post_hook(Model :: atom(), HookRef :: ref()) -> ok`
 
