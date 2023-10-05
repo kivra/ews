@@ -323,6 +323,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
           "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
           "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
 
+    %% We haven't seen InclusiveNs in calls from the Skatteverket API.
     %% _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
     %%                                  C14nTx, [{namespace, DsNs}]) of
     %%              %% FIXME! -^
@@ -452,30 +453,37 @@ strip_it(_Id,
          [#xmlAttribute{
              value = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"}],
          Signature, Element) ->
-    %%logger:debug("Id: ~p~n", [Id]),
     Parents = lists:reverse(Signature#xmlElement.parents),
     ParentStrings = [ atom_to_list(P) || {P, _} <- Parents ],
     ParentXpath = string:join(ParentStrings, "/"),
-    [Gimmie] = xmerl_xpath:string("//"++ParentXpath, Element),
-    %%Gimmie = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",Element),
-    #xmlElement{content = Kids} = Gimmie,
-    NewKids = lists:filter(fun strip_sig_child/1, Kids),
-    GimmieEnv = Gimmie#xmlElement{content = NewKids},
-    C14N = c14n_tags(GimmieEnv),
+    [Parent] = xmerl_xpath:string("//"++ParentXpath, Element),
+    #xmlElement{content = Kids} = Parent,
+    NoSigKids = lists:filter(fun strip_sig_child/1, Kids),
+    StrippedParent = Parent#xmlElement{content = NoSigKids},
+    C14N = c14n_tags(StrippedParent),
     Bugged = replicate_bugs(C14N),
     Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
-    logger:debug("GimmieEnv: ~p~n", [Stripped]),
+    logger:debug("Skatteverket Stripped: ~p~n", [Stripped]),
     Stripped;
 strip_it("", _, Signature, Element) ->
+    logger:error("Verification of the whole SOAP call does not implement "
+                 "the Skatteverket's stripping prefixes or bugs!~n"),
     strip_signature(Element, Signature);
 strip_it([$# | Id],
          [#xmlAttribute{
              name = "http://www.w3.org/2001/10/xml-exc-c14n#"}],
          _Signature, Element) ->
     logger:debug("Id: ~p~n", [Id]),
-    Gimmie = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",Element),
-    logger:debug("GimmieEverything: ~p~n", [Gimmie]),
-    hd(Gimmie).
+    [Parent] = xmerl_xpath:string("//*[@*[local-name()='Id' and .='"++Id++"']]",
+                                  Element),
+    #xmlElement{content = Kids} = Parent,
+    NoSigKids = lists:filter(fun strip_sig_child/1, Kids),
+    StrippedParent = Parent#xmlElement{content = NoSigKids},
+    C14N = c14n_tags(StrippedParent),
+    Bugged = replicate_bugs(C14N),
+    Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
+    logger:debug("Skatteverket Stripped with ID: ~p~n", [Stripped]),
+    Stripped.
 
 strip_sig_child(#xmlElement{nsinfo = {_, "Signature"}}) -> false;
 strip_sig_child(#xmlElement{name = 'Signature'}) -> false;
