@@ -10,6 +10,29 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 2.0.0 and 3.0.0
+
+Two breaking changes have been introduced in 3.0.0.
+
+* Prehooks now take 6 arguments and should return 6 arguments.
+* XSDs that define attributes now result in a records with an __attrs map.
+
+### New Preehook arguments
+
+Versions before 3.0.0 documented that the second argument to prehooks
+was the Operation, but in fact it was the SOAPAction. From version 3.0.0
+both these are now arguments so hooks now need 6 arguments and need to
+return 6 arguments.
+
+There is also a new type of pre_post hook that lets you modify the actual
+rendered XML instead of the internal ews representation.
+
+### New attributes support
+
+Version 3.0.0 introduces an extra field called `__attrs` first of record
+where the XSD defines attributes. `__attrs` is a map and keys should be
+atoms.
+
 ## Interface
 
 ews is an Erlang application that can be started and stopped in the normal way.
