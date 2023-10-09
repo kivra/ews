@@ -415,9 +415,9 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                             logger:debug("Cert: ~p~n",
                                       [public_key:pkix_decode_cert(CertBin, otp)]),
                             case lists:any(
-                                   fun(C) ->
+                                   fun(CA) ->
                                            public_key:pkix_is_issuer(
-                                             CertBin, C)
+                                             CertBin, CA)
                                    end, Fingerprints) of
                                 true ->
                                     verify_signatures(Tail, Element, Fingerprints);
