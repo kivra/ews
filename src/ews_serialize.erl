@@ -211,6 +211,8 @@ encode_term(Term, #enum{values=Values, list=IsList}, _) ->
             [{txt, encode_single_enum(Term, Values)}]
     end.
 
+%% If the type had attributes we have to add them to the attributes
+%% of this element.
 make_xml(Name, Typedef, {Attrs, Elems}) ->
   {Name, Typedef++Attrs, Elems};
 make_xml(Name, Typedef, Elems) ->
