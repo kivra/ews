@@ -401,7 +401,9 @@ get_defaultns(#xmlElement{ nsinfo = {Prefix, _Name}
     URI.
 
 -ifdef(TEST).
+
 -include_lib("eunit/include/eunit.hrl").
+
 -spec build_nsinfo(#xmlNamespace{}, #xmlElement{}) -> #xmlElement{}.
 build_nsinfo(Ns, Attr = #xmlAttribute{name = Name}) ->
     case string:tokens(atom_to_list(Name), ":") of
