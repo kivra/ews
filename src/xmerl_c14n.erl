@@ -312,7 +312,7 @@ naked_nss(#xmlElement{content = Kids, nsinfo = {Prefix, _},
             case Ns#xmlNamespace.default of
                 [] ->
                     %% No defaultns, so we need this
-                    {NSMap2, Seq2} = insert_ns([Prefix], NSMap1, Seq1),
+                    {NSMap2, Seq2} = insert_ns(Prefix, NSMap1, Seq1),
                     naked_nss(Kids, NSMap2, Seq2);
                 _ ->
                     %% Element has defaultns, so not needed
@@ -333,15 +333,13 @@ naked_nss([H | T], NSMap1, Seq1) ->
 naked_nss([], NSMap, Seq) ->
     {NSMap, Seq}.
 
-insert_ns([NS | T], NSMap, Seq) ->
+insert_ns(NS, NSMap, Seq) ->
     case maps:is_key(NS, NSMap) of
         true ->
-            insert_ns(T, NSMap, Seq);
+            {NSMap, Seq};
         false ->
-            insert_ns(T, NSMap#{NS => Seq}, Seq+1)
-    end;
-insert_ns([], NSMap, Seq) ->
-    {NSMap, Seq}.
+            {NSMap#{NS => Seq}, Seq+1}
+    end.
 
 remove_xmlns_prefixes(Xml) ->
     do_remove_xmlns_prefixes(Xml, '').
