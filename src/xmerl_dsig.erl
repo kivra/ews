@@ -152,15 +152,9 @@ sign_signatures([Signature|Tail], ElementIn, PrivateKeyFun, CertBin) ->
     CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
     <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
         unicode:characters_to_binary(CanonishXml, unicode, utf8),
-    %%CanonXml = xmerl_c14n:c14n(StrippedXml, false, InclNs),
-    %%CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
     logger:debug("DigestInput:~n~ts~n --~n",
                   [CanonXmlUtf8]),
     DigestValue = crypto:hash(HashFunction, CanonXmlUtf8),
-    %% CanonXml = xmerl_c14n:c14n(ElementStrip),
-    %% DigestValue = base64:encode_to_string(
-    %%     crypto:hash(HashFunction,
-    %%                 unicode:characters_to_binary(CanonXml, unicode, utf8))),
     DigestB64 = base64:encode(DigestValue),
     logger:debug("DigestValue: ~s~nDigestB64:~p~n",
                   [[io_lib:format("~2.16.0B",[X]) || <<X:8>> <= DigestValue ],
