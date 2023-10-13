@@ -57,30 +57,6 @@ is_valid_kid(Kid) when is_record(Kid, xmlAttribute); is_record(Kid, xmlElement) 
     Canon_Name =/= "http://www.w3.org/2000/09/xmldsig#Signature";
 is_valid_kid(_Child) -> true.
 
-strip_signature(Doc, #xmlElement{name = Name, parents = Parents}) ->
-    do_strip_signature(Doc, Name, lists:reverse(Parents)).
-
-do_strip_signature(#xmlElement{name = Match, content = Kids} = Elem, Name,
-                   [{Match, _Pos} | Parents]) ->
-    logger:debug("Match: ~p~n", [Match]),
-    NewKids = do_strip_signature(Kids, Name, Parents),
-    Elem#xmlElement{content = NewKids};
-do_strip_signature([#xmlElement{name = Signature} | Tail], Signature, _) ->
-    logger:debug("Signature: ~p~n~n", [Signature]),
-    Tail;
-do_strip_signature([#xmlElement{name = Match, content = Kids} = Elem | Tail], Name,
-                   [{Match, _Pos} | Parents]) ->
-    logger:debug("Match: ~p~n", [Match]),
-    NewKids = do_strip_signature(Kids, Name, Parents),
-    [Elem#xmlElement{content = NewKids} | Tail];
-do_strip_signature([#xmlElement{name = _NoMatch} = Elem | Tail], Name,
-                   Parents) ->
-    [Elem | do_strip_signature(Tail, Name, Parents)];
-do_strip_signature([NotElem | Tail], Name, Parents) ->
-    [NotElem | do_strip_signature(Tail, Name, Parents)];
-do_strip_signature([], _, _) ->
-    [].
-
 %% @doc Signs the given XML element by creating a ds:Signature element within it, returning
 %%      the element with the signature added.
 %%
@@ -474,10 +450,8 @@ strip_it(_Id,
     Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
     logger:debug("Skatteverket Stripped: ~p~n", [Stripped]),
     Stripped;
-strip_it("", _, Signature, Element) ->
-    logger:error("Verification of the whole SOAP call does not implement "
-                 "the Skatteverket's stripping prefixes or bugs!~n"),
-    strip_signature(Element, Signature);
+strip_it("", _, _Signature, _Element) ->
+    error(signature_over_everything_not_implemented);
 strip_it([$# | Id],
          [#xmlAttribute{
              name = "http://www.w3.org/2001/10/xml-exc-c14n#"}],
