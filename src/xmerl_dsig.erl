@@ -445,7 +445,10 @@ c14n_tags([]) ->
 c14n_tags(Other) ->
     Other.
 
--spec signature_props(atom() | string()) -> {HashFunction :: atom(), DigestMethodUrl :: string(), SignatureMethodUrl :: string()}.
+-spec signature_props(atom() | string()) ->
+          {HashFunction :: atom(),
+           DigestMethodUrl :: string(),
+           SignatureMethodUrl :: string()}.
 signature_props("http://www.w3.org/2000/09/xmldsig#rsa-sha1") ->
     signature_props(rsa_sha1);
 signature_props(rsa_sha1) ->
