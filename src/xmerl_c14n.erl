@@ -280,7 +280,19 @@ c14n(Elem) ->
 c14n(Elem, Comments) ->
     c14n(Elem, Comments, []).
 
-%% @doc Puts an XML document or element into canonical form, as a string.
+%% @doc Puts an XML document or element into exclusive canonical form, as a string.
+%%
+%% From what we could understand, the original authors code implemented
+%% inclusive canonical form, since the unit tests are examples from that
+%% standard document.
+%%
+%% We have now tried to change it to implement exclusive c14n according to
+%% this standard.
+%%
+%%     http://www.w3.org/TR/xml-exc-c14n/
+%%
+%% Inclusive Namespaces is now treated as if they come from an envelope
+%% and they are rendered in the first tag.
 %%
 %% If the Comments argument is true, preserves comments in the output. Any
 %% namespace prefixes listed in InclusiveNs will be left as they are and not
