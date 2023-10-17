@@ -303,12 +303,6 @@ c14n(Elem, Comments, InclusiveNs) ->
     logger:debug("NakedNss: ~p~n", [lists:keysort(2, maps:to_list(NakedNss))]),
     SortedNss = [ Prefix || {Prefix, _} <-
                                lists:keysort(2, maps:to_list(NakedNss)) ],
-    %% FIXME: This still won't work. "ns14" < "ns4" in erlang and c14n/6
-    %% will put prefixes in the wrong order.
-    %% But we are saved by Skatteverket's removal of prefixes.
-    %% So we will leave this for a better day when we want to support
-    %% the complete standard.
-    %% Also they should probably be sorted in url order, I think...
     FirstTagNss = lists:usort(InclusiveNs ++ SortedNss),
     lists:flatten(lists:reverse(c14n(Elem, [], [], Comments, FirstTagNss, []))).
 
