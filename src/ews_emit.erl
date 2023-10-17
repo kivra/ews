@@ -47,7 +47,7 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
     [Line1, string:join(PartRows, JoinStr), "}).\n"];
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
-    Line0 = "%% Possible keys for '__attrs'\n",
+    Line0 = "%% @doc Possible keys for '__attrs'\n",
     AttrDocs = [ ["%% ", tick_word(A), " :: ",T,"\n"] ||
                    #attribute{name={_,A},type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
