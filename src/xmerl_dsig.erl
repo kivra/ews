@@ -35,27 +35,13 @@
 %% enveloped mode.
 -module(xmerl_dsig).
 
--export([verify/1, verify/2, sign/3, strip/1, digest/1]).
+-export([verify/1, verify/2, sign/3]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include_lib("public_key/include/public_key.hrl").
 
 -type xml_thing() :: #xmlDocument{} | #xmlElement{} | #xmlAttribute{} | #xmlPI{} | #xmlText{} | #xmlComment{}.
 -type fingerprint() :: binary() | {sha | sha256, binary()}.
-
-%% @doc Returns an xmlelement without any ds:Signature elements that are inside it.
--spec strip(Element :: #xmlElement{} | #xmlDocument{}) -> #xmlElement{}.
-strip(#xmlDocument{content = Kids} = Doc) ->
-    NewKids = [if (element(1,K) =:= xmlElement) -> strip(K); true -> K end || K <- Kids],
-    Doc#xmlDocument{content = NewKids};
-strip(#xmlElement{content = Kids} = Elem) ->
-    NewKids = [Kid || Kid <- Kids, is_valid_kid(Kid)],
-    Elem#xmlElement{content = NewKids}.
-
-is_valid_kid(Kid) when is_record(Kid, xmlAttribute); is_record(Kid, xmlElement) ->
-    Canon_Name = xmerl_c14n:canon_name(Kid),
-    Canon_Name =/= "http://www.w3.org/2000/09/xmldsig#Signature";
-is_valid_kid(_Child) -> true.
 
 %% @doc Signs the given XML element by creating a ds:Signature element within it, returning
 %%      the element with the signature added.
@@ -225,32 +211,6 @@ do_find_content([#xmlElement{name = P} = Parent|PTail], [{P,_}|_]=Ps, Elem) ->
     [do_dreplace_child(Ps, Elem, Parent)] ++ PTail;
 do_find_content([Head | PTail], Parents, Elem) ->
     [Head] ++ do_find_content(PTail, Parents, Elem).
-
-%% @doc Returns the canonical digest of an (optionally signed) element
-%%
-%% Strips any XML digital signatures and applies any relevant InclusiveNamespaces
-%% before generating the digest.
--spec digest(Element :: #xmlElement{}) -> binary().
-digest(Element) -> digest(Element, sha256).
-
--spec digest(Element :: #xmlElement{}, HashFunction :: sha | sha256) -> binary().
-digest(Element, HashFunction) ->
-    DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
-        {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
-
-    Txs = xmerl_xpath:string("ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']", Element, [{namespace, DsNs}]),
-    InclNs = case Txs of
-        [C14nTx = #xmlElement{}] ->
-            case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList", C14nTx, [{namespace, DsNs}]) of
-                [] -> [];
-                [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
-            end;
-        _ -> []
-    end,
-
-    CanonXml = xmerl_c14n:c14n(strip(Element), false, InclNs),
-    CanonXmlUtf8 = unicode:characters_to_binary(CanonXml, unicode, utf8),
-    crypto:hash(HashFunction, CanonXmlUtf8).
 
 %% @doc Verifies an XML digital signature on the given element.
 %%
