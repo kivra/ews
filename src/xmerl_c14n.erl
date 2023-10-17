@@ -219,6 +219,7 @@ c14n(Elem = #xmlElement{}, KnownNSIn, ActiveNSIn, Comments, InclNs, Acc) ->
 
     %% we need to append any xmlns: that our parent didn't have (ie, aren't in ActiveNS) but
     %% that we need
+    %% This also removes duplicates from InclNs that are in NeededNs
     NewNS = (InclNs -- NeededNs) ++ NeededNs -- ActiveNS,
     NewActiveNS = ActiveNS ++ NewNS,
 
