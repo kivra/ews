@@ -47,10 +47,10 @@
 %%      the element with the signature added.
 %%
 %% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
-%% This function has now been modified to do Skatteverket's funky removing of
+%% This function has now been modified to do MinaMeddelanden's funky removing of
 %% all namespace prefixes before doing a digest. Also there is function
 %% that recreates bugs, which can be removed if you are not implementing
-%% the Skatteverket API.
+%% the MinaMeddelanden API.
 %% The private key is now hidden inside a fun so it isn't visible in crashes.
 %% It will now sign all signatures inside the SOAP structure.
 -spec sign(Element :: #xmlElement{},
@@ -224,10 +224,10 @@ do_find_content([Head | PTail], Parents, Elem) ->
 %% according to the xml-dsig spec. If you're using something other
 %% than rsa+sha1 or sha256 this will asplode. Don't say I didn't warn you.
 %%
-%% This function has now been modified to do Skatteverket's funky removing of
+%% This function has now been modified to do MinaMeddelanden's funky removing of
 %% all namespace prefixes before doing a digest. Also there is function
 %% that recreates bugs, which can be removed if you are not implementing
-%% the Skatteverket API.
+%% the MinaMeddelanden API.
 %% It will now verify all signatures inside the SOAP structure.
 -spec verify(Element :: #xmlElement{},
              Fingerprints :: [#'OTPCertificate'{}] | [fingerprint()] | any) ->
@@ -268,7 +268,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
           "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
           "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
 
-    %% We haven't seen InclusiveNs in calls from the Skatteverket API.
+    %% We haven't seen InclusiveNs in calls from the MinaMeddelanden API.
     %% _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
     %%                                  C14nTx, [{namespace, DsNs}]) of
     %%              %% FIXME! -^
@@ -405,10 +405,13 @@ strip_it(_Id,
     #xmlElement{content = Kids} = Parent,
     NoSigKids = lists:filter(fun strip_sig_child/1, Kids),
     StrippedParent = Parent#xmlElement{content = NoSigKids},
+    %% The following 3 lines do not conform to excl-c14n, but that is how
+    %% it is implemented in the MinaMeddelanden reference code.
+    %% If you want a proper excl-c14n or incl-c14n implement that here.
     C14N = c14n_tags(StrippedParent),
     Bugged = replicate_bugs(C14N),
     Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
-    logger:debug("Skatteverket Stripped: ~p~n", [Stripped]),
+    logger:debug("MinaMeddelanden Stripped: ~p~n", [Stripped]),
     Stripped;
 strip_it("", _, _Signature, _Element) ->
     error(signature_over_everything_not_implemented);
@@ -422,10 +425,13 @@ strip_it([$# | Id],
     #xmlElement{content = Kids} = Parent,
     NoSigKids = lists:filter(fun strip_sig_child/1, Kids),
     StrippedParent = Parent#xmlElement{content = NoSigKids},
+    %% The following 3 lines do not conform to excl-c14n, but that is how
+    %% it is implemented in the MinaMeddelanden reference code.
+    %% If you want a proper excl-c14n or incl-c14n implement that here.
     C14N = c14n_tags(StrippedParent),
     Bugged = replicate_bugs(C14N),
     Stripped = xmerl_c14n:remove_xmlns_prefixes(Bugged),
-    logger:debug("Skatteverket Stripped with ID: ~p~n", [Stripped]),
+    logger:debug("MinaMeddelanden Stripped with ID: ~p~n", [Stripped]),
     Stripped.
 
 strip_sig_child(#xmlElement{nsinfo = {_, "Signature"}}) -> false;
@@ -520,7 +526,7 @@ verify_valid_sha256_test() ->
     ok = verify(Doc, [<<32,81,247,163,74,183,251,54,103,55,124,147,82,121,118,
                         45,143,9,159,4>>]).
 
-verify_valid_skatteverket_test() ->
+verify_valid_minameddelanden_test() ->
     {Doc, _} = xmerl_scan:string("<?xml version=\"1.0\" encoding=\"UTF-8\"?><p6:Envelope xmlns:p1=\"http://minameddelanden.gov.se/schema/Message\" xmlns:p2=\"http://minameddelanden.gov.se/schema/Message/v2\" xmlns:p3=\"http://minameddelanden.gov.se/schema/Message/v3\" xmlns:p4=\"http://minameddelanden.gov.se/schema/Sender\" xmlns:p5=\"http://minameddelanden.gov.se/schema/Service/v3\" xmlns:p6=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:p7=\"http://www.w3.org/2000/09/xmldsig#\"><p6:Body><p5:deliverSecure><p5:deliverSecure><p3:SignedDelivery><p3:Delivery><p3:Header><p2:Sender><p4:Id>165568402266</p4:Id><p4:Name>Kivra AB</p4:Name></p2:Sender><p2:Recipient>198101032384</p2:Recipient><p2:Reference>minimal_l</p2:Reference><p2:CorrelationId>some-uid</p2:CorrelationId><p2:Attention>198101032384</p2:Attention></p3:Header><p3:Message><p3:Header><p3:Id>some-uid</p3:Id><p3:Subject>VÃ¤lkommen till bruket</p3:Subject><p3:Supportinfo><p3:Text>Kontakta inte mÃ¤j!</p3:Text><p3:URL>http://dev.null/</p3:URL></p3:Supportinfo><p3:Language>svSE</p3:Language></p3:Header><p3:Body><p1:ContentType>text/plain</p1:ContentType><p1:Body>SMOkciDDpHIgZGluIHBkZi4=</p1:Body></p3:Body><p3:Attachment><p1:ContentType>application/pdf</p1:ContentType><p1:Body>JVBERi0xLjEKJcKlwrHDqwoKJSBNSVQgTGljZW5zZQolCiUgQ29weXJpZ2h0IChjKSAyMDEwIEJyZW5kYW4gWmFnYWVza2kKJQolIFBlcm1pc3Npb24gaXMgaGVyZWJ5IGdyYW50ZWQsIGZyZWUgb2YgY2hhcmdlLCB0byBhbnkgcGVyc29uIG9idGFpbmluZyBhIGNvcHkKJSBvZiB0aGlzIHNvZnR3YXJlIGFuZCBhc3NvY2lhdGVkIGRvY3VtZW50YXRpb24gZmlsZXMgKHRoZSAiU29mdHdhcmUiKSwgdG8gZGVhbAolIGluIHRoZSBTb2Z0d2FyZSB3aXRob3V0IHJlc3RyaWN0aW9uLCBpbmNsdWRpbmcgd2l0aG91dCBsaW1pdGF0aW9uIHRoZSByaWdodHMKJSB0byB1c2UsIGNvcHksIG1vZGlmeSwgbWVyZ2UsIHB1Ymxpc2gsIGRpc3RyaWJ1dGUsIHN1YmxpY2Vuc2UsIGFuZC9vciBzZWxsCiUgY29waWVzIG9mIHRoZSBTb2Z0d2FyZSwgYW5kIHRvIHBlcm1pdCBwZXJzb25zIHRvIHdob20gdGhlIFNvZnR3YXJlIGlzCiUgZnVybmlzaGVkIHRvIGRvIHNvLCBzdWJqZWN0IHRvIHRoZSBmb2xsb3dpbmcgY29uZGl0aW9uczoKJQolIFRoZSBhYm92ZSBjb3B5cmlnaHQgbm90aWNlIGFuZCB0aGlzIHBlcm1pc3Npb24gbm90aWNlIHNoYWxsIGJlIGluY2x1ZGVkIGluIGFsbAolIGNvcGllcyBvciBzdWJzdGFudGlhbCBwb3J0aW9ucyBvZiB0aGUgU29mdHdhcmUuCiUKJSBUSEUgU09GVFdBUkUgSVMgUFJPVklERUQgIkFTIElTIiwgV0lUSE9VVCBXQVJSQU5UWSBPRiBBTlkgS0lORCwgRVhQUkVTUyBPUgolIElNUExJRUQsIElOQ0xVRElORyBCVVQgTk9UIExJTUlURUQgVE8gVEhFIFdBUlJBTlRJRVMgT0YgTUVSQ0hBTlRBQklMSVRZLAolIEZJVE5FU1MgRk9SIEEgUEFSVElDVUxBUiBQVVJQT1NFIEFORCBOT05JTkZSSU5HRU1FTlQuIElOIE5PIEVWRU5UIFNIQUxMIFRIRQolIEFVVEhPUlMgT1IgQ09QWVJJR0hUIEhPTERFUlMgQkUgTElBQkxFIEZPUiBBTlkgQ0xBSU0sIERBTUFHRVMgT1IgT1RIRVIKJSBMSUFCSUxJVFksIFdIRVRIRVIgSU4gQU4gQUNUSU9OIE9GIENPTlRSQUNULCBUT1JUIE9SIE9USEVSV0lTRSwgQVJJU0lORyBGUk9NLAolIE9VVCBPRiBPUiBJTiBDT05ORUNUSU9OIFdJVEggVEhFIFNPRlRXQVJFIE9SIFRIRSBVU0UgT1IgT1RIRVIgREVBTElOR1MgSU4gVEhFCiUgU09GVFdBUkUuCgoxIDAgb2JqCiAgPDwgL1R5cGUgL0NhdGFsb2cKICAgICAvUGFnZXMgMiAwIFIKICA+PgplbmRvYmoKCjIgMCBvYmoKICA8PCAvVHlwZSAvUGFnZXMKICAgICAvS2lkcyBbMyAwIFJdCiAgICAgL0NvdW50IDEKICAgICAvTWVkaWFCb3ggWzAgMCAzMDAgMTQ0XQogID4+CmVuZG9iagoKMyAwIG9iagogIDw8ICAvVHlwZSAvUGFnZQogICAgICAvUGFyZW50IDIgMCBSCiAgICAgIC9SZXNvdXJjZXMKICAgICAgIDw8IC9Gb250CiAgICAgICAgICAgPDwgL0YxCiAgICAgICAgICAgICAgIDw8IC9UeXBlIC9Gb250CiAgICAgICAgICAgICAgICAgIC9TdWJ0eXBlIC9UeXBlMQogICAgICAgICAgICAgICAgICAvQmFzZUZvbnQgL1RpbWVzLVJvbWFuCiAgICAgICAgICAgICAgID4+CiAgICAgICAgICAgPj4KICAgICAgID4+CiAgICAgIC9Db250ZW50cyA0IDAgUgogID4+CmVuZG9iagoKNCAwIG9iagogIDw8IC9MZW5ndGggNTUgPj4Kc3RyZWFtCiAgQlQKICAgIC9GMSAxOCBUZgogICAgMCAwIFRkCiAgICAoSGVsbG8gV29ybGQpIFRqCiAgRVQKZW5kc3RyZWFtCmVuZG9iagoKeHJlZgowIDUKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAxMTMwIDAwMDAwIG4gCjAwMDAwMDExODkgMDAwMDAgbiAKMDAwMDAwMTI5MCAwMDAwMCBuIAowMDAwMDAxNTY5IDAwMDAwIG4gCnRyYWlsZXIKICA8PCAgL1Jvb3QgMSAwIFIKICAgICAgL1NpemUgNQogID4+CnN0YXJ0eHJlZgoxNjc3CiUlRU9GCg==</p1:Body><p1:Checksum>DDB0C170A9145291740E6D9B7253C6A1</p1:Checksum><p1:Filename>minimal_l.pdf</p1:Filename></p3:Attachment></p3:Message></p3:Delivery><p7:Signature><p7:SignedInfo><p7:CanonicalizationMethod Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/><p7:SignatureMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#rsa-sha1\"/><p7:Reference URI=\"\"><p7:Transforms><p7:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\"/></p7:Transforms><p7:DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\"/><p7:DigestValue>8WvOHFTmsiVIKgj2x0/bPolljBM=</p7:DigestValue></p7:Reference></p7:SignedInfo><p7:SignatureValue>jORrK/6HsT3WTgsYZM0iLp6WQ8S8RPP8HRp/opIyCEM3oIxw5IvVmoLyK6nlryciQxbZRNdvdn26/MJ1DhFUTINI9aoX2GB4jv0GPf6erNF1Zs5/dy76IJYETpLnV8e4uWLgbFwO6EwgOtZjL3IfEca6qJ/UJPwek13GzkCfvBnLWEqy2YJ0K3LJ2vGUI66aowgRgFI5QQP/f7EM9rzvIeAbyk97BKurbK3qdW9Xyjdx/8dh2HBbXWSkooH2ajJJplJtT6cRZgIYhf4blDWigk97XjftkKHeQqqR2JmtFARmhaYbFQQQulauy38Gb/TIPsjircHOB/wXZSM7ALJt6w==</p7:SignatureValue><p7:KeyInfo><p7:X509Data><p7:X509SubjectName>SERIALNUMBER=165568402266;CN=testcert.kivra.net.notvalid;O='Kivra AB';C=SE</p7:X509SubjectName><p7:X509Certificate>MIIDmzCCAoOgAwIBAgIUZOoqWepECsO/IahGCnvupSvo5zAwDQYJKoZIhvcNAQELBQAwXTELMAkGA1UEBhMCU0UxETAPBgNVBAoMCEtpdnJhIEFCMSQwIgYDVQQDDBt0ZXN0Y2VydC5raXZyYS5uZXQubm90dmFsaWQxFTATBgNVBAUTDDE2NTU2ODQwMjI2NjAeFw0yMzEwMDkxMzAxMThaFw0zMzEwMDkxMzAxMThaMF0xCzAJBgNVBAYTAlNFMREwDwYDVQQKDAhLaXZyYSBBQjEkMCIGA1UEAwwbdGVzdGNlcnQua2l2cmEubmV0Lm5vdHZhbGlkMRUwEwYDVQQFEwwxNjU1Njg0MDIyNjYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDCeMqtHCec6r+crF9NbcXjVvhY8/I6nqKlA55ftpY3INZuX/e5wivKC+hyHvOz4nIv1Jj3VfXXi6RO5R8BjCjs7umXnM3oTzsqg3F0500MAsGNHT6KlOk7cleILHEEVziPWHPX+5ZAFwgmhrSf0p2xPdzU5zEHLPmneDWCBN1E9fYIB4FIMo4ZkRf6dBmXh+FckDTcwFmbAKQLPaEy3nLxea3Q3vr5iz/xOHln04W4C4ZmIicE9HHP0QPLFrqOITBu8iv3GV3KYyJM1LWsb8AWaw19M4KbjmrCv67rm/iJncAh/O0x4qjCEFMqcEIOQ/2diOUl/tciLkdXlo1yrY8VAgMBAAGjUzBRMB0GA1UdDgQWBBS25pPvu5Tre9avga+DPxaB2jhzcDAfBgNVHSMEGDAWgBS25pPvu5Tre9avga+DPxaB2jhzcDAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCfh+KodAukguzw7vMqzUrd5C/RRV5DQ1ZVLPNYX0+SdE1MuBDFDzykeOOUe/q7KHM/jLlj1WsJtlPbGaAEG3NpT3gEEUYVTXBTrzuud+fld3lMrzpbYOq6Js7r6oIuJE2r+En0gGYe2oGe90GWrWCxI+NN0/LZ5dOcKo8SupxobLSayAbf+LWaUcpyxYsAGyH51+vd8uwLVOGShGKMVZmJT1N9/eNN0uxYxWLhTlHiEnJB+fa/oXPFGZUPccwKC7pjEr78xxX1kpRHNHNMZgu22apEKCEXk6gLCgEA3/pvdbYxMvX/2f9CSaLd1tflxTDYQWs9icPEA4HDYP/ZCIIF</p7:X509Certificate></p7:X509Data></p7:KeyInfo></p7:Signature></p3:SignedDelivery><p3:Seal><p1:ReceivedTime>2023-10-11+02:00</p1:ReceivedTime><p1:SignaturesOK>true</p1:SignaturesOK></p3:Seal><p7:Signature><p7:SignedInfo><p7:CanonicalizationMethod Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/><p7:SignatureMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#rsa-sha1\"/><p7:Reference URI=\"\"><p7:Transforms><p7:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\"/></p7:Transforms><p7:DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\"/><p7:DigestValue>n3GmKhNt2F5m3DewvYOrE8NamIc=</p7:DigestValue></p7:Reference></p7:SignedInfo><p7:SignatureValue>YT0I/YSjZIHaW+e6Spa3q0UCBFXsR6/9OfTzQByZJKp++Di0MPzRrQ0+FBF850dcanmHOyfxfa3dpYuuZ8edQtrHszsDejzFucU4PjdQ1vKxjLfEg0Ty8r7blP8XrLcaETRncaHNr7oz9xQ0pgP9/9dcGw/wGrMvICLaDcpeiqdjv0meFlZtiRG0/IwM2EdGa7gNeoYFGT0ZZTXGhmCsP7Fr704O3icOImMHZbg1trhSUd9GZLwUXgfRFEJeX9d8yn6Fh8wRiCSeF9RC8J5EYIQLTSUUuntPK7SDpOMXNzEKRES6RGw3KusiqwVbzhPDtdIWD0MmWpXBqUqSHV4mfA==</p7:SignatureValue><p7:KeyInfo><p7:X509Data><p7:X509SubjectName>SERIALNUMBER=165568402266;CN=testcert.kivra.net.notvalid;O='Kivra AB';C=SE</p7:X509SubjectName><p7:X509Certificate>MIIDmzCCAoOgAwIBAgIUZOoqWepECsO/IahGCnvupSvo5zAwDQYJKoZIhvcNAQELBQAwXTELMAkGA1UEBhMCU0UxETAPBgNVBAoMCEtpdnJhIEFCMSQwIgYDVQQDDBt0ZXN0Y2VydC5raXZyYS5uZXQubm90dmFsaWQxFTATBgNVBAUTDDE2NTU2ODQwMjI2NjAeFw0yMzEwMDkxMzAxMThaFw0zMzEwMDkxMzAxMThaMF0xCzAJBgNVBAYTAlNFMREwDwYDVQQKDAhLaXZyYSBBQjEkMCIGA1UEAwwbdGVzdGNlcnQua2l2cmEubmV0Lm5vdHZhbGlkMRUwEwYDVQQFEwwxNjU1Njg0MDIyNjYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDCeMqtHCec6r+crF9NbcXjVvhY8/I6nqKlA55ftpY3INZuX/e5wivKC+hyHvOz4nIv1Jj3VfXXi6RO5R8BjCjs7umXnM3oTzsqg3F0500MAsGNHT6KlOk7cleILHEEVziPWHPX+5ZAFwgmhrSf0p2xPdzU5zEHLPmneDWCBN1E9fYIB4FIMo4ZkRf6dBmXh+FckDTcwFmbAKQLPaEy3nLxea3Q3vr5iz/xOHln04W4C4ZmIicE9HHP0QPLFrqOITBu8iv3GV3KYyJM1LWsb8AWaw19M4KbjmrCv67rm/iJncAh/O0x4qjCEFMqcEIOQ/2diOUl/tciLkdXlo1yrY8VAgMBAAGjUzBRMB0GA1UdDgQWBBS25pPvu5Tre9avga+DPxaB2jhzcDAfBgNVHSMEGDAWgBS25pPvu5Tre9avga+DPxaB2jhzcDAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCfh+KodAukguzw7vMqzUrd5C/RRV5DQ1ZVLPNYX0+SdE1MuBDFDzykeOOUe/q7KHM/jLlj1WsJtlPbGaAEG3NpT3gEEUYVTXBTrzuud+fld3lMrzpbYOq6Js7r6oIuJE2r+En0gGYe2oGe90GWrWCxI+NN0/LZ5dOcKo8SupxobLSayAbf+LWaUcpyxYsAGyH51+vd8uwLVOGShGKMVZmJT1N9/eNN0uxYxWLhTlHiEnJB+fa/oXPFGZUPccwKC7pjEr78xxX1kpRHNHNMZgu22apEKCEXk6gLCgEA3/pvdbYxMvX/2f9CSaLd1tflxTDYQWs9icPEA4HDYP/ZCIIF</p7:X509Certificate></p7:X509Data></p7:KeyInfo></p7:Signature></p5:deliverSecure></p5:deliverSecure></p6:Body></p6:Envelope>"),
     ok = verify(Doc),
     ok = verify(Doc, [<<36,70,103,192,130,5,128,175,1,171,38,247,179,85,169,80,
