@@ -90,19 +90,10 @@ sign_signatures([Signature|Tail], ElementIn, PrivateKeyFun, CertBin) ->
         xmerl_xpath:string(
           "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/"
           "09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
-    [_C14nTx = #xmlElement{}] =
-        xmerl_xpath:string(
-          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
-          "xmldsig#\"=namespace-uri()]", Signature),
-         %% xmerl_xpath:string(
-         %%  "ds:Signature/ds:SignedInfo/ds:Reference/ds:Transforms/ds:Transform"
-         %%  "[@Algorithm='http://www.w3.org/2001/10/xml-exc-c14n#']",
-         %%  Signature, [{namespace, DsNs}]),
     TransformAlgo =
         xmerl_xpath:string(
           "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
           "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
-
 
     %% first we need the digest, to generate our SignedInfo element
     [#xmlAttribute{value = RefUri}] =
@@ -259,22 +250,12 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
         xmerl_xpath:string(
           "//*[\"SignatureMethod\"=local-name() and \"http://www.w3.org/2000/"
           "09/xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
-    [_C14nTx = #xmlElement{}] =
-        xmerl_xpath:string(
-          "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
-          "xmldsig#\"=namespace-uri()]", Signature),
     TransformAlgo =
         xmerl_xpath:string(
           "//*[\"Transform\"=local-name() and \"http://www.w3.org/2000/09/"
           "xmldsig#\"=namespace-uri()]/@Algorithm", Signature),
-
     %% We haven't seen InclusiveNs in calls from the MinaMeddelanden API.
-    %% _InclNs = case xmerl_xpath:string("ec:InclusiveNamespaces/@PrefixList",
-    %%                                  C14nTx, [{namespace, DsNs}]) of
-    %%              %% FIXME! -^
-    %%              [] -> [];
-    %%              [#xmlAttribute{value = NsList}] -> string:tokens(NsList, " ,")
-    %%          end,
+    %% We have removed that part of the code.
     [#xmlAttribute{value = RefUri}] =
         xmerl_xpath:string(
           "//*[\"Reference\"=local-name() and \"http://www.w3.org/2000/09/"
