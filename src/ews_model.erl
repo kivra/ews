@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_model).
 
 -export([new/0, put/3, put_elem/3, replace/2, get/2, get_elem/2, get_elem/3,
@@ -96,7 +113,7 @@ get_subs(Key, Table) ->
     Children ++ lists:append(LowerDescendants).
 
 get_from_alias(Alias, Tbl) ->
-    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_'}}) of
+    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_', '_'}}) of
         [] ->
             false;
         [[Key]] ->

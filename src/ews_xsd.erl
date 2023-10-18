@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ---------------------------------------------------------------------------
 %%% WSDL Types parsing
 %%% Doesn't support: group, attributeGroup, include and notation types
@@ -88,7 +105,7 @@ do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
         [] ->
             [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
-            ?log("Imports: ~p~n", [Imports]),
+            logger:debug("Imports: ~p~n", [Imports]),
             ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
                             basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
@@ -259,8 +276,16 @@ maybe_ref(undefined, Element) ->
              fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
-maybe_ref(Qname, _Element) ->
-    #element{name=Qname, type=#reference{name=Qname}, parts=[]}.
+maybe_ref(Qname, Element) ->
+    Default = wh:get_attribute(Element, default),
+    Fixed = wh:get_attribute(Element, fixed),
+    Nillable = wh:get_attribute(Element, nillable),
+    MinOccurs = to_integer(wh:get_attribute(Element, minOccurs)),
+    MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
+    #element{name=Qname, type=#reference{name=Qname},
+             default=Default, fixed=Fixed, nillable=Nillable,
+             min_occurs=MinOccurs, max_occurs=MaxOccurs,
+             parts=[]}.
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
@@ -443,15 +468,15 @@ print_schema_stats(Schema) ->
     AttributeGroups = wh:get_children(Schema, "attributeGroup"),
     Notations = wh:get_children(Schema, "notation"),
     Annotations = wh:get_children(Schema, "annotation"),
-    io:format("e: ~p, s: ~p, c: ~p, g: ~p, a: ~p, ag: ~p, n: ~p, an: ~p~n",
-              [length(Elements),
-               length(SimpleTypes),
-               length(ComplexTypes),
-               length(Groups),
-               length(Attributes),
-               length(AttributeGroups),
-               length(Notations),
-               length(Annotations)]).
+    logger:debug("e: ~p, s: ~p, c: ~p, g: ~p, a: ~p, ag: ~p, n: ~p, an: ~p~n",
+                 [length(Elements),
+                  length(SimpleTypes),
+                  length(ComplexTypes),
+                  length(Groups),
+                  length(Attributes),
+                  length(AttributeGroups),
+                  length(Notations),
+                  length(Annotations)]).
 
 to_integer(undefined) -> 1;
 to_integer("unbounded") -> infinite;
@@ -538,19 +563,19 @@ process(Types, Model) ->
     TypeMap = ews_model:new(),
     %% pass 1
     {_AllTypes, _Elems} =
-        case process(Types, [], Ts, [], [], TypeMap, Model, root) of
-            {A, E, []} -> {A, E};
-            {A, E, Retry} ->
+        case process(Types, [], Ts, [], [], TypeMap, Model, root, []) of
+            {A, E, [], []} -> {A, E};
+            {A, E, Retry, []} ->
                 %% pass 2
-                case process(Retry, [], Ts, [], [], TypeMap, Model, root) of
-                    {A2, E2, []} -> {A2 ++ A, E2 ++ E};
-                    {_, _, R2} -> error({cannot_resolve, R2})
+                case process(Retry, [], Ts, [], [], TypeMap, Model, root, []) of
+                    {A2, E2, [], []} -> {A2 ++ A, E2 ++ E};
+                    {_, _, R2, []} -> error({cannot_resolve, R2})
                 end
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
 process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
@@ -558,36 +583,48 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             TypeName = type_name(Qname, Parent),
             Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
-            {AccWithSubTypes, SubElems, Retry2} = process(Ps2, Retry, Ts, TypeAcc, [],
-                                                  TypeMap, Model, Parent),
+            {AccWithSubTypes, SubElems, Retry2, _} =
+                process(Ps2, Retry, Ts, TypeAcc, [],
+                        TypeMap, Model, Parent, AttrAcc),
             Type = #type{qname=TypeName, extends=Ext,
                          abstract=Abstract, elems=SubElems},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry2, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
-                    TypeMap, Model, Parent);
+                    TypeMap, Model, Parent, AttrAcc);
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type),
             Elem = #elem{qname=Qname, type=Base, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
-            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
+                    Parent, AttrAcc)
     end;
 process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
-        TypeMap, Model, Parent) ->
-    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
-process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+        TypeMap, Model, Parent, AttrAcc) ->
+    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
+            Model, Parent, AttrAcc);
+process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest],
+        Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
+    Meta = parse_meta(E),
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent);
+            %% Override with meta from element with reference
+            Elem = E1#elem{meta = Meta},
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
+                    Parent, AttrAcc);
         #elem{type = _} = E1 ->
-            process(Rest, Retry, Ts, TypeAcc, [E1 | ElemAcc], TypeMap, Model, Parent)
+            %% Override with meta from element with reference
+            Elem = E1#elem{meta = Meta},
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
+                    Parent, AttrAcc)
     end;
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     Qtype = qname(T, no_ns),
     case to_base(Qtype) of
@@ -596,36 +633,47 @@ process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
                 false ->
                     Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
                     ews_model:put_elem(Elem, Parent, TypeMap),
-                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent);
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
+                            Model, Parent, AttrAcc);
                 {Qtype, BaseOrEnum} ->
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
                     ews_model:put_elem(Elem, Parent, TypeMap),
-                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
+                    process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
+                            Model, Parent, AttrAcc)
             end;
         #base{} = Base ->
             Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
             ews_model:put_elem(Elem, Parent, TypeMap),
-            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model, Parent)
+            process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
+                    Parent, AttrAcc)
     end;
-process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
+process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+        Parent, AttrAcc) ->
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
 process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
-        TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
     %% We don't want to pass in Retry in processing of parts
-    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname) of
-        {AccWithSubTypes, SubElems, []} ->
-            Type = #type{qname=Qname, extends=Ext, elems=SubElems},
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
+        {AccWithSubTypes, SubElems, [], AttrAcc} ->
+            Type = #type{qname=Qname, extends=Ext, elems=SubElems,
+                         attrs=AttrAcc},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
-                    TypeMap, Model, Parent);
-        {_, _, [_|_]} ->
-            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent)
+                    TypeMap, Model, Parent, []);
+        {_, _, [_|_], AttrAcc} ->
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc)
     end;
-process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent) ->
+process([#attribute{} = A | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+        Parent, AttrAcc)->
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent,
+            [ A | AttrAcc]);
+process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc)
+  when not is_record(T, attribute) ->
     ?log("warning: unhandled ~p~n", [T]),
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent);
-process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent) ->
-    {TypeAcc, lists:reverse(ElemAcc), Retry}.
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
+process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent, AttrAcc) ->
+    {TypeAcc, lists:reverse(ElemAcc), Retry, lists:reverse(AttrAcc)}.
 
 type_name({Ns, N}, {_, Parent}) ->
     {Ns, Parent++"@"++N};

@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_emit).
 
 -export([model_to_file/3]).
@@ -21,13 +38,32 @@ output_typedef(#type{alias=Alias}) ->
     ["-type '#", atom_to_list(Alias), "'() :: tuple().  "
      "%% Needed due to circular type definition\n"].
 
-output_type(#type{qname=Qname, alias=Alias}, Tbl, ModelRef, Unresolved) ->
+output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved) ->
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line1, string:join(PartRows, JoinStr), "}).\n"].
+    [Line1, string:join(PartRows, JoinStr), "}).\n"];
+output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
+            Unresolved) ->
+    Line0 = "%% @doc Possible keys for '__attrs'\n",
+    AttrDocs = [ ["%% ", tick_word(A), " :: ",T,"\n"] ||
+                   #attribute{name={_,A},type=T} <- Attrs ],
+    Line1 = ["-record(", tick_word(Alias), ", {"],
+    Indent = iolist_size(Line1),
+    Attr = ["'__attrs' :: #{"],
+    AttrIndent = Indent + iolist_size(Attr),
+    AttrEnd = ["} | undefined"],
+    AttrRows = [lists:flatten([tick_word(A), " => string() | binary()"]) ||
+                   #attribute{name={_,A}} <- Attrs],
+    JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
+    AttrStr = lists:flatten([Attr, string:join(AttrRows, JoinAttrs), AttrEnd]),
+    PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
+                   P <- ews_model:get_parts(Qname, Tbl)],
+    JoinStr = ",\n"++lists:duplicate(Indent, $ ),
+    [Line0, AttrDocs, Line1, string:join([AttrStr | PartRows],
+                                         JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->

@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews).
 
 -export([start/0, stop/0]).
@@ -17,6 +34,7 @@
          decode_in/1, decode_in/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
+         add_pre_post_hook/1, add_pre_post_hook/2,
          add_post_hook/1, add_post_hook/2,
          remove_pre_hook/1, remove_pre_hook/2,
          remove_post_hook/1, remove_post_hook/2,
@@ -142,20 +160,41 @@ record_to_map(Model, R) ->
 
 %% Add a pre-call hook which is called just before making the actual
 %% SOAP call. A pre hook is a function of one argument, which will be
-%% a list [EndPoint, Operation, EncodedHeader, EncodedBody, Options] where:
+%% a list [EndPoint, Operation, SoapAction, EncodedHeader, EncodedBody,
+%%         Options] where:
 %%  Endpoint:      The service endpoint that will be used for the call
 %%  Operation:     Service operation
-%%  EncodedHeader: Header after XML encoding
-%%  EncodedBody:   Body after XML encoding
+%%  SoapAction:    SOAPAction as string or binary, usually ""
+%%  EncodedHeader: Header after XML encoding in ews format
+%%  EncodedBody:   Body after XML encoding in ews format
 %%  Options:       Map supplied in the call_service_op call
 %% It should return a list of the same kind, with potentially updated
 %% values that are to be used in the call.
+%% The value returned for Operation will be ignored on return from hooks.
 %% Hooks are called in the order they were added, each hook being passed
 %% the output of the previous hook.
 add_pre_hook(Hook) ->
     ews_svc:add_pre_hook(default, Hook).
 add_pre_hook(Model, Hook) ->
     ews_svc:add_pre_hook(Model, Hook).
+
+%% Add a pre-call hook which is called just before making the actual
+%% SOAP call, and after Header and Body has been converted to XML in an iolist.
+%% A pre hook is a function of one argument, which will be
+%% a list [EndPoint, Operation, SOAP, Options] where:
+%%  Endpoint:      The service endpoint that will be used for the call
+%%  Operation:     Service operation
+%%  SOAP:          Body after XML encoding as an IOList
+%%  HttpOptions:   Options sent to hackney call
+%% It should return a list of the same kind, with potentially updated
+%% values that are to be used in the call.
+%% The value returned for Operation will be ignored on return from hooks.
+%% Hooks are called in the order they were added, each hook being passed
+%% the output of the previous hook.
+add_pre_post_hook(Hook) ->
+    ews_svc:add_pre_post_hook(default, Hook).
+add_pre_post_hook(Model, Hook) ->
+    ews_svc:add_pre_post_hook(Model, Hook).
 
 %% Add a post-call hook which is called after making the actual
 %% SOAP call. A post hook is a function of one argument, which will be

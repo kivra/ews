@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_serialize).
 
 -export([encode/3, decode/3, record_to_map/2]).
@@ -109,21 +126,23 @@ encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
             Records = string:join(Aliases, ", "),
             error({"expected one of " ++ Records, Term})
     end;
-encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) ->
+encode_term(Term, #elem{qname=Qname, type={_,_}=TypeKey}, Tbl) when is_tuple(Term) ->
     [Name|_] = tuple_to_list(Term),
-    #type{qname=InheritedTypeKey} = InheritedType = ews_model:get(Name, Tbl),
+    #type{qname=InheritedTypeKey}= InheritedType = ews_model:get(Name, Tbl),
     SuperKey = ews_model:get_super(Name, Tbl),
     case TypeKey of
         InheritedTypeKey ->
-            {Qname, [], encode_term(Term, InheritedType, Tbl)};
+            make_xml(Qname, [], encode_term(Term, InheritedType, Tbl));
         SuperKey ->
             TypeDecl = {{?SCHEMA_INSTANCE_NS, "type"}, InheritedTypeKey},
             Super = ews_model:get(SuperKey, Tbl),
-            {Qname, [TypeDecl], encode_term(Term, Super, Tbl)}
+            make_xml(Qname, [TypeDecl], encode_term(Term, Super, Tbl))
     end;
+encode_term([], #elem{qname=_Qname, type={_,_}, meta=#meta{min=0}}, _Tbl) ->
+    [];
 encode_term(Term, #elem{qname=Qname, type=Type}, Tbl) ->
     {Qname, [], encode_term(Term, Type, Tbl)};
-encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
+encode_term(Term, #type{qname=Key, alias=A, attrs=[]}, Tbl) when is_tuple(Term) ->
     [Name|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
     Super = ews_model:get_super(Name, Tbl),
     case ews_model:get(Name, Tbl) of
@@ -137,6 +156,31 @@ encode_term(Term, #type{qname=Key, alias=A}, Tbl) when is_tuple(Term) ->
             Parts = lists:zip(Values, Elems),
             lists:flatten([ encode_term(V, E, Tbl) ||
                             {V, E} <- Parts, V /= undefined ]);
+        #type{qname=_Qname} ->
+            #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
+            error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
+        false ->
+            error({"expected #"++atom_to_list(A)++"{}", Term})
+    end;
+encode_term(Term, #type{qname=Key, alias=A, attrs=[_|_]=PossAttrs}, Tbl)
+  when is_tuple(Term) ->
+    logger:debug("PossAttrs: ~p~n", [PossAttrs]),
+    [Name, Attrs|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
+    EncAttrs = encode_attributes(Attrs, PossAttrs, Key),
+    Super = ews_model:get_super(Name, Tbl),
+    case ews_model:get(Name, Tbl) of
+        #type{qname=InheritedKey} when Super == Key ->
+            Elems = ews_model:get_parts(InheritedKey, Tbl),
+            Parts = lists:zip(Values, Elems),
+            {EncAttrs,
+             lists:flatten([ encode_term(V, E, Tbl) ||
+                               {V, E} <- Parts, V /= undefined ])};
+        #type{qname=Key} ->
+            Elems = ews_model:get_parts(Key, Tbl),
+            Parts = lists:zip(Values, Elems),
+            {EncAttrs,
+             lists:flatten([ encode_term(V, E, Tbl) ||
+                               {V, E} <- Parts, V /= undefined ])};
         #type{qname=_Qname} ->
             #type{alias=KeyAlias} = ews_model:get(Key, Tbl),
             error({"expected #"++atom_to_list(KeyAlias)++"{}", Term});
@@ -166,6 +210,33 @@ encode_term(Term, #enum{values=Values, list=IsList}, _) ->
         false ->
             [{txt, encode_single_enum(Term, Values)}]
     end.
+
+%% If the type had attributes we have to add them to the attributes
+%% of this element.
+make_xml(Name, Typedef, {Attrs, Elems}) ->
+  {Name, Typedef++Attrs, Elems};
+make_xml(Name, Typedef, Elems) ->
+  {Name, Typedef, Elems}.
+
+encode_attributes(Attrs, PossAttrs, Name) when is_map(Attrs) ->
+    do_encode_attributes(maps:to_list(Attrs), PossAttrs, Name, []);
+encode_attributes(undefined, _, _) ->
+    [].
+
+do_encode_attributes([Attr | Tail], PossAttrs, Name, Acc) ->
+    EncAttr = encode_attr(PossAttrs, Attr, Name),
+    do_encode_attributes(Tail, PossAttrs, Name, [EncAttr | Acc]);
+do_encode_attributes([], _, _, Acc) ->
+    lists:sort(Acc).
+
+encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
+    encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
+encode_attr([#attribute{name = {_, Id}} | _Tail], {Id, Value}, _Name) ->
+    {Id, Value};
+encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
+    encode_attr(Tail, {Id, Value}, Name);
+encode_attr([], {Id, _Value}, Name) ->
+    error({unexpected_attribute_for_type, Id, Name}).
 
 encode_single_base(Term, BaseType) ->
     case BaseType of
@@ -248,6 +319,24 @@ validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,type=Type}, Tbl) ->
 validate_xml(Es, Type, Tbl) when is_list(Es) ->
     [ validate_xml(E, Type, Tbl) || E <- Es ];
 %% type validation, single elems below TOMAYBEDO: separate element and type validation
+validate_xml({_, [_|_] = As, []}, #type{qname=Key, alias=Alias,
+                                        attrs=[_|_]=PossAttrs}, Tbl) ->
+    %% Empty element with possible attributes
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            Elems = case has_inherited_type(As, Tbl, Key) of
+                        false ->
+                            ews_model:get_parts(Key, Tbl);
+                        #type{qname=InheritedKey} ->
+                            ews_model:get_parts(InheritedKey, Tbl)
+                    end,
+            Pairs = match_children_elems([], Elems, [], []),
+            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            Attrs = validate_attrs(As, PossAttrs, #{}),
+            list_to_tuple([Alias, Attrs | ValidatedXml])
+    end;
 validate_xml({_, As, []}, #type{}, _Tbl) ->
     %% This is broken, an empty type that shouldn't be.
     case is_nil(As) of
@@ -256,7 +345,7 @@ validate_xml({_, As, []}, #type{}, _Tbl) ->
         false ->
             undefined
     end;
-validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
+validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=[]}, Tbl) ->
     case is_nil(As) of
         true ->
             nil;
@@ -270,6 +359,22 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias}, Tbl) ->
             Pairs = match_children_elems(Cs, Elems, [], []),
             ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
             list_to_tuple([Alias | ValidatedXml])
+    end;
+validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=PossAttrs}, Tbl) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            Elems = case has_inherited_type(As, Tbl, Key) of
+                        false ->
+                            ews_model:get_parts(Key, Tbl);
+                        #type{qname=InheritedKey} ->
+                            ews_model:get_parts(InheritedKey, Tbl)
+                    end,
+            Pairs = match_children_elems(Cs, Elems, [], []),
+            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+            Attrs = validate_attrs(As, PossAttrs, #{}),
+            list_to_tuple([Alias, Attrs | ValidatedXml])
     end;
 validate_xml({_Qname, As, []}, #base{}, _) ->
     case is_nil(As) of
@@ -339,8 +444,29 @@ match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], [], Res) ->
     match_children_elems([], Es, [], [{undefined,E}|Res]);
 match_children_elems([], [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
     match_children_elems([], Es, [], [{undefined,E},lists:reverse(Acc)|Res]);
+match_children_elems([], [#elem{qname=Name,meta=#meta{min=_N}}|_], _, _) ->
+    error({missing_non_optional_element, Name});
 match_children_elems([], [], Acc, Res) ->
     [lists:reverse(Acc) | lists:reverse(Res)].
+
+validate_attrs([{?SCHEMA_INSTANCE_NS, _} | As], PossAttrs, Acc) ->
+    validate_attrs(As, PossAttrs, Acc);
+validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
+    case [ P || #attribute{name = {_, N}} = P <- PossAttrs, N == Name ] of
+        [] ->
+            logger:notice("Unexpected attribute: ~p~n", [Name]),
+            validate_attrs(As, PossAttrs, Acc);
+        [#attribute{}] ->
+            %% TODO: validate the type
+            %% TODO: how to we handle utf8 in both Name and Value?
+            %% By compiling with debug_info the typespec in the records should
+            %% load all possible atoms.
+            NameAtom = list_to_existing_atom(Name),
+            ValueBin = list_to_binary(Value),
+            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBin})
+    end;
+validate_attrs([], _, Acc) ->
+    Acc.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
 to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);

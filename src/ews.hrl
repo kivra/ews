@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ---------------------------------------------------------------------------
 %%% wsdl/soap records
 %%% ---------------------------------------------------------------------------
@@ -21,10 +38,10 @@
 %% XSD parsing
 -record(schema, {namespace, url, types}).
 -record(element, {name, type, default, fixed, nillable=false,
-                  min_occurs=1, max_occurs=1, parts}).
+                  min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions}).
 -record(attribute, {name, type, use, default, fixed}).
--record(complex_type, {name, extends, abstract, restrictions, parts}).
+-record(complex_type, {name, extends, abstract, restrictions, parts, attrs=[]}).
 -record(reference, {name}).
 
 -record(restriction, {base_type, values}).
@@ -35,8 +52,8 @@
 -record(enumeration, {base_type, values}).
 
 %% Simplified XSD
--record(elem, {qname, type, meta}).
--record(type, {qname, alias, elems, extends, abstract}).
+-record(elem, {qname, type, meta, attrs=[]}).
+-record(type, {qname, alias, elems, extends, abstract, attrs=[]}).
 -record(base, {xsd_type, erl_type, restrictions, list=false, union=false}).
 -record(enum, {type, values, list=false, union=false}).
 -record(meta, {nillable=false, default, fixed, max, min}).

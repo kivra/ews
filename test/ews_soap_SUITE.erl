@@ -52,12 +52,13 @@ hackney_error(_Config) ->
     meck:expect(hackney, request, 5, {error, test_error}),
 
     Endpoint = endpoint,
+    OpName = "moose",
     SoapAction = soap_action,
     Header = {"Hdr", [], []},
     Body = {"Bdy", [], []},
     Opts = #{},
     {error, test_error} =
-        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
+        ews_soap:call(Endpoint, OpName, SoapAction, Header, Body, Opts).
 
 no_header_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -69,12 +70,13 @@ no_header_response(_Config) ->
     meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
+    OpName = "moose",
     SoapAction = soap_action,
     Header = [],
     Body = [{"Res", [], []}],
     Opts = #{},
     {ok, {Header, Body}} =
-        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
+        ews_soap:call(Endpoint, OpName, SoapAction, Header, Body, Opts).
 
 full_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -89,12 +91,13 @@ full_response(_Config) ->
     meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
+    OpName = "moose",
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = [{"Res", [], []}],
     Opts = #{},
     {ok, {Header, Body}} =
-        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
+        ews_soap:call(Endpoint, OpName, SoapAction, Header, Body, Opts).
 
 fault_response(_Config) ->
     Return = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\">"
@@ -109,11 +112,12 @@ fault_response(_Config) ->
     meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
+    OpName = "moose",
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = #fault{},
     Opts = #{},
-    {fault, {Header, Body}} = ews_soap:call(Endpoint, SoapAction, Header,
+    {fault, {Header, Body}} = ews_soap:call(Endpoint, OpName, SoapAction, Header,
                                              [{"", [], []}], Opts).
 
 not_an_envelope(_Config) ->
@@ -124,12 +128,13 @@ not_an_envelope(_Config) ->
     meck:expect(hackney, body, 1, {ok, Return}),
 
     Endpoint = endpoint,
+    OpName = "moose",
     SoapAction = soap_action,
     Header = [{"HdrRes", [], []}],
     Body = [{"Res", [], []}],
     Opts = #{},
     {error, not_envelope} =
-        ews_soap:call(Endpoint, SoapAction, Header, Body, Opts).
+        ews_soap:call(Endpoint, OpName, SoapAction, Header, Body, Opts).
 
 efficient_prefixes(_Config) ->
     Header = [],

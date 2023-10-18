@@ -1,3 +1,20 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  ews_svc
 %%
 %% >-----------------------------------------------------------------------< %%
@@ -24,8 +41,11 @@
          decode/4, decode/5,
          decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
+         add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
-         remove_model/1]).
+         remove_model/1,
+         run_hooks/2
+        ]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -212,15 +232,23 @@ decode(ModelRef, ServiceName, OpName, BodyParts, Opts) ->
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
+add_pre_post_hook(ModelRef, Hook) ->
+    gen_server:call(?MODULE, {add_pre_post_hook, ModelRef, Hook}).
 add_post_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_post_hook, ModelRef, Hook}).
 remove_pre_hook(ModelRef, HookRef) ->
     gen_server:call(?MODULE, {remove_pre_hook, ModelRef, HookRef}).
+remove_pre_post_hook(ModelRef, HookRef) ->
+    gen_server:call(?MODULE, {remove_pre_post_hook, ModelRef, HookRef}).
 remove_post_hook(ModelRef, HookRef) ->
     gen_server:call(?MODULE, {remove_post_hook, ModelRef, HookRef}).
 
 remove_model(ModelRef) ->
     gen_server:call(?MODULE, {remove_model, ModelRef}).
+
+run_hooks(Hooks, Init) ->
+    lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
+
 
 %% >-----------------------------------------------------------------------< %%
 
@@ -406,6 +434,13 @@ handle_call({add_pre_hook, ModelRef, Hook}, _, #state{models=Models} = State) ->
     Ref = make_ref(),
     NewModel = Model#model{pre_hooks = [{Ref, Hook} | OldHooks]},
     {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({add_pre_post_hook, ModelRef, Hook}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_post_hooks,
+    Ref = make_ref(),
+    NewModel = Model#model{pre_post_hooks = [{Ref, Hook} | OldHooks]},
+    {reply, Ref, State#state{models = Models#{ModelRef => NewModel}}};
 handle_call({add_post_hook, ModelRef, Hook}, _,
             #state{models=Models} = State) ->
     Model = maps:get(ModelRef, Models),
@@ -418,6 +453,12 @@ handle_call({remove_pre_hook, ModelRef, HookRef}, _,
     Model = maps:get(ModelRef, Models),
     OldHooks = Model#model.pre_hooks,
     NewModel = Model#model{pre_hooks = proplists:delete(HookRef, OldHooks)},
+    {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
+handle_call({remove_pre_post_hook, ModelRef, HookRef}, _,
+            #state{models=Models} = State) ->
+    Model = maps:get(ModelRef, Models),
+    OldHooks = Model#model.pre_post_hooks,
+    NewModel = Model#model{pre_post_hooks = proplists:delete(HookRef, OldHooks)},
     {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
 handle_call({remove_post_hook, ModelRef, HookRef}, _,
             #state{models=Models} = State) ->
@@ -594,6 +635,7 @@ message_info(Op, Model) ->
     Faults = [ E || #message{parts=Parts} <- FaultMsgs,
                                       #part{element=E} <- Parts ],
     PreHooks = Model#model.pre_hooks,
+    PrePostHooks = Model#model.pre_post_hooks,
     PostHooks = Model#model.post_hooks,
     [{name, OpName}, {doc, Doc},
      {in, [ find_elem(I, Model) || I <- Ins ]},
@@ -601,7 +643,8 @@ message_info(Op, Model) ->
      {out, [ find_elem(O, Model) || O <- Outs ]},
      {out_hdr, [ find_elem(O, Model) || O <- OutHdrs ]},
      {faults,  [ find_elem(F, Model) || F <- Faults ]},
-     {pre_hooks, PreHooks}, {post_hooks, PostHooks},
+     {pre_hooks, PreHooks}, {pre_post_hooks, PrePostHooks},
+     {post_hooks, PostHooks},
      {endpoint, Endpoint}, {action, Action}].
 
 empty_headers(#message{parts=InHdrParts}) -> InHdrParts;
@@ -649,17 +692,20 @@ call_service_op(ModelRef, Model, ServiceName, OpName,
             Endpoint = proplists:get_value(endpoint, Info),
             Action = proplists:get_value(action, Info),
             PreHooks = proplists:get_value(pre_hooks, Info),
+            PrePostHooks = proplists:get_value(pre_post_hooks, Info),
             PostHooks = proplists:get_value(post_hooks, Info),
-            HookArgs = [Endpoint, Action, EncodedHeader, EncodedBody, Opts],
-            Args = [_, _, _, _, NewOpts] = run_hooks(PreHooks, HookArgs),
-            case apply(ews_soap, call, Args) of
+            HookArgs = [Endpoint, OpName, Action, EncodedHeader, EncodedBody, Opts],
+            [NewEndpoint, _NewOpName, NewAction, NewHeader, NewBody, NewOpts] =
+                run_hooks(PreHooks, HookArgs),
+            case ews_soap:call(NewEndpoint, OpName, NewAction, NewHeader, NewBody,
+                               NewOpts, PrePostHooks) of
                 {error, Error} ->
                     {error, Error};
                 {ok, {ResponseHeader, ResponseBody}} ->
                     PostHookArgs = [ResponseHeader, ResponseBody, NewOpts],
-                    [NewHeader, NewBody, LastOpts] =
+                    [PostHeader, PostBody, LastOpts] =
                         run_hooks(PostHooks, PostHookArgs),
-                    decode_service_out(NewHeader, NewBody, Info, Model,
+                    decode_service_out(PostHeader, PostBody, Info, Model,
                                        LastOpts);
                 {fault, Fault} ->
                     {error, parse_fault(Fault, Info, Model)}
@@ -774,9 +820,6 @@ parse_fault(#fault{detail=Detail} = Fault, Info, Model) ->
     Faults = proplists:get_value(faults, Info),
     DecodedDetail = try_decode_fault(Faults, Detail, Model),
     Fault#fault{detail=DecodedDetail}.
-
-run_hooks(Hooks, Init) ->
-    lists:foldr(fun ({_Ref, Hook}, Arg) -> Hook(Arg) end, Init, Hooks).
 
 try_decode_fault([], Detail, _) ->
     Detail;

@@ -1,6 +1,24 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Copyright (c) 2013-2017 Campanja
+%%% Copyright (c) 2017-2020 [24]7.ai
+%%% Copyright (c) 2022-2023 Kivra
+%%%
+%%% Distribution subject to the terms of the LGPL-3.0-or-later, see
+%%% the COPYING.LESSER file in the root of the distribution
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+%%% WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+%%% MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+%%% ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+%%% WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+%%% ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+%%% OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_soap).
 
--export([ call/5
+-export([ call/6
+        , call/7
         , make_fault/3
         , make_soap/2
         , make_envelope/2
@@ -12,7 +30,10 @@
 
 %% ----------------------------------------------------------------------------
 
-call(Endpoint, SoapAction, Header, Body, Opts) ->
+call(Endpoint, OpName, SoapAction, Header, Body, Opts) ->
+    call(Endpoint, OpName, SoapAction, Header, Body, Opts, []).
+
+call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
     %% FIXME: get the timeout into hackney
     _Timeout = maps:get(timeout, Opts, DefaultTimeout),
@@ -22,7 +43,10 @@ call(Endpoint, SoapAction, Header, Body, Opts) ->
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     BodyIoList = make_soap(Header, Body),
-    case hackney:request(post, Endpoint, Hdrs, BodyIoList, HttpOpts) of
+    HookArgs = [Endpoint, OpName, BodyIoList, HttpOpts],
+    [NewEndpoint, _NewOpName, NewSoap, NewHttpOpts] =
+        ews_svc:run_hooks(PrePostHooks, HookArgs),
+    case hackney:request(post, NewEndpoint, Hdrs, NewSoap, NewHttpOpts) of
         {ok, 200, HttpHdr, RespRef} ->
             {ok, RespEnv} = hackney:body(RespRef),
             XmlTerm = ews_xml:decode(RespEnv),
