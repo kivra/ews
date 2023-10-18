@@ -43,10 +43,10 @@
 -type xml_thing() :: #xmlDocument{} | #xmlElement{} | #xmlAttribute{} | #xmlPI{} | #xmlText{} | #xmlComment{}.
 -type fingerprint() :: binary() | {sha | sha256, binary()}.
 
-%% @doc Signs the given XML element by creating a ds:Signature element within it, returning
-%%      the element with the signature added.
+%% @doc Signs the given XML element. It needs one or more Signature
+%% elements and DigestValue, SignatureValue, X509SubjectName and
+%% X509Certificate will be be filled in.
 %%
-%% Don't use "ds" as a namespace prefix in the envelope document, or things will go baaaad.
 %% This function has now been modified to do MinaMeddelanden's funky removing of
 %% all namespace prefixes before doing a digest. Also there is function
 %% that recreates bugs, which can be removed if you are not implementing
