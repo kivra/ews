@@ -133,8 +133,9 @@ not_an_envelope(_Config) ->
     Header = [{"HdrRes", [], []}],
     Body = [{"Res", [], []}],
     Opts = #{},
-    {error, not_envelope} =
-        ews_soap:call(Endpoint, OpName, SoapAction, Header, Body, Opts).
+    ?assertMatch({error, {not_envelope, _}},
+                 ews_soap:call(Endpoint, OpName, SoapAction, Header, Body,
+                               Opts)).
 
 efficient_prefixes(_Config) ->
     Header = [],
