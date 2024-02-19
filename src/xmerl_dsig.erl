@@ -264,7 +264,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
     StrippedXml = strip_it(RefUri, TransformAlgo, Signature, Element),
     CanonishXml = xmerl:export_simple([StrippedXml], xmerl_xml),
     <<"<?xml version=\"1.0\"?>", CanonXmlUtf8/binary>> =
-        unicode:characters_to_binary(CanonishXml, unicode, utf8),
+        unicode:characters_to_binary(CanonishXml, unicode, latin1),
     logger:debug("DigestInput:~n~ts~n --~n", [CanonXmlUtf8]),
     CanonSha = crypto:hash(HashFunction, CanonXmlUtf8),
 
@@ -286,7 +286,7 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
             SigInfoCanon = c14n_tags(SigInfoStripped),
             SigInfoXml = xmerl:export_simple([SigInfoCanon], xmerl_xml),
             <<"<?xml version=\"1.0\"?>", Data/binary>> =
-                unicode:characters_to_binary(SigInfoXml, unicode, utf8),
+                unicode:characters_to_binary(SigInfoXml, unicode, latin1),
             logger:debug("SigInfoCanonData:~n~p~n", [Data]),
 
             [#xmlText{value = Sig64}] =
