@@ -118,8 +118,8 @@ parse_envelope([{{?SOAPNS, "Envelope"}, _, [Body]}]) ->
         _ ->
             {ok, {[], BodyFields}}
     end;
-parse_envelope(_) ->
-    {error, not_envelope}.
+parse_envelope(NotEnvelope) ->
+    {error, {not_envelope, NotEnvelope}}.
 
 parse_fault(Fields) ->
     #fault{code=parse_fault_field("faultcode", Fields),
