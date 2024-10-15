@@ -221,19 +221,20 @@ do_find_content([Head | PTail], Parents, Elem) ->
 %% the MinaMeddelanden API.
 %% It will now verify all signatures inside the SOAP structure.
 -spec verify(Element :: #xmlElement{},
-             Fingerprints :: [#'OTPCertificate'{}] | [fingerprint()] | any) ->
-          ok | {error, bad_digest | bad_signature | cert_not_accepted}.
-verify(Element, Fingerprints) ->
+             CaCerts :: [#'OTPCertificate'{}] | any) ->
+          ok | {error, bad_digest | bad_signature} |
+          {error, {bad_cert, atom()}}.
+verify(Element, CaCerts) ->
     case xmerl_xpath:string(
            "//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/"
            "09/xmldsig#\"=namespace-uri()]", Element) of
         [] ->
             {error, no_signature};
         Signatures when is_list(Signatures) ->
-            verify_signatures(Signatures, Element, Fingerprints)
+            verify_signatures(Signatures, Element, CaCerts)
     end.
 
-verify_signatures([Signature | Tail], Element, Fingerprints) ->
+verify_signatures([Signature | Tail], Element, CaCerts) ->
     %% DsNs = [{"ds", 'http://www.w3.org/2000/09/xmldsig#'},
     %%         {"ec", 'http://www.w3.org/2001/10/xml-exc-c14n#'}],
     [#xmlAttribute{value = SignatureMethodAlgorithm}] =
@@ -300,8 +301,6 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                   "//*[\"X509Certificate\"=local-name() and \"http://www.w3.org/2000/"
                   "09/xmldsig#\"=namespace-uri()]/text()", Signature),
             CertBin = base64:decode(Cert64),
-            CertHash = crypto:hash(sha, CertBin),
-            CertHash2 = crypto:hash(sha256, CertBin),
 
             Cert = public_key:pkix_decode_cert(CertBin, plain),
             #'Certificate'{
@@ -319,32 +318,19 @@ verify_signatures([Signature | Tail], Element, Fingerprints) ->
                                                not_encrypted}),
             case public_key:verify(Data, HashFunction, Sig, Key) of
                 true ->
-                    case Fingerprints of
+                    case CaCerts of
                         any ->
-                            verify_signatures(Tail, Element, Fingerprints);
+                            verify_signatures(Tail, Element, CaCerts);
                         [#'OTPCertificate'{}|_] ->
                             logger:debug("Cert: ~p~n",
                                       [public_key:pkix_decode_cert(CertBin, otp)]),
-                            case lists:any(
-                                   fun(CA) ->
-                                           public_key:pkix_is_issuer(
-                                             CertBin, CA)
-                                   end, Fingerprints) of
-                                true ->
-                                    verify_signatures(Tail, Element, Fingerprints);
-                                false ->
-                                    {error, cert_not_accepted}
-                            end;
-                        _ ->
-                            case lists:any(
-                                   fun(X) ->
-                                           lists:member(X, Fingerprints)
-                                   end, [CertHash, {sha,CertHash},
-                                         {sha256,CertHash2}]) of
-                                true ->
-                                    verify_signatures(Tail, Element, Fingerprints);
-                                false ->
-                                    {error, cert_not_accepted}
+                            case public_key:pkix_path_validation(CertBin,
+                                                                 CaCerts,
+                                                                 []) of
+                                {ok, _} ->
+                                    verify_signatures(Tail, Element, CaCerts);
+                                {error, Reason} ->
+                                    {error, Reason}
                             end
                     end;
                 false ->
