@@ -41,7 +41,6 @@
 -include_lib("public_key/include/public_key.hrl").
 
 -type xml_thing() :: #xmlDocument{} | #xmlElement{} | #xmlAttribute{} | #xmlPI{} | #xmlText{} | #xmlComment{}.
--type fingerprint() :: binary() | {sha | sha256, binary()}.
 
 %% @doc Signs the given XML element. It needs one or more Signature
 %% elements and DigestValue, SignatureValue, X509SubjectName and
@@ -320,6 +319,7 @@ verify_signatures([Signature | Tail], Element, CaCerts) ->
                 true ->
                     case CaCerts of
                         any ->
+                            logger:warning("No Verification of Cert!~n", []),
                             verify_signatures(Tail, Element, CaCerts);
                         [#'OTPCertificate'{}|_] ->
                             logger:debug("Cert: ~p~n",
