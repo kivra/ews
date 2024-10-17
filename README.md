@@ -10,6 +10,11 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 3.0.1 and 3.1.0
+
+* No more support for just verifying fingerprints. It has to be certificates.
+* Fix of bug allowing expired certs to be verified.
+
 ## Changes between 2.0.0 and 3.0.0
 
 Two breaking changes have been introduced in 3.0.0.
