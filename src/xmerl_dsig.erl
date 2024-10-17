@@ -204,11 +204,12 @@ do_find_content([Head | PTail], Parents, Elem) ->
 
 %% @doc Verifies an XML digital signature on the given element.
 %%
-%% Fingerprints is a list of valid cert fingerprints that can be
-%% accepted.
+%% Element is typically the output of
 %%
-%% If Fingerprints is a list of #'OTPCertificate'{} it will check that
-%% the cert is issued by one of the IssuerCerts in this list.
+%%   {Element, []} = xmerl_scan:string(binary_to_list(SOAP))
+%%
+%% CaCerts is acertificate chain, either as a list of
+%% #'OTPCertificate'{} or a list of binaries of DER encoded certs.
 %%
 %% Will throw badmatch errors if you give it XML that is not signed
 %% according to the xml-dsig spec. If you're using something other
