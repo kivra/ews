@@ -222,7 +222,7 @@ do_find_content([Head | PTail], Parents, Elem) ->
 -spec verify(Element :: #xmlElement{},
              CaCerts :: [#'OTPCertificate'{}] | [binary()] | any) ->
           ok | {error, bad_digest | bad_signature} |
-          {error, {bad_cert, atom()}}.
+          {error, {bad_cert, public_key:bad_cert_reason()}}.
 verify(Element, CaCerts) ->
     case xmerl_xpath:string(
            "//*[\"Signature\"=local-name() and \"http://www.w3.org/2000/"
