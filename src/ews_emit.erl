@@ -25,7 +25,11 @@
 
 model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),
-    io:format("emitting ~p records~n", [length(Unresolved) + length(Resolved)]),
+    logger:notice("emitting ~p records unresolved: ~p resolved: ~p~n",
+                  [ length(Unresolved) + length(Resolved)
+                  , length(Unresolved)
+                  , length(Resolved)
+                  ]),
     UnresolvedTypeDefs = [output_typedef(T) || T <- Unresolved],
     ResolvedTypes = [output_type(T, Tbl, ModelRef, Unresolved) ||
                         T <- Resolved ++ Unresolved],
@@ -48,15 +52,16 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
     Line0 = "%% @doc Possible keys for '__attrs'\n",
-    AttrDocs = [ ["%% ", tick_word(A), " :: ",T,"\n"] ||
+    AttrDocs = [ ["%% ", tick_word(A), " :: ", no_ns(T), "\n"] ||
                    #attribute{name={_,A},type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     Attr = ["'__attrs' :: #{"],
     AttrIndent = Indent + iolist_size(Attr),
     AttrEnd = ["} | undefined"],
-    AttrRows = [lists:flatten([tick_word(A), " => string() | binary()"]) ||
-                   #attribute{name={_,A}} <- Attrs],
+    AttrRows = [lists:flatten([tick_word(A), output_map_default(U),
+                               erl_type(T)]) ||
+                   #attribute{name={_,A},use=U,type=T} <- Attrs],
     JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
     AttrStr = lists:flatten([Attr, string:join(AttrRows, JoinAttrs), AttrEnd]),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
@@ -107,6 +112,13 @@ output_erl_type(float) ->
     "float()";
 output_erl_type(boolean) ->
     "boolean()".
+
+output_map_default(undefined) ->
+    " => ";
+output_map_default("optional") ->
+    " => ";
+output_map_default("required") ->
+    " := ".
 
 add_list(Str, true) ->
     ["[", Str, "]"];
@@ -217,3 +229,13 @@ emit_enum(Values, Indent) ->
     TickedValues = [tick_word(V) || V <- Values],
     JoinStr = [$\n,  lists:duplicate(Indent-2, $ ), $|, $ ],
     string:join(TickedValues, lists:flatten(JoinStr)).
+
+no_ns({_NS, N}) -> N;
+no_ns(N) -> N.
+
+erl_type({_,_} = T) ->
+    #base{erl_type = ET} = ews_xsd:to_base(T),
+    output_erl_type(ET);
+erl_type(T) ->
+    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
+    output_erl_type(ET).
