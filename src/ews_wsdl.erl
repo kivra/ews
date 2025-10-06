@@ -35,11 +35,13 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
--define(HTTP_OPTS, [ {connect_options,
-                      [ {connect_timeout, timer:seconds(400)}
-                      , {recv_timeout, timer:seconds(400)}
-                      ]}
-                   , with_body
+%% FIXME: connect_options aren't working the same way as they used to.
+%%        update so timeouts are longer again.
+%% -define(HTTP_OPTS, [ {connect_options,
+%%                       [ {connect_timeout, timer:seconds(400)}
+%%                       , {recv_timeout, timer:seconds(400)}
+%%                       ]}
+-define(HTTP_OPTS, [ with_body
                    ]).
 
 %% ----------------------------------------------------------------------------
@@ -252,7 +254,7 @@ parse_types(WsdlDoc, Model) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
     {Res, _} =
-        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model}, Schemas),
+        ews_xsd:parse_schema(Schemas, {undefined, Model}),
     Res.
 
 parse_types(WsdlDoc, Model, BaseDir) ->
