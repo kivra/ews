@@ -505,7 +505,10 @@ compile_wsdl(Wsdl) ->
           bindings=Bindings} = Wsdl,
     [ compile_ops(S, Messages, PortTypes, Bindings) || S <- Services ].
 
-compile_ops(#service{name=Name, ports=[Port]}, Messages, PortTypes, Bindings) ->
+%% FIXME: handle more than one port for different SOAP versions
+%% example: one port for SOAP and one for SOAP 1.2.
+compile_ops(#service{name=Name, ports=[Port|_OtherPorts]}, Messages,
+            PortTypes, Bindings) ->
     #port{endpoint=Endpoint, binding=Binding} = Port,
     case lists:keyfind(Binding, #binding.name, Bindings) of
         #binding{port_type=PortType,
