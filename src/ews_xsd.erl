@@ -625,11 +625,19 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             {AccWithSubTypes, SubElems, Retry2, _} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
                         TypeMap, Model, Parent, AttrAcc),
-            Type = #type{qname=TypeName, extends=Ext,
-                         abstract=Abstract, elems=SubElems},
-            ews_model:put(Type, Model, TypeMap),
-            process(Rest, Retry2, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
-                    TypeMap, Model, Parent, AttrAcc);
+            case [ Ref || #element{type=#reference{}} = Ref <- SubElems] of
+                [] ->
+                    Type = #type{qname=TypeName, extends=Ext,
+                                 abstract=Abstract, elems=SubElems},
+                    ews_model:put(Type, Model, TypeMap),
+                    process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
+                            [Elem | ElemAcc],
+                            TypeMap, Model, Parent, AttrAcc);
+                [_ | _] ->
+                    process(Rest, [E | Retry2], Ts, AccWithSubTypes,
+                            [Elem | ElemAcc],
+                            TypeMap, Model, Parent, AttrAcc)
+            end;
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type),
@@ -649,7 +657,7 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+            process(Rest, [E | Retry], Ts, TypeAcc, [E | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
             %% Override with meta from element with reference
