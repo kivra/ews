@@ -231,8 +231,9 @@ do_encode_attributes([], _, _, Acc) ->
 
 encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
     encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
-encode_attr([#attribute{name = {_, Id}} | _Tail], {Id, Value}, _Name) ->
-    {Id, Value};
+encode_attr([#attribute{name = {_, Id}, type = Type} | _Tail], {Id, Value}, _Name) ->
+    #base{erl_type = BaseType} = ews_xsd:to_base(Type),
+    {Id, encode_single_base(Value, BaseType)};
 encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
     encode_attr(Tail, {Id, Value}, Name);
 encode_attr([], {Id, _Value}, Name) ->
