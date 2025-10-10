@@ -198,17 +198,44 @@ to_txt(TxtLst) ->
     list_to_binary(lists:reverse(TxtLst)).
 
 parse_tag(Element) ->
-    [Tag | Attrs] = string:tokens(Element, "<> "),
+    [Tag | Attrs] = split_on_space(Element),
     Fun = fun(A, Acc) ->
               case lists:member($=, A) of
                   true ->
                        [split_attribute(A)|Acc];
-                   false ->
+                  false ->
                        Acc
               end
           end,
     NewAttrs = lists:foldl(Fun, [], Attrs),
     {Tag, lists:reverse(NewAttrs), []}.
+
+split_on_space(S) ->
+    outside_quote(S, [], []).
+
+outside_quote([$< | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([$/,$> | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([$> | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([C | T], [_|_] = Acc, Attrs) when
+      C == $ ; C == $\t; C == $\r; C == $\n ->
+    outside_quote(T, [], [lists:reverse(Acc) | Attrs]);
+outside_quote([C | T], [], Attrs)when
+      C == $ ; C == $\t; C == $\r; C == $\n ->
+    outside_quote(T, [], Attrs);
+outside_quote([$" = C | T], Acc, Attrs) ->
+    inside_quote(T, [C | Acc], Attrs);
+outside_quote([C | T], Acc, Attrs) ->
+    outside_quote(T, [C | Acc], Attrs);
+outside_quote([], Acc, Attrs) ->
+    lists:reverse([lists:reverse(Acc) | Attrs]).
+
+inside_quote([$" = C | T], Acc, Attrs) ->
+    outside_quote(T, [C | Acc], Attrs);
+inside_quote([C | T], Acc, Attrs) ->
+    inside_quote(T, [C | Acc], Attrs).
 
 split_attribute(Attr) ->
     [Key | Vals] = string:tokens(Attr, "="),
