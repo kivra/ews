@@ -261,8 +261,7 @@ parse_types(WsdlDoc, Model, BaseDir) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
     {Res, _} =
-        lists:foldl(fun ews_xsd:parse_schema/2, {undefined, Model, BaseDir},
-                    Schemas),
+        ews_xsd:parse_schema(Schemas, {undefined, Model, BaseDir}),
     Res.
 
 %% >-----------------------------------------------------------------------< %%

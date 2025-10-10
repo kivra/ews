@@ -66,8 +66,8 @@ parse_schema(Schemas0, {Acc, Model}) when is_atom(Model) ->
                     {_, Url, #schema{types=Types} = S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     {ews_model:append_model(Acc, NewTypes, Model), Model};
-parse_schema(Schema, {Acc, Model, BaseDir}) when is_atom(Model) ->
-    Schemas = get_all_schemas(Schema, BaseDir),
+parse_schema(Schemas0, {Acc, Model, BaseDir}) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schemas0, BaseDir),
     %%logger:notice("~p~n", [Schemas]),
     PrSchemas = [ S#schema{url=Url,
                            types=parse_types(Types)} ||
@@ -87,12 +87,14 @@ get_all_schemas([TopSchema | T]) ->
 get_all_schemas([]) ->
     [].
 
-get_all_schemas(TopSchema, BaseDir) ->
+get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=TopSchema}, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
-    lists:ukeysort(1, AllSchemas).
+    lists:ukeysort(1, AllSchemas ++ get_all_schemass(T, BaseDir));
+get_all_schemas([], _)->
+    [].
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
