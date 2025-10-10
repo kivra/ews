@@ -398,3 +398,21 @@ parse_qname(Qname, RawNss) ->
                     Name
             end
     end.
+
+%% ----------------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+parse_attribute_with_space_test() ->
+    TestTag =
+        binary_to_list(
+          <<"<res text=\"Tillåtet värde för a.\"\n co=\"0\"\tec=\"54\" />"/utf8>>),
+    ?assertMatch({"res", [ {"text",
+                            "TillÃ¥tet vÃ¤rde fÃ¶r a."}
+                         , {"co", "0"}
+                         , {"ec", "54"}
+                         ], []}, parse_tag(TestTag)).
+
+-endif.
