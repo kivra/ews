@@ -85,16 +85,20 @@ get_all_schemas([TopSchema | T]) ->
     AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas ++ get_all_schemas(T));
 get_all_schemas([]) ->
-    [].
+    [];
+get_all_schemas(Schema) ->
+    get_all_schemas([Schema]).
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=TopSchema}, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
-    lists:ukeysort(1, AllSchemas ++ get_all_schemass(T, BaseDir));
+    lists:ukeysort(1, AllSchemas ++ get_all_schemas(T, BaseDir));
 get_all_schemas([], _)->
-    [].
+    [];
+get_all_schemas(Schema, BaseDir) ->
+    get_all_schemas([Schema], BaseDir).
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
@@ -160,13 +164,12 @@ split_schemas(#xmlElement{} = Schemas) ->
 
 do_split_schemas([#xmlElement{
                      expanded_name =
-                         {'http://www.w3.org/2001/XMLSchema',schema},
-                     content = Content}
+                         {'http://www.w3.org/2001/XMLSchema',schema}}
                   = Schema | Tail
                  ], Acc) ->
     Ns = wh:get_attribute(Schema, targetNamespace),
     do_split_schemas(Tail, [#schema{ namespace = Ns
-                                   , types = Content
+                                   , types = Schema
                                    } | Acc]);
 do_split_schemas([#xmlElement{content = Content} | Tail], Acc0) ->
     Acc = do_split_schemas(Content, Acc0),
