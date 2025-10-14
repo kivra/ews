@@ -38,7 +38,7 @@
          serialize/5,
          encode_out/6,
          encode_faults/6,
-         decode/4, decode/5,
+         decode/5, decode/6,
          decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_pre_post_hook/2, remove_pre_post_hook/2,
@@ -213,22 +213,22 @@ decode_in(ModelRef, SOAP) ->
             {error, ambiguous_op}
     end.
 
-decode(ServiceName, OpName, BodyParts, Opts)
+decode(ServiceName, OpName, HeaderParts, BodyParts, Opts)
   when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
         [{ModelRef, Model}] ->
             decode_service_op(ModelRef, Model, ServiceName, OpName,
-                              BodyParts, Opts);
+                              HeaderParts, BodyParts, Opts);
         [] ->
             {error, no_service};
         [_ | _] ->
             {error, ambiguous_service}
     end.
 
-decode(ModelRef, ServiceName, OpName, BodyParts, Opts) ->
+decode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     decode_service_op(ModelRef, Model, ServiceName, OpName,
-                      BodyParts, Opts).
+                      HeaderParts, BodyParts, Opts).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
@@ -671,6 +671,22 @@ find_service_op({[], [{Qname, _, _}]}, Svcs) ->
                          parts =
                              [#part{element = Mname
                                    }]}}} = Op <- Ops, Mname == Qname]
+        || {Svc, Ops} <- Svcs]);
+find_service_op({[{HQname, _, _}], [{Qname, _, _}]}, Svcs) ->
+    lists:flatten(
+      [ [ {Svc, OpName, Op} ||
+            #op{ name = OpName
+               , input =
+                     { #message{
+                          parts =
+                              [#part{element = HMname
+                                    }]}
+                     , #message{
+                          parts =
+                              [#part{element = Mname
+                                    }]}}} = Op <- Ops
+               , Mname == Qname
+               , HMname == HQname]
         || {Svc, Ops} <- Svcs]).
 
 %% >-----------------------------------------------------------------------< %%
@@ -777,12 +793,12 @@ try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
 try_encode_fault(_, [], _) ->
     [].
 
-decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
+decode_service_op(ModelRef, Model, ServiceName, OpName, Headers, Body, Opts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            decode_service_out(undefined, Body, Info, Model, Opts)
+            decode_service_out(Headers, Body, Info, Model, Opts)
     end.
 
 decode_service_out(Headers, Body, Info, Model, Opts) ->
@@ -802,7 +818,7 @@ decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->
     undefined;
-decode_headers(Headers, OutHdrs, Model, #{include_headers := true}) ->
+decode_headers(Headers, OutHdrs, Model, #{}) ->
     case Headers of
         [{http_response_headers, _} = HttpHdr | SoapHeaders] ->
             [HttpHdr | ews_serialize:decode(SoapHeaders, OutHdrs, Model)];
@@ -810,10 +826,10 @@ decode_headers(Headers, OutHdrs, Model, #{include_headers := true}) ->
             ews_serialize:decode(SoapHeaders, OutHdrs, Model)
     end.
 
-make_return(Headers, Body, #{include_headers := true}) ->
-    {ok, Headers, Body};
 make_return(_Headers, Body, #{include_headers := false}) ->
-    {ok, Body}.
+    {ok, Body};
+make_return(Headers, Body, #{}) ->
+    {ok, Headers, Body}.
 
 parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
     parse_fault(Fault, Info, Model);
