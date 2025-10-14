@@ -457,17 +457,21 @@ validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
         [] ->
             logger:notice("Unexpected attribute: ~p~n", [Name]),
             validate_attrs(As, PossAttrs, Acc);
-        [#attribute{}] ->
-            %% TODO: validate the type
+        [#attribute{type = Type}] ->
             %% TODO: how to we handle utf8 in both Name and Value?
             %% By compiling with debug_info the typespec in the records should
             %% load all possible atoms.
+            QType = qname(Type),
+            #base{erl_type=ErlType} = ews_xsd:to_base(QType),
             NameAtom = list_to_existing_atom(Name),
-            ValueBin = list_to_binary(Value),
-            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBin})
+            ValueBase = to_base(list_to_binary(Value), ErlType),
+            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBase})
     end;
 validate_attrs([], _, Acc) ->
     Acc.
+
+qname({_,_} = Qname) -> Qname;
+qname(Name) -> {"no_ns", Name}.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
 to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
