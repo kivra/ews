@@ -18,6 +18,7 @@
         , colliding_types/1
         , serialize_deserialize/1
         , dont_emit_simplecontent/1
+        , many_schemas_n_refs/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -34,12 +35,16 @@ groups() ->
        [ colliding_types
        , serialize_deserialize
        ]}
+    , {teleadr,
+       [ many_schemas_n_refs
+       ]}
     ].
 
 all() ->
     [ {group, google_v201306_campaignService}
     , {group, mm_service}
     , {group, mm_notification}
+    , {group, teleadr}
     ].
 
 init_per_group(google_v201306_campaignService, Config) ->
@@ -69,6 +74,9 @@ init_per_group(mm_notification, Config) ->
     Config;
 init_per_group(mm_service, Config) ->
     application:ensure_all_started(ews),
+    Config;
+init_per_group(teleadr, Config) ->
+    application:ensure_all_started(ews),
     Config.
 
 end_per_group(google_v201306_campaignService, _Config) ->
@@ -76,7 +84,9 @@ end_per_group(google_v201306_campaignService, _Config) ->
 end_per_group(mm_notification, _Config) ->
     ews:remove_model(mm_notification);
 end_per_group(mm_service, _Config) ->
-    ews:remove_model(ek_mm_test).
+    ews:remove_model(ek_mm_test);
+end_per_group(teleadr, _Config) ->
+    ews:remove_model(tiny).
 
 google_v201306_ensure_record(Config) ->
     Wsdl = proplists:get_value(google_v201306_campaignService, Config),
@@ -111,7 +121,8 @@ colliding_types(_Config) ->
     meck:new(hackney),
     meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
 
-    {ok, _} = ews:add_wsdl_to_model(mm_notification, test_wsdl_file("mm_notification.wsdl")),
+    {ok, _} = ews:add_wsdl_to_model(mm_notification,
+                                    test_wsdl_file("mm_notification.wsdl")),
 
     #model{type_map=Tbl} = ews_svc:get_model(mm_notification),
 
@@ -145,7 +156,8 @@ serialize_deserialize(_Config) ->
     meck:new(hackney),
     meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
 
-    {ok, _} = ews:add_wsdl_to_model(mm_notification, test_wsdl_file("mm_notification.wsdl")),
+    {ok, _} = ews:add_wsdl_to_model(mm_notification,
+                                    test_wsdl_file("mm_notification.wsdl")),
 
     %% "client" serializes request
     EmailMessage =
@@ -183,10 +195,80 @@ serialize_deserialize(_Config) ->
     %% "client" deserializes response
     XmlTerm = ews_xml:decode(SmsSOAP),
     {ok, {[], Resp}} = ews_soap:parse_envelope(XmlTerm),
-    {ok, [OpOut]} = ews:decode_service_op_result("notification", "pokeball", [Resp]),
+    {ok, [OpOut]} = ews:decode_service_op_result("notification", "pokeball",
+                                                 [Resp]),
 
     ?assertMatch(SmsMessage, OpOut),
     ok.
+
+many_schemas_n_refs(_Config) ->
+    {ok, _} = ews:add_wsdl_to_model(tiny,
+                                    test_wsdl_file("tiny.wsdl")),
+    TmpFile = tempfile(),
+    ok = ews:emit_complete_model_types(tiny, TmpFile),
+    Find = {find,
+            {find_love_class,
+             #{'UserId' => <<"TEST">>,
+               'Password' => <<"TEST">>,
+               'AccountID' => <<>>,
+               'TargetType' => 1},
+             {query_params_class,
+              #{'Gender' => <<"Foden">>,
+                'Internet' => 1},
+              undefined,
+              <<"197001011234">>},
+             {query_columns_class,
+              #{'Vkiid' => 1,
+                'Vkid' => 1}}}},
+    ct:pal("Find: ~p", [Find]),
+    Header = {api_soap_header, <<"apa">>, undefined},
+    FindSOAP = iolist_to_binary(
+                 ews:serialize_service_op( tiny
+                                         , "NNAPIWebService"
+                                         , "Find"
+                                         , [Header]
+                                         , [Find]
+                                         )),
+    {ok, {Svc, OpName, OpIn}} = ews:decode_in(tiny, FindSOAP),
+    ?assertMatch("NNAPIWebService", Svc),
+    ?assertMatch("Find", OpName),
+    ?assertMatch(Find, OpIn),
+    Response = {find_response,
+                {api_result,
+                 #{error_text => <<>>,
+                   count_private => 1,
+                   count_company => 0,
+                   rowcount_private => 1,
+                   rowcount_company => 0,
+                   rowcount => 1        ,
+                   response_time => 17       ,
+                   error_code => 0},
+                 [{record_list,
+                   #{start_pos => 0,
+                     num_records => 1,
+                     target_type => 1},
+                   []}]}},
+    ResSOAP = iolist_to_binary(
+                ews:encode_service_op_result( tiny
+                                            , "NNAPIWebService"
+                                            , "Find"
+                                            , [Header]
+                                            , [Response]
+                                            )),
+    XmlTerm = ews_xml:decode(ResSOAP),
+    {ok, {HResp, Resp}} = ews_soap:parse_envelope(XmlTerm),
+    {ok, [_HOut], [OpOut]} = ews:decode_service_op_result( "NNAPIWebService"
+                                                , "Find"
+                                                , [HResp]
+                                                , [Resp]),
+    ?assertMatch(Response, OpOut),
+    file:delete(TmpFile),
+    ok.
+
+tempfile() ->
+    filename:join("/tmp",
+                  io_lib:format("~p.hrl",
+                                [erlang:phash2(make_ref())])).
 
 test_wsdl_file(Basename) ->
     Dir = filename:join(code:priv_dir(ews), "../test"),
