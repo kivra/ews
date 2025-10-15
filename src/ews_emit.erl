@@ -58,7 +58,7 @@ output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
     Indent = iolist_size(Line1),
     Attr = ["'__attrs' :: #{"],
     AttrIndent = Indent + iolist_size(Attr),
-    AttrEnd = ["} | undefined"],
+    AttrEnd = output_attr_undefined(Attrs),
     AttrRows = [lists:flatten([tick_word(A), output_map_default(U),
                                erl_type(T)]) ||
                    #attribute{name={_,A},use=U,type=T} <- Attrs],
@@ -119,6 +119,18 @@ output_map_default("optional") ->
     " => ";
 output_map_default("required") ->
     " := ".
+
+output_attr_undefined(Attrs) ->
+    %% if any attribute is required, the map needs to exist
+    case lists:any(fun any_required/1, Attrs) of
+        true ->
+            ["}"];
+        false ->
+            ["} | undefined"]
+    end.
+
+any_required(#attribute{use="required"}) -> true;
+any_required(#attribute{}) -> false.
 
 add_list(Str, true) ->
     ["[", Str, "]"];
