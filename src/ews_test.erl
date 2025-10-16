@@ -36,11 +36,11 @@ test_ops([], _, _, _, _) ->
 test_in(InHdr, In, Model, Service, Op, Tbl) ->
     InHdrVals = def_vals(InHdr, Tbl),
     InVals = def_vals(In, Tbl),
-    ct:pal("InHdrVals: ~tp~n", [InHdrVals]),
-    ct:pal("InVals: ~tp~n", [InVals]),
+    logger:notice("InHdrVals: ~tp~n", [InHdrVals]),
+    logger:notice("InVals: ~tp~n", [InVals]),
     InSOAP = iolist_to_binary(ews:serialize_service_op(Model, Service, Op,
                                                        InHdrVals, InVals)),
-    ct:pal("InSOAP: ~tp~n", [InSOAP]),
+    logger:notice("InSOAP: ~tp~n", [InSOAP]),
     {ok, {Svc, OpName, InHdrs, InRes}} = ews:decode_in(Model, InSOAP),
     ?assertMatch(Service, Svc),
     ?assertMatch(Op, OpName),
@@ -51,8 +51,8 @@ test_in(InHdr, In, Model, Service, Op, Tbl) ->
 test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
     OutHdrVals = def_vals(OutHdr, Tbl),
     OutVals = def_vals(Out, Tbl),
-    ct:pal("HdrVals: ~tp~n", [OutHdrVals]),
-    ct:pal("InVals: ~tp~n", [OutVals]),
+    logger:notice("HdrVals: ~tp~n", [OutHdrVals]),
+    logger:notice("OutVals: ~tp~n", [OutVals]),
     OutSOAP = iolist_to_binary(
                 ews:encode_service_op_result(Model, Service, Op,
                                              OutHdrVals, OutVals)),
@@ -69,7 +69,7 @@ test_fault([], _, _, _, _, _, _) -> ok;
 test_fault(Fault, Info, Model, Service, Op, Tbl, TheModel) ->
     logger:notice("Fault: ~tp~n", [Fault]),
     FaultVals = def_vals(Fault, Tbl),
-    ct:pal("FaultVals: ~tp~n", [FaultVals]),
+    logger:notice("FaultVals: ~tp~n", [FaultVals]),
     FaultSOAP = ews:encode_service_op_faults(Model, Service, Op,
                                              <<"9000">>, <<"boo">>, FaultVals),
     XmlTerm = ews_xml:decode(FaultSOAP),
