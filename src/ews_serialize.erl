@@ -231,8 +231,9 @@ do_encode_attributes([], _, _, Acc) ->
 
 encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
     encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
-encode_attr([#attribute{name = {_, Id}, type = Type} | _Tail], {Id, Value}, _Name) ->
-    #base{erl_type = BaseType} = ews_xsd:to_base(Type),
+encode_attr([#attribute{name = {_, Id}, type = Type} | _Tail],
+            {Id, Value}, _Name) ->
+    BaseType = erl_type(Type),
     {Id, encode_single_base(Value, BaseType)};
 encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
     encode_attr(Tail, {Id, Value}, Name);
@@ -545,3 +546,10 @@ field_to_map(V, _M) ->
 
 field_names(Parts) ->
     [ews_alias:create(QN) || #elem{qname = QN} <- Parts].
+
+erl_type({_,_} = T) ->
+    #base{erl_type = ET} = ews_xsd:to_base(T),
+    ET;
+erl_type(T) ->
+    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
+    ET.

@@ -114,6 +114,7 @@ dont_emit_simplecontent(_Config) ->
                  ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
                                 "SignatureValueType"}
                               , Tbl)),
+    ok = ews_test:test_everything(ek_mm_test),
     ok.
 
 colliding_types(_Config) ->
@@ -161,35 +162,35 @@ serialize_deserialize(_Config) ->
 
     %% "client" serializes request
     EmailMessage =
-        {email_message,
-         {header_1,
-          <<"moose@sausage.com">>, <<"Hej">>},
-         <<"apa">>},
+        [{email_message,
+          {header_1,
+           <<"moose@sausage.com">>, <<"Hej">>},
+          <<"apa">>}],
     EmailSOAP = ews:serialize_service_op( mm_notification
                                         , "notification"
                                         , "pokeball"
                                         , []
-                                        , [EmailMessage]
+                                        , EmailMessage
                                         ),
 
     %% "server" deserializes request
-    {ok, {Svc, OpName, OpIn}} = ews:decode_in(mm_notification, EmailSOAP),
+    {ok, {Svc, OpName, [], OpIn}} = ews:decode_in(mm_notification, EmailSOAP),
     ?assertMatch("notification", Svc),
     ?assertMatch("pokeball", OpName),
     ?assertMatch(EmailMessage, OpIn),
 
     %% "server" serializes response
     SmsMessage =
-        {sms_message,
-         {header,
-          <<"0015551212">>},
-          <<"bepa">>},
+        [{sms_message,
+          {header,
+           <<"0015551212">>},
+          <<"bepa">>}],
     SmsSOAP = iolist_to_binary(
                 ews:encode_service_op_result( mm_notification
                                             , "notification"
                                             , "pokeball"
                                             , []
-                                            , [SmsMessage]
+                                            , SmsMessage
                                             )),
 
     %% "client" deserializes response
@@ -206,62 +207,67 @@ many_schemas_n_refs(_Config) ->
                                     test_wsdl_file("tiny.wsdl")),
     TmpFile = tempfile(),
     ok = ews:emit_complete_model_types(tiny, TmpFile),
-    Find = {find,
-            {find_love_class,
-             #{'UserId' => <<"TEST">>,
-               'Password' => <<"TEST">>,
-               'AccountID' => <<>>,
-               'TargetType' => 1},
-             {query_params_class,
-              #{'Gender' => <<"Foden">>,
-                'Internet' => 1},
-              undefined,
-              <<"197001011234">>},
-             {query_columns_class,
-              #{'Vkiid' => 1,
-                'Vkid' => 1}}}},
+    Find = [{find,
+             {find_love_class,
+              #{'UserId' => <<"TEST">>,
+                'Password' => <<"TEST">>,
+                'AccountID' => <<>>,
+                'TargetType' => 1},
+              {query_params_class,
+               #{'Gender' => <<"Foden">>,
+                 'Internet' => 1},
+               undefined,
+               <<"197001011234">>},
+              {query_columns_class,
+               #{'Vkiid' => 1,
+                 'Vkid' => 1}}}}],
     ct:pal("Find: ~p", [Find]),
-    Header = {api_soap_header, <<"apa">>, undefined},
+    Header = [{api_soap_header, <<"apa">>, undefined}],
     FindSOAP = iolist_to_binary(
                  ews:serialize_service_op( tiny
                                          , "NNAPIWebService"
                                          , "Find"
-                                         , [Header]
-                                         , [Find]
+                                         , Header
+                                         , Find
                                          )),
-    {ok, {Svc, OpName, OpIn}} = ews:decode_in(tiny, FindSOAP),
+    {ok, {Svc, OpName, OpHdr, OpIn}} = ews:decode_in(tiny, FindSOAP),
     ?assertMatch("NNAPIWebService", Svc),
     ?assertMatch("Find", OpName),
+    ?assertMatch(Header, OpHdr),
     ?assertMatch(Find, OpIn),
-    Response = {find_response,
-                {api_result,
-                 #{error_text => <<>>,
-                   count_private => 1,
-                   count_company => 0,
-                   rowcount_private => 1,
-                   rowcount_company => 0,
-                   rowcount => 1        ,
-                   response_time => 17       ,
-                   error_code => 0},
-                 [{record_list,
-                   #{start_pos => 0,
-                     num_records => 1,
-                     target_type => 1},
-                   []}]}},
+    Response = [{find_response,
+                 {api_result,
+                  #{error_text => <<>>,
+                    count_private => 1,
+                    count_company => 0,
+                    rowcount_private => 1,
+                    rowcount_company => 0,
+                    rowcount => 1        ,
+                    response_time => 17       ,
+                    error_code => 0},
+                  [{record_list,
+                    #{start_pos => 0,
+                      num_records => 1,
+                      target_type => 1},
+                    []}]}}],
     ResSOAP = iolist_to_binary(
                 ews:encode_service_op_result( tiny
                                             , "NNAPIWebService"
                                             , "Find"
-                                            , [Header]
-                                            , [Response]
+                                            , Header
+                                            , Response
                                             )),
     XmlTerm = ews_xml:decode(ResSOAP),
     {ok, {HResp, Resp}} = ews_soap:parse_envelope(XmlTerm),
-    {ok, [_HOut], [OpOut]} = ews:decode_service_op_result( "NNAPIWebService"
-                                                , "Find"
-                                                , [HResp]
-                                                , [Resp]),
+    {ok, HOut, OpOut} = ews:decode_service_op_result( "NNAPIWebService"
+                                                         , "Find"
+                                                         , HResp
+                                                         , Resp
+                                                         ),
+    ?assertMatch(Header, HOut),
     ?assertMatch(Response, OpOut),
+
+    ok = ews_test:test_everything(tiny),
     file:delete(TmpFile),
     ok.
 

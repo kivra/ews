@@ -44,7 +44,8 @@
          add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1,
-         run_hooks/2
+         run_hooks/2,
+         parse_fault/3
         ]).
 
 -export([init/1, handle_call/3, handle_cast/2,
@@ -200,10 +201,9 @@ decode_in(ModelRef, SOAP) ->
     case find_service_op(XML, ModelOps) of
         [{Svc, OpName, Op}] ->
             case decode_service_ins(Headers, BodyParts, Op, Model,
-                                    #{include_headers => false}) of
-                {ok, Res} ->
-                    {ok, {Svc, OpName, Res}}%%;
-                %% TODO: handle headers as well
+                                    #{}) of
+                {ok, Hdrs, Res} ->
+                    {ok, {Svc, OpName, Hdrs, Res}}%%;
                 %% {error, Reason} ->
                 %%     {error, {Reason, {Svc, OpName, Op}}}
             end;
@@ -805,15 +805,25 @@ decode_service_out(Headers, Body, Info, Model, Opts) ->
     Outs = proplists:get_value(out, Info),
     OutHdrs = proplists:get_value(out_hdr, Info),
     DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
-    [DecodedBody] = ews_serialize:decode(Body, Outs, Model),
+    DecodedBody = ews_serialize:decode(Body, Outs, Model),
     make_return(DecodedHeaders, DecodedBody, Opts).
 
-decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+decode_service_ins([], Body, #op{input={undefined,Msg}}, Model, Opts) ->
+    %% no headers
     #message{parts=Parts} = Msg,
     Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
               #part{element=Qname} <- Parts ],
-    DecodedHeaders = decode_headers(Headers, InHdrs, Model, Opts),
-    [DecodedBody] = ews_serialize:decode(Body, Ins, Model),
+    DecodedBody = ews_serialize:decode(Body, Ins, Model),
+    make_return([], DecodedBody, Opts);
+decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+    #message{parts=HParts} = InHdrs,
+    Hdrs = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+               #part{element=Qname} <- HParts ],
+    #message{parts=Parts} = Msg,
+    Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+              #part{element=Qname} <- Parts ],
+    DecodedHeaders = decode_headers(Headers, Hdrs, Model, Opts),
+    DecodedBody = ews_serialize:decode(Body, Ins, Model),
     make_return(DecodedHeaders, DecodedBody, Opts).
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->
