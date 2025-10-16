@@ -107,6 +107,10 @@ def_elems([#elem{type = #base{erl_type = ET},
 def_elems([#elem{type = #base{erl_type = ET}} | T], Tbl) ->
     [def_erl(ET) | def_elems(T, Tbl)];
 def_elems([#elem{type = #enum{type = _Base, values = [{Key,_Value}|_],
+                              list = false, union = false},
+                 meta = #meta{max = Max}} | T], Tbl) when Max > 1 ->
+    [[Key] | def_elems(T, Tbl)];
+def_elems([#elem{type = #enum{type = _Base, values = [{Key,_Value}|_],
                               list = false, union = false}} | T], Tbl) ->
     [Key | def_elems(T, Tbl)];
 def_elems([#elem{type = {_,_} = Qname,
