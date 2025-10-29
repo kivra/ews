@@ -27,13 +27,13 @@
 -record(part, {name, element, type}).
 -record(port_type, {name, doc, ops}).
 -record(port_type_op, {name, doc, input, output, faults, mep}).
--record(binding, {name, port_type, style, transport, ops}).
+-record(binding, {name, port_type, style, transport, ops, soap_version}).
 -record(binding_op, {name, action, input, output, faults}).
 -record(binding_op_msg, {name, headers, body}).
 -record(binding_op_fault, {name, use}).
 -record(op_part, {name, message, part, use}).
 -record(service, {name, ports}).
--record(port, {name, endpoint, binding}).
+-record(port, {name, endpoint, binding, soap_version}).
 
 %% XSD parsing
 -record(schema, {namespace, url, types}).

@@ -507,14 +507,16 @@ compile_wsdl(Wsdl) ->
 
 %% FIXME: handle more than one port for different SOAP versions
 %% example: one port for SOAP and one for SOAP 1.2.
-compile_ops(#service{name=Name, ports=[Port|_OtherPorts]}, Messages,
-            PortTypes, Bindings) ->
+compile_ops(#service{name=Name,
+                     ports=[#port{soap_version=soap11} = Port|_]},
+            Messages, PortTypes, Bindings) ->
     #port{endpoint=Endpoint, binding=Binding} = Port,
     case lists:keyfind(Binding, #binding.name, Bindings) of
         #binding{port_type=PortType,
                  style=Style,
                  ops=BindingOps,
-                 transport="http://schemas.xmlsoap.org/soap/http"} ->
+                 transport="http://schemas.xmlsoap.org/soap/http",
+                 soap_version=soap11} ->
             case lists:keyfind(PortType, #port_type.name, PortTypes) of
                 #port_type{ops=PortOps} ->
                     {Name, compile_ops(Endpoint, Style, Messages,
@@ -524,7 +526,12 @@ compile_ops(#service{name=Name, ports=[Port|_OtherPorts]}, Messages,
             end;
         false ->
             {error, service_lack_soap_binding}
-    end.
+    end;
+compile_ops(#service{ports=[#port{soap_version=soap12}|T]} = Service,
+            Messages, PortTypes, Bindings) ->
+    compile_ops(Service#service{ports=T}, Messages, PortTypes, Bindings);
+compile_ops(#service{ports=[]} = Service, _, _, _) ->
+    error({service_does_not_contain_valid_ports, Service}).
 
 compile_ops(EndPoint, Style, Messages, BindingOps, PortOps) ->
    [ compile_op(O, EndPoint, Style, Messages, BindingOps) || O <- PortOps ].

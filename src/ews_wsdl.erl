@@ -137,22 +137,37 @@ parse_port(Elem) ->
     Name = wh:get_attribute(Elem, name),
     Binding = wh:get_attribute(Elem, binding),
     Address = wh:get_attribute(wh:get_child(Elem, "address"), location),
-    #port{name=Name, endpoint=Address, binding=Binding}.
+    SoapVersion = soap_version(wh:get_child(Elem, "address")),
+    #port{name=Name,
+          endpoint=Address,
+          binding=Binding,
+          soap_version=SoapVersion}.
 
 parse_bindings(Doc, TargetNs) ->
     [ parse_binding(B, TargetNs) || B <- wh:get_children(Doc, "binding") ].
 
 parse_binding(Binding, TargetNs) ->
-   Name = wh:get_attribute(Binding, name),
-   PortType = wh:get_attribute(Binding, type),
-   Style = wh:get_attribute(wh:get_child(Binding, "binding"), style),
-   Transport = wh:get_attribute(wh:get_child(Binding, "binding"), transport),
-   Operations = wh:get_children(Binding, "operation"),
-   #binding{name={TargetNs, Name},
-            port_type=PortType,
-            style=Style,
-            transport=Transport,
-            ops=[ parse_binding_op(O) || O <- Operations ]}.
+    Name = wh:get_attribute(Binding, name),
+    PortType = wh:get_attribute(Binding, type),
+    Style = wh:get_attribute(wh:get_child(Binding, "binding"), style),
+    Transport = wh:get_attribute(wh:get_child(Binding, "binding"), transport),
+    Operations = wh:get_children(Binding, "operation"),
+    SoapVersion = soap_version(wh:get_child(Binding, "binding")),
+    #binding{name={TargetNs, Name},
+             port_type=PortType,
+             style=Style,
+             transport=Transport,
+             ops=[ parse_binding_op(O) || O <- Operations ],
+             soap_version=SoapVersion}.
+
+soap_version(#xmlElement{
+                        expanded_name =
+                            {'http://schemas.xmlsoap.org/wsdl/soap/',_}}) ->
+    soap11;
+soap_version(#xmlElement{
+                        expanded_name =
+                            {'http://schemas.xmlsoap.org/wsdl/soap12/',_}}) ->
+    soap12.
 
 parse_binding_op(Op) ->
     Name = wh:get_attribute(Op, name),
