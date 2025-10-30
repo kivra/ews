@@ -268,15 +268,13 @@ determine_message_exchange_pattern(#xmlElement{content=Children}) ->
 parse_types(WsdlDoc, Model) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
-    {Res, _} =
-        ews_xsd:parse_schema(Schemas, {undefined, Model}),
+    Res = ews_xsd:parse_schema(Schemas, Model),
     Res.
 
 parse_types(WsdlDoc, Model, BaseDir) ->
     Types = wh:get_child(WsdlDoc, "types"),
     Schemas = wh:get_children(Types, "schema"),
-    {Res, _} =
-        ews_xsd:parse_schema(Schemas, {undefined, Model, BaseDir}),
+    Res =ews_xsd:parse_schema(Schemas, Model, BaseDir),
     Res.
 
 %% >-----------------------------------------------------------------------< %%

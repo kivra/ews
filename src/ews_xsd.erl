@@ -24,7 +24,9 @@
 
 -module(ews_xsd).
 
--export([parse_schema/2]).
+-export([ parse_schema/2
+        , parse_schema/3
+        ]).
 
 -export([ print_all_schema_stats/1
         , print_schema_stats/1
@@ -58,22 +60,22 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
-parse_schema(Schemas0, {Acc, Model}) when is_atom(Model) ->
+parse_schema(Schemas0, Model) when is_atom(Model) ->
     Schemas = get_all_schemas(Schemas0),
     %%logger:notice("~p~n", [Schemas]),
     PrSchemas = [ S#schema{url=Url,
                            types=parse_types(Types)} ||
                     {_, Url, #schema{types=Types} = S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
-    {ews_model:append_model(Acc, NewTypes, Model), Model};
-parse_schema(Schemas0, {Acc, Model, BaseDir}) when is_atom(Model) ->
+    NewTypes.
+parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
     Schemas = get_all_schemas(Schemas0, BaseDir),
     %%logger:notice("~p~n", [Schemas]),
     PrSchemas = [ S#schema{url=Url,
                            types=parse_types(Types)} ||
                     {_, Url, #schema{types=Types} = S, _} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
-    {ews_model:append_model(Acc, NewTypes, Model), Model}.
+    NewTypes.
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
