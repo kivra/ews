@@ -444,4 +444,10 @@ parse_attribute_with_space_test() ->
                          , {"ec", "54"}
                          ], []}, parse_tag(TestTag)).
 
+split_on_space_test() ->
+    TestTag =
+        binary_to_list(
+          <<"<res />"/utf8>>),
+    ?assertMatch(["res"], split_on_space(TestTag)).
+
 -endif.
