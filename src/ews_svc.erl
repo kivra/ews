@@ -203,9 +203,7 @@ decode_in(ModelRef, SOAP) ->
             case decode_service_ins(Headers, BodyParts, Op, Model,
                                     #{}) of
                 {ok, Hdrs, Res} ->
-                    {ok, {Svc, OpName, Hdrs, Res}}%%;
-                %% {error, Reason} ->
-                %%     {error, {Reason, {Svc, OpName, Op}}}
+                    {ok, {Svc, OpName, Hdrs, Res}}
             end;
         [] ->
             {error, no_mathcing_op};
