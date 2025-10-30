@@ -54,10 +54,9 @@ test_ops([Op | T], Service, Model, Tbl, TheModel) ->
     {ok, Info} = ews:get_service_op_info(Model, Service, Op),
     #{in_hdr := InHdr, in := In, out_hdr := OutHdr, out := Out,
       fault := Fault} = maps:from_list(Info),
-    {ok, FaultInfo} = ews_svc:get_op_message_details(Model, Service, Op),
     test_in(InHdr, In, Model, Service, Op, Tbl),
     test_out(OutHdr, Out, Model, Service, Op, Tbl),
-    test_fault(Fault, FaultInfo, Model, Service, Op, Tbl, TheModel),
+    test_fault(Fault, Model, Service, Op, Tbl, TheModel),
     test_ops(T, Service, Model, Tbl, TheModel);
 test_ops([], _, _, _, _) ->
     ok.
@@ -93,9 +92,10 @@ test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
     cond_assert(OutVals, OpOut),
     ok.
 
-test_fault(undefined, _, _, _, _, _, _) -> ok;
-test_fault([], _, _, _, _, _, _) -> ok;
-test_fault(Fault, Info, Model, Service, Op, Tbl, TheModel) ->
+test_fault(undefined, _, _, _, _, _) -> ok;
+test_fault([], _, _, _, _, _) -> ok;
+test_fault(Fault, Model, Service, Op, Tbl, TheModel) ->
+    {ok, Info} = ews_svc:get_op_message_details(Model, Service, Op),
     logger:notice("Fault: ~tp~n", [Fault]),
     FaultVals = def_vals(Fault, Tbl),
     logger:notice("FaultVals: ~tp~n", [FaultVals]),
