@@ -630,6 +630,7 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             {AccWithSubTypes, SubElems, Retry2, _} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
                         TypeMap, Model, Parent, AttrAcc),
+            %% Check if any child is a reference.
             case [ Ref || #element{type=#reference{}} = Ref <- SubElems] of
                 [] ->
                     Type = #type{qname=TypeName, extends=Ext,
@@ -639,6 +640,9 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
                             [Elem | ElemAcc],
                             TypeMap, Model, Parent, AttrAcc);
                 [_ | _] ->
+                    %% At least one child is a reference, put this
+                    %% element in the Retry acc and it shoud be
+                    %% resolved for the second pass.
                     process(Rest, [E | Retry2], Ts, AccWithSubTypes,
                             [Elem | ElemAcc],
                             TypeMap, Model, Parent, AttrAcc)
