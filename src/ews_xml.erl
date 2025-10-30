@@ -84,6 +84,8 @@ emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},
     [emit_start_tag(QName),
+     %% don't use ukeysort here, that would hide if there is a bug
+     %% in the xsds with duplicate namespaces.
      emit_attributes(lists:keysort(2, XmlNsDecl)++Attributes, NewNss),
      emit_children(QName, Children, NewNss)];
 emit_tag({Name, Attributes, Children}, Nss) ->
