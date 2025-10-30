@@ -810,8 +810,8 @@ decode_service_out(Headers, Body, Info, Model, Opts) ->
     Outs = proplists:get_value(out, Info),
     OutHdrs = proplists:get_value(out_hdr, Info),
     DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
-    DecodedBody = ews_serialize:decode(Body, Outs, Model),
-    make_return(DecodedHeaders, DecodedBody, Opts).
+    DecodedBodies = ews_serialize:decode(Body, Outs, Model),
+    make_return(DecodedHeaders, DecodedBodies, Opts).
 
 decode_service_ins([], Body, #op{input={undefined,Msg}}, Model, Opts) ->
     %% no headers
@@ -828,8 +828,8 @@ decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
     Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
               #part{element=Qname} <- Parts ],
     DecodedHeaders = decode_headers(Headers, Hdrs, Model, Opts),
-    DecodedBody = ews_serialize:decode(Body, Ins, Model),
-    make_return(DecodedHeaders, DecodedBody, Opts).
+    DecodedBodies = ews_serialize:decode(Body, Ins, Model),
+    make_return(DecodedHeaders, DecodedBodies, Opts).
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->
     undefined;
@@ -841,10 +841,10 @@ decode_headers(Headers, OutHdrs, Model, #{}) ->
             ews_serialize:decode(SoapHeaders, OutHdrs, Model)
     end.
 
-make_return(_Headers, Body, #{include_headers := false}) ->
-    {ok, Body};
-make_return(Headers, Body, #{}) ->
-    {ok, Headers, Body}.
+make_return(_Headers, Bodies, #{include_headers := false}) ->
+    {ok, Bodies};
+make_return(Headers, Bodies, #{}) ->
+    {ok, Headers, Bodies}.
 
 parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
     parse_fault(Fault, Info, Model);
