@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
