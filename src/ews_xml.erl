@@ -231,8 +231,10 @@ outside_quote([$" = C | T], Acc, Attrs) ->
     inside_quote(T, [C | Acc], Attrs);
 outside_quote([C | T], Acc, Attrs) ->
     outside_quote(T, [C | Acc], Attrs);
-outside_quote([], Acc, Attrs) ->
-    lists:reverse([lists:reverse(Acc) | Attrs]).
+outside_quote([], [_|_] = Acc, Attrs) ->
+    lists:reverse([lists:reverse(Acc) | Attrs]);
+outside_quote([], [], Attrs) ->
+    lists:reverse(Attrs).
 
 inside_quote([$" = C | T], Acc, Attrs) ->
     outside_quote(T, [C | Acc], Attrs);
