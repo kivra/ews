@@ -99,16 +99,18 @@ test_fault(Fault, Model, Service, Op, Tbl, TheModel) ->
     logger:notice("Fault: ~tp~n", [Fault]),
     FaultVals = def_vals(Fault, Tbl),
     logger:notice("FaultVals: ~tp~n", [FaultVals]),
+    FaultCode = <<"9000">>,
+    FaultString = <<"boo">>,
     FaultSOAP = ews:encode_service_op_faults(Model, Service, Op,
-                                             <<"9000">>, <<"boo">>, FaultVals),
+                                             FaultCode, FaultString, FaultVals),
     XmlTerm = ews_xml:decode(FaultSOAP),
     {fault, FaultRes} = ews_soap:parse_envelope(XmlTerm),
     #fault{ code = Code
-          , string = FaultString
+          , string = String
           , detail = Detail
           } = ews_svc:parse_fault(FaultRes, Info, TheModel),
-    ?assertMatch(<<"p1:9000">>, Code),
-    ?assertMatch(<<"boo">>, FaultString),
+    ?assertMatch(<<"p1:", FaultCode/binary>>, Code),
+    ?assertMatch(FaultString, String),
     ?assertMatch(FaultVals, Detail),
     ok.
 
