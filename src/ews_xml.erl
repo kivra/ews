@@ -84,7 +84,7 @@ emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},
     [emit_start_tag(QName),
-     emit_attributes(lists:keysort(2, XmlNsDecl++Attributes), NewNss),
+     emit_attributes(lists:keysort(2, XmlNsDecl)++Attributes, NewNss),
      emit_children(QName, Children, NewNss)];
 emit_tag({Name, Attributes, Children}, Nss) ->
     [emit_start_tag(Name),
