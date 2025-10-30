@@ -224,7 +224,7 @@ outside_quote([$> | T], Acc, Attrs) ->
 outside_quote([C | T], [_|_] = Acc, Attrs) when
       C == $ ; C == $\t; C == $\r; C == $\n ->
     outside_quote(T, [], [lists:reverse(Acc) | Attrs]);
-outside_quote([C | T], [], Attrs)when
+outside_quote([C | T], [], Attrs) when
       C == $ ; C == $\t; C == $\r; C == $\n ->
     outside_quote(T, [], Attrs);
 outside_quote([$" = C | T], Acc, Attrs) ->
