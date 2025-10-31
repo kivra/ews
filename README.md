@@ -152,7 +152,7 @@ Returns and encoding of the specified service operation providing the given head
 
 Returns the Erlang representation of the provided result of calling the specified operation.
 
-## Environment
+### Environment
 
 The ews application uses the following application environment variables:
 
@@ -163,3 +163,16 @@ Timeout for SOAP calls in milliseconds (default: 6000).
 `cache_base_dir`
 
 Base directory under which ews stores cached xsds (default: `code:priv_dir(ews)`).
+
+### Testing your generated code
+
+The function `ews_test:test_everything(Model :: atom())` will serialize and
+deserialize all possible ins, outs and faults of all ops the the selected model.
+It will generate defaults for every entry in every record that can be reached.
+A possible ct test would look like this:
+
+`serialize_deserialize(_Config) ->
+    {ok, _} = ews:add_wsdl_to_model(moose,
+                                    "moose.wsdl")),
+    ok = ews_test:test_everything(moose),
+    ok.`
