@@ -76,8 +76,8 @@ import_any_order(_Config) ->
                                      {namespace_conformant, true},
                                      {validation, schema}]),
 
-    {Model, default_testtest} =
-        ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+    Model =
+        ews_xsd:parse_schema(Schema, default_testtest, Dir),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
@@ -102,8 +102,8 @@ reference_in_parts(_Config) ->
                                      {namespace_conformant, true},
                                      {validation, schema}]),
 
-    {Model, choice} =
-        ews_xsd:parse_schema(Schema, {undefined, choice, Dir}),
+    Model =
+        ews_xsd:parse_schema(Schema, choice, Dir),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
@@ -131,8 +131,8 @@ flatten_seq_choice_etc(_Config) ->
                                      {namespace_conformant, true},
                                      {validation, schema}]),
 
-    {Model, default_testtest} =
-        ews_xsd:parse_schema(Schema, {undefined, default_testtest, Dir}),
+    Model =
+        ews_xsd:parse_schema(Schema, default_testtest, Dir),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,
@@ -245,7 +245,7 @@ schema_with_string_enum(_Config) ->
                                      {namespace_conformant, true},
                                      {validation, schema}]),
 
-    {Model, with_enum} = ews_xsd:parse_schema(Schema, {undefined, with_enum, Dir}),
+    Model = ews_xsd:parse_schema(Schema, with_enum, Dir),
 
     ?assertMatch(#model{}, Model),
     #model{type_map = TypeMap} = Model,

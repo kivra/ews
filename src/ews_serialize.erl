@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -231,8 +231,10 @@ do_encode_attributes([], _, _, Acc) ->
 
 encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
     encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
-encode_attr([#attribute{name = {_, Id}} | _Tail], {Id, Value}, _Name) ->
-    {Id, Value};
+encode_attr([#attribute{name = {_, Id}, type = Type} | _Tail],
+            {Id, Value}, _Name) ->
+    BaseType = erl_type(Type),
+    {Id, encode_single_base(Value, BaseType)};
 encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
     encode_attr(Tail, {Id, Value}, Name);
 encode_attr([], {Id, _Value}, Name) ->
@@ -456,17 +458,21 @@ validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
         [] ->
             logger:notice("Unexpected attribute: ~p~n", [Name]),
             validate_attrs(As, PossAttrs, Acc);
-        [#attribute{}] ->
-            %% TODO: validate the type
+        [#attribute{type = Type}] ->
             %% TODO: how to we handle utf8 in both Name and Value?
             %% By compiling with debug_info the typespec in the records should
             %% load all possible atoms.
+            QType = qname(Type),
+            #base{erl_type=ErlType} = ews_xsd:to_base(QType),
             NameAtom = list_to_existing_atom(Name),
-            ValueBin = list_to_binary(Value),
-            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBin})
+            ValueBase = to_base(list_to_binary(Value), ErlType),
+            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBase})
     end;
 validate_attrs([], _, Acc) ->
     Acc.
+
+qname({_,_} = Qname) -> Qname;
+qname(Name) -> {"no_ns", Name}.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
 to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
@@ -540,3 +546,10 @@ field_to_map(V, _M) ->
 
 field_names(Parts) ->
     [ews_alias:create(QN) || #elem{qname = QN} <- Parts].
+
+erl_type({_,_} = T) ->
+    #base{erl_type = ET} = ews_xsd:to_base(T),
+    ET;
+erl_type(T) ->
+    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
+    ET.

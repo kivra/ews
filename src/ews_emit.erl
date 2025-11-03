@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -25,7 +25,11 @@
 
 model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),
-    io:format("emitting ~p records~n", [length(Unresolved) + length(Resolved)]),
+    logger:notice("emitting ~p records unresolved: ~p resolved: ~p~n",
+                  [ length(Unresolved) + length(Resolved)
+                  , length(Unresolved)
+                  , length(Resolved)
+                  ]),
     UnresolvedTypeDefs = [output_typedef(T) || T <- Unresolved],
     ResolvedTypes = [output_type(T, Tbl, ModelRef, Unresolved) ||
                         T <- Resolved ++ Unresolved],
@@ -48,15 +52,16 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
     Line0 = "%% @doc Possible keys for '__attrs'\n",
-    AttrDocs = [ ["%% ", tick_word(A), " :: ",T,"\n"] ||
+    AttrDocs = [ ["%% ", tick_word(A), " :: ", no_ns(T), "\n"] ||
                    #attribute{name={_,A},type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     Attr = ["'__attrs' :: #{"],
     AttrIndent = Indent + iolist_size(Attr),
-    AttrEnd = ["} | undefined"],
-    AttrRows = [lists:flatten([tick_word(A), " => string() | binary()"]) ||
-                   #attribute{name={_,A}} <- Attrs],
+    AttrEnd = output_attr_undefined(Attrs),
+    AttrRows = [lists:flatten([tick_word(A), output_map_default(U),
+                               erl_type(T)]) ||
+                   #attribute{name={_,A},use=U,type=T} <- Attrs],
     JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
     AttrStr = lists:flatten([Attr, string:join(AttrRows, JoinAttrs), AttrEnd]),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
@@ -107,6 +112,25 @@ output_erl_type(float) ->
     "float()";
 output_erl_type(boolean) ->
     "boolean()".
+
+output_map_default(undefined) ->
+    " => ";
+output_map_default("optional") ->
+    " => ";
+output_map_default("required") ->
+    " := ".
+
+output_attr_undefined(Attrs) ->
+    %% if any attribute is required, the map needs to exist
+    case lists:any(fun any_required/1, Attrs) of
+        true ->
+            ["}"];
+        false ->
+            ["} | undefined"]
+    end.
+
+any_required(#attribute{use="required"}) -> true;
+any_required(#attribute{}) -> false.
 
 add_list(Str, true) ->
     ["[", Str, "]"];
@@ -211,9 +235,19 @@ create_graph(Tbl) ->
                              [ews_model:get_subs(K, Tbl) || K <- Deps]),
                 dict:store(Qn, Deps ++ [K || {K, _} <- DepsSubs], D)
         end,
-    dict:to_list(lists:foldl(F, dict:new(), Types)).
+    lists:sort(dict:to_list(lists:foldl(F, dict:new(), Types))).
 
 emit_enum(Values, Indent) ->
     TickedValues = [tick_word(V) || V <- Values],
     JoinStr = [$\n,  lists:duplicate(Indent-2, $ ), $|, $ ],
     string:join(TickedValues, lists:flatten(JoinStr)).
+
+no_ns({_NS, N}) -> N;
+no_ns(N) -> N.
+
+erl_type({_,_} = T) ->
+    #base{erl_type = ET} = ews_xsd:to_base(T),
+    output_erl_type(ET);
+erl_type(T) ->
+    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
+    output_erl_type(ET).

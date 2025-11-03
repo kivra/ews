@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -84,7 +84,9 @@ emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},
     [emit_start_tag(QName),
-     emit_attributes(lists:ukeysort(2, XmlNsDecl++Attributes), NewNss),
+     %% don't use ukeysort here, that would hide if there is a bug
+     %% in the xsds with duplicate namespaces.
+     emit_attributes(lists:keysort(2, XmlNsDecl)++Attributes, NewNss),
      emit_children(QName, Children, NewNss)];
 emit_tag({Name, Attributes, Children}, Nss) ->
     [emit_start_tag(Name),
@@ -198,17 +200,46 @@ to_txt(TxtLst) ->
     list_to_binary(lists:reverse(TxtLst)).
 
 parse_tag(Element) ->
-    [Tag | Attrs] = string:tokens(Element, "<> "),
+    [Tag | Attrs] = split_on_space(Element),
     Fun = fun(A, Acc) ->
               case lists:member($=, A) of
                   true ->
                        [split_attribute(A)|Acc];
-                   false ->
+                  false ->
                        Acc
               end
           end,
     NewAttrs = lists:foldl(Fun, [], Attrs),
     {Tag, lists:reverse(NewAttrs), []}.
+
+split_on_space(S) ->
+    outside_quote(S, [], []).
+
+outside_quote([$< | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([$/,$> | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([$> | T], Acc, Attrs) ->
+    outside_quote(T, Acc, Attrs);
+outside_quote([C | T], [_|_] = Acc, Attrs) when
+      C == $ ; C == $\t; C == $\r; C == $\n ->
+    outside_quote(T, [], [lists:reverse(Acc) | Attrs]);
+outside_quote([C | T], [], Attrs) when
+      C == $ ; C == $\t; C == $\r; C == $\n ->
+    outside_quote(T, [], Attrs);
+outside_quote([$" = C | T], Acc, Attrs) ->
+    inside_quote(T, [C | Acc], Attrs);
+outside_quote([C | T], Acc, Attrs) ->
+    outside_quote(T, [C | Acc], Attrs);
+outside_quote([], [_|_] = Acc, Attrs) ->
+    lists:reverse([lists:reverse(Acc) | Attrs]);
+outside_quote([], [], Attrs) ->
+    lists:reverse(Attrs).
+
+inside_quote([$" = C | T], Acc, Attrs) ->
+    outside_quote(T, [C | Acc], Attrs);
+inside_quote([C | T], Acc, Attrs) ->
+    inside_quote(T, [C | Acc], Attrs).
 
 split_attribute(Attr) ->
     [Key | Vals] = string:tokens(Attr, "="),
@@ -398,3 +429,27 @@ parse_qname(Qname, RawNss) ->
                     Name
             end
     end.
+
+%% ----------------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+parse_attribute_with_space_test() ->
+    TestTag =
+        binary_to_list(
+          <<"<res text=\"Tillåtet värde för a.\"\n co=\"0\"\tec=\"54\" />"/utf8>>),
+    ?assertMatch({"res", [ {"text",
+                            "TillÃ¥tet vÃ¤rde fÃ¶r a."}
+                         , {"co", "0"}
+                         , {"ec", "54"}
+                         ], []}, parse_tag(TestTag)).
+
+split_on_space_test() ->
+    TestTag =
+        binary_to_list(
+          <<"<res />"/utf8>>),
+    ?assertMatch(["res"], split_on_space(TestTag)).
+
+-endif.

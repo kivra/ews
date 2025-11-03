@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:s2="http://api.hotbrev.se/FindCounty" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://api.hotbrev.se/" xmlns:s5="http://api.hotbrev.se/LocalityResult" xmlns:s9="http://api.hotbrev.se/ZipCodeResult" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:s6="http://api.hotbrev.se/FindCommunity" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:s10="http://api.hotbrev.se/FindParish" xmlns:s11="http://api.hotbrev.se/ParishResult" xmlns:s3="http://api.hotbrev.se/CountyResult" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:s4="http://api.hotbrev.se/FindLocality" xmlns:s7="http://api.hotbrev.se/CommunityResult" xmlns:s1="http://api.hotbrev.se/FindLove" xmlns:s8="http://api.hotbrev.se/FindZipCode" targetNamespace="http://api.hotbrev.se/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+  <wsdl:types>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://api.hotbrev.se/">
+      <s:import namespace="http://api.hotbrev.se/FindLove" />
+      <s:element name="Find">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" ref="s1:FindLove" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="FindResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="api_result" type="tns:api_result" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="api_result">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="record_list" type="tns:record_list" />
+        </s:sequence>
+        <s:attribute name="error_text" type="s:string" />
+        <s:attribute name="count_private" type="s:int" use="required" />
+        <s:attribute name="count_company" type="s:int" use="required" />
+        <s:attribute name="rowcount_private" type="s:int" use="required" />
+        <s:attribute name="rowcount_company" type="s:int" use="required" />
+        <s:attribute name="rowcount" type="s:int" use="required" />
+        <s:attribute name="response_time" type="s:int" use="required" />
+        <s:attribute name="error_code" type="s:int" use="required" />
+      </s:complexType>
+      <s:complexType name="record_list">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="record" type="tns:record" />
+        </s:sequence>
+        <s:attribute name="start_pos" type="s:int" use="required" />
+        <s:attribute name="num_records" type="s:int" use="required" />
+        <s:attribute name="target_type" type="s:int" use="required" />
+      </s:complexType>
+      <s:complexType name="record">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Vkiid" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Vkid" type="s:string" />
+        </s:sequence>
+        <s:attribute name="rating" type="s:int" use="required" />
+        <s:attribute name="hit_no" type="s:int" use="required" />
+        <s:attribute name="num" type="s:int" use="required" />
+        <s:attribute name="target_type" type="s:int" use="required" />
+      </s:complexType>
+      <s:element name="APISoapHeader" type="tns:APISoapHeader" />
+      <s:complexType name="APISoapHeader">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Command" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Ticket" type="s:string" />
+        </s:sequence>
+        <s:anyAttribute />
+      </s:complexType>
+     </s:schema>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://api.hotbrev.se/FindLove">
+      <s:element name="FindLove" type="s1:FindLoveClass" />
+      <s:complexType name="FindLoveClass">
+        <s:complexContent mixed="false">
+          <s:extension base="s1:MarshalByRefObject">
+            <s:sequence>
+              <s:element minOccurs="0" maxOccurs="1" name="QueryParams" type="s1:QueryParamsClass" />
+              <s:element minOccurs="0" maxOccurs="1" name="QueryColumns" type="s1:QueryColumnsClass" />
+            </s:sequence>
+            <s:attribute name="UserId" type="s:string" />
+            <s:attribute name="Password" type="s:string" />
+            <s:attribute name="AccountID" type="s:string" />
+            <s:attribute name="TargetType" type="s:int" use="required" />
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:complexType name="MarshalByRefObject" abstract="true" />
+      <s:complexType name="QueryParamsClass">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="FindName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="FindSSNo" type="s:string" />
+        </s:sequence>
+        <s:attribute name="Gender" type="s:string" />
+        <s:attribute name="Internet" type="s:int" use="required" />
+      </s:complexType>
+      <s:complexType name="QueryColumnsClass">
+        <s:attribute name="Vkiid" type="s:int" use="required" />
+        <s:attribute name="Vkid" type="s:int" use="required" />
+      </s:complexType>
+    </s:schema>
+  </wsdl:types>
+  <wsdl:message name="FindSoapIn">
+    <wsdl:part name="parameters" element="tns:Find" />
+  </wsdl:message>
+  <wsdl:message name="FindSoapOut">
+    <wsdl:part name="parameters" element="tns:FindResponse" />
+  </wsdl:message>
+  <wsdl:message name="FindAPISoapHeader">
+    <wsdl:part name="APISoapHeader" element="tns:APISoapHeader" />
+  </wsdl:message>
+  <wsdl:portType name="NNAPIWebServiceSoap">
+    <wsdl:operation name="Find">
+      <wsdl:input message="tns:FindSoapIn" />
+      <wsdl:output message="tns:FindSoapOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="NNAPIWebServiceSoap" type="tns:NNAPIWebServiceSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="Find">
+      <soap:operation soapAction="http://api.hotbrev.se/Find" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+        <soap:header message="tns:FindAPISoapHeader" part="APISoapHeader" use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+        <soap:header message="tns:FindAPISoapHeader" part="APISoapHeader" use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="NNAPIWebServiceSoap12" type="tns:NNAPIWebServiceSoap">
+    <soap12:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="Find">
+      <soap12:operation soapAction="http://api.hotbrev.se/Find" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+        <soap12:header message="tns:FindAPISoapHeader" part="APISoapHeader" use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+        <soap12:header message="tns:FindAPISoapHeader" part="APISoapHeader" use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="NNAPIWebService">
+    <wsdl:port name="NNAPIWebServiceSoap" binding="tns:NNAPIWebServiceSoap">
+      <soap:address location="http://api.hotbrev.se/nnapiwebservice.asmx" />
+    </wsdl:port>
+    <wsdl:port name="NNAPIWebServiceSoap12" binding="tns:NNAPIWebServiceSoap12">
+      <soap12:address location="http://api.hotbrev.se/nnapiwebservice.asmx" />
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

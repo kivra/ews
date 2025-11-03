@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -38,13 +38,14 @@
          serialize/5,
          encode_out/6,
          encode_faults/6,
-         decode/4, decode/5,
+         decode/5, decode/6,
          decode_in/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
          remove_model/1,
-         run_hooks/2
+         run_hooks/2,
+         parse_fault/3
         ]).
 
 -export([init/1, handle_call/3, handle_cast/2,
@@ -200,12 +201,9 @@ decode_in(ModelRef, SOAP) ->
     case find_service_op(XML, ModelOps) of
         [{Svc, OpName, Op}] ->
             case decode_service_ins(Headers, BodyParts, Op, Model,
-                                    #{include_headers => false}) of
-                {ok, Res} ->
-                    {ok, {Svc, OpName, Res}}%%;
-                %% TODO: handle headers as well
-                %% {error, Reason} ->
-                %%     {error, {Reason, {Svc, OpName, Op}}}
+                                    #{}) of
+                {ok, Hdrs, Res} ->
+                    {ok, {Svc, OpName, Hdrs, Res}}
             end;
         [] ->
             {error, no_mathcing_op};
@@ -213,22 +211,22 @@ decode_in(ModelRef, SOAP) ->
             {error, ambiguous_op}
     end.
 
-decode(ServiceName, OpName, BodyParts, Opts)
+decode(ServiceName, OpName, HeaderParts, BodyParts, Opts)
   when is_list(ServiceName) ->
     case gen_server:call(?MODULE, {get_service_models, ServiceName}) of
         [{ModelRef, Model}] ->
             decode_service_op(ModelRef, Model, ServiceName, OpName,
-                              BodyParts, Opts);
+                              HeaderParts, BodyParts, Opts);
         [] ->
             {error, no_service};
         [_ | _] ->
             {error, ambiguous_service}
     end.
 
-decode(ModelRef, ServiceName, OpName, BodyParts, Opts) ->
+decode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     decode_service_op(ModelRef, Model, ServiceName, OpName,
-                      BodyParts, Opts).
+                      HeaderParts, BodyParts, Opts).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
@@ -505,13 +503,18 @@ compile_wsdl(Wsdl) ->
           bindings=Bindings} = Wsdl,
     [ compile_ops(S, Messages, PortTypes, Bindings) || S <- Services ].
 
-compile_ops(#service{name=Name, ports=[Port]}, Messages, PortTypes, Bindings) ->
+%% FIXME: handle more than one port for different SOAP versions
+%% example: one port for SOAP and one for SOAP 1.2.
+compile_ops(#service{name=Name,
+                     ports=[#port{soap_version=soap11} = Port|_]},
+            Messages, PortTypes, Bindings) ->
     #port{endpoint=Endpoint, binding=Binding} = Port,
     case lists:keyfind(Binding, #binding.name, Bindings) of
         #binding{port_type=PortType,
                  style=Style,
                  ops=BindingOps,
-                 transport="http://schemas.xmlsoap.org/soap/http"} ->
+                 transport="http://schemas.xmlsoap.org/soap/http",
+                 soap_version=soap11} ->
             case lists:keyfind(PortType, #port_type.name, PortTypes) of
                 #port_type{ops=PortOps} ->
                     {Name, compile_ops(Endpoint, Style, Messages,
@@ -521,7 +524,12 @@ compile_ops(#service{name=Name, ports=[Port]}, Messages, PortTypes, Bindings) ->
             end;
         false ->
             {error, service_lack_soap_binding}
-    end.
+    end;
+compile_ops(#service{ports=[#port{soap_version=soap12}|T]} = Service,
+            Messages, PortTypes, Bindings) ->
+    compile_ops(Service#service{ports=T}, Messages, PortTypes, Bindings);
+compile_ops(#service{ports=[]} = Service, _, _, _) ->
+    error({service_does_not_contain_valid_ports, Service}).
 
 compile_ops(EndPoint, Style, Messages, BindingOps, PortOps) ->
    [ compile_op(O, EndPoint, Style, Messages, BindingOps) || O <- PortOps ].
@@ -668,6 +676,22 @@ find_service_op({[], [{Qname, _, _}]}, Svcs) ->
                          parts =
                              [#part{element = Mname
                                    }]}}} = Op <- Ops, Mname == Qname]
+        || {Svc, Ops} <- Svcs]);
+find_service_op({[{HQname, _, _}], [{Qname, _, _}]}, Svcs) ->
+    lists:flatten(
+      [ [ {Svc, OpName, Op} ||
+            #op{ name = OpName
+               , input =
+                     { #message{
+                          parts =
+                              [#part{element = HMname
+                                    }]}
+                     , #message{
+                          parts =
+                              [#part{element = Mname
+                                    }]}}} = Op <- Ops
+               , Mname == Qname
+               , HMname == HQname]
         || {Svc, Ops} <- Svcs]).
 
 %% >-----------------------------------------------------------------------< %%
@@ -774,32 +798,42 @@ try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
 try_encode_fault(_, [], _) ->
     [].
 
-decode_service_op(ModelRef, Model, ServiceName, OpName, Body, Opts) ->
+decode_service_op(ModelRef, Model, ServiceName, OpName, Headers, Body, Opts) ->
     case get_op_message_details(ModelRef, ServiceName, OpName) of
         {error, Error} ->
             {error, Error};
         {ok, Info} ->
-            decode_service_out(undefined, Body, Info, Model, Opts)
+            decode_service_out(Headers, Body, Info, Model, Opts)
     end.
 
 decode_service_out(Headers, Body, Info, Model, Opts) ->
     Outs = proplists:get_value(out, Info),
     OutHdrs = proplists:get_value(out_hdr, Info),
     DecodedHeaders = decode_headers(Headers, OutHdrs, Model, Opts),
-    [DecodedBody] = ews_serialize:decode(Body, Outs, Model),
-    make_return(DecodedHeaders, DecodedBody, Opts).
+    DecodedBodies = ews_serialize:decode(Body, Outs, Model),
+    make_return(DecodedHeaders, DecodedBodies, Opts).
 
-decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+decode_service_ins([], Body, #op{input={undefined,Msg}}, Model, Opts) ->
+    %% no headers
     #message{parts=Parts} = Msg,
     Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
               #part{element=Qname} <- Parts ],
-    DecodedHeaders = decode_headers(Headers, InHdrs, Model, Opts),
-    [DecodedBody] = ews_serialize:decode(Body, Ins, Model),
-    make_return(DecodedHeaders, DecodedBody, Opts).
+    DecodedBody = ews_serialize:decode(Body, Ins, Model),
+    make_return([], DecodedBody, Opts);
+decode_service_ins(Headers, Body, #op{input={InHdrs,Msg}}, Model, Opts) ->
+    #message{parts=HParts} = InHdrs,
+    Hdrs = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+               #part{element=Qname} <- HParts ],
+    #message{parts=Parts} = Msg,
+    Ins = [ ews_model:get_elem(Qname, Model#model.type_map) ||
+              #part{element=Qname} <- Parts ],
+    DecodedHeaders = decode_headers(Headers, Hdrs, Model, Opts),
+    DecodedBodies = ews_serialize:decode(Body, Ins, Model),
+    make_return(DecodedHeaders, DecodedBodies, Opts).
 
 decode_headers(_Headers, _OutHdrs, _Model, #{include_headers := false}) ->
     undefined;
-decode_headers(Headers, OutHdrs, Model, #{include_headers := true}) ->
+decode_headers(Headers, OutHdrs, Model, #{}) ->
     case Headers of
         [{http_response_headers, _} = HttpHdr | SoapHeaders] ->
             [HttpHdr | ews_serialize:decode(SoapHeaders, OutHdrs, Model)];
@@ -807,10 +841,10 @@ decode_headers(Headers, OutHdrs, Model, #{include_headers := true}) ->
             ews_serialize:decode(SoapHeaders, OutHdrs, Model)
     end.
 
-make_return(Headers, Body, #{include_headers := true}) ->
-    {ok, Headers, Body};
-make_return(_Headers, Body, #{include_headers := false}) ->
-    {ok, Body}.
+make_return(_Headers, Bodies, #{include_headers := false}) ->
+    {ok, Bodies};
+make_return(Headers, Bodies, #{}) ->
+    {ok, Headers, Bodies}.
 
 parse_fault({_Header, #fault{} = Fault}, Info, Model) ->
     parse_fault(Fault, Info, Model);

@@ -10,6 +10,13 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 3.1.0 and 4.0.0
+
+* Breaking changes
+
+* `ews:call_service_op` will now return `{ok, [term()]}` instead of `{ok, term()}`, cause there can actually  be more than one message returned.
+* `ews:decode_in` will not return `{ok, {Svc, Op, list(Headers), list(Body)}}`
+
 ## Changes between 3.0.1 and 3.1.0
 
 * No more support for just verifying fingerprints. It has to be certificates.
@@ -145,7 +152,7 @@ Returns and encoding of the specified service operation providing the given head
 
 Returns the Erlang representation of the provided result of calling the specified operation.
 
-## Environment
+### Environment
 
 The ews application uses the following application environment variables:
 
@@ -156,3 +163,16 @@ Timeout for SOAP calls in milliseconds (default: 6000).
 `cache_base_dir`
 
 Base directory under which ews stores cached xsds (default: `code:priv_dir(ews)`).
+
+### Testing your generated code
+
+The function `ews_test:test_everything(Model :: atom())` will serialize and
+deserialize all possible ins, outs and faults of all ops the the selected model.
+It will generate defaults for every entry in every record that can be reached.
+A possible ct test would look like this:
+
+`serialize_deserialize(_Config) ->
+    {ok, _} = ews:add_wsdl_to_model(moose,
+                                    "moose.wsdl")),
+    ok = ews_test:test_everything(moose),
+    ok.`

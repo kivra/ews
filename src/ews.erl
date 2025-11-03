@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -29,8 +29,10 @@
          serialize_service_op/5,
          encode_service_op_faults/6,
          encode_service_op_result/5,
-         decode_service_op_result/3, decode_service_op_result/4,
+         decode_service_op_result/3,
+         decode_service_op_result/4,
          decode_service_op_result/5,
+         decode_service_op_result/6,
          decode_in/1, decode_in/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
@@ -134,17 +136,20 @@ encode_service_op_faults(Model, Service, Op, FaultCode, FaultString, Body)
     ews_svc:encode_faults(Model, Service, Op, FaultCode, FaultString, Body).
 
 decode_service_op_result(Service, Op, Body) ->
-    ews_svc:decode(Service, Op, Body, #{include_headers => false}).
+    ews_svc:decode(Service, Op, [], Body, #{include_headers => false}).
 
-decode_service_op_result(Service, Op, Body, Opts)
+decode_service_op_result(Service, Op, Headers, Body) ->
+    ews_svc:decode(Service, Op, Headers, Body, #{}).
+
+decode_service_op_result(Service, Op, Headers, Body, Opts)
   when is_list(Service) ->
-    ews_svc:decode(Service, Op, Body, Opts);
-decode_service_op_result(Model, Service, Op, Body)
+    ews_svc:decode(Service, Op, Headers, Body, Opts);
+decode_service_op_result(Model, Service, Op, Headers, Body)
   when is_atom(Model) ->
-    ews_svc:decode(Model, Service, Op, Body, #{include_headers => false}).
-decode_service_op_result(Model, Service, Op, Body, Opts)
+    ews_svc:decode(Model, Service, Op, Headers, Body, #{}).
+decode_service_op_result(Model, Service, Op, Headers, Body, Opts)
   when is_atom(Model) ->
-    ews_svc:decode(Model, Service, Op, Body, Opts).
+    ews_svc:decode(Model, Service, Op, Headers, Body, Opts).
 
 decode_in(Soap) ->
     decode_in(default, Soap).

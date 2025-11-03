@@ -1,7 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
-%%% Copyright (c) 2022-2023 Kivra
+%%% Copyright (c) 2022-2025 Kivra
 %%%
 %%% Distribution subject to the terms of the LGPL-3.0-or-later, see
 %%% the COPYING.LESSER file in the root of the distribution
@@ -24,16 +24,21 @@
 
 -module(ews_xsd).
 
--export([parse_schema/2]).
+-export([ parse_schema/2
+        , parse_schema/3
+        ]).
 
 -export([ print_all_schema_stats/1
         , print_schema_stats/1
         ]).
 
+-export([split_schemas/1]).
+
 -export([ process/2
         , propagate_namespaces/1
         , import_schema/2
         , parse_types/1
+        , to_base/1
         ]).
 
 -include("ews.hrl").
@@ -55,44 +60,56 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
-parse_schema(Schema, {Acc, Model}) when is_atom(Model) ->
-    Schemas = get_all_schemas(Schema),
-    ?print_stats(Schemas),
-    PrSchemas = [ #schema{namespace=Ns,
-                          url=Url,
-                          types=parse_types(S)} || {Ns, Url, S} <- Schemas ],
+-spec parse_schema(list(binary()), atom()) -> #model{}.
+parse_schema(Schemas0, Model) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schemas0),
+    %%logger:notice("~p~n", [Schemas]),
+    PrSchemas = [ S#schema{url=Url,
+                           types=parse_types(Types)} ||
+                    {_, Url, #schema{types=Types} = S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
-    {ews_model:append_model(Acc, NewTypes, Model), Model};
-parse_schema(Schema, {Acc, Model, BaseDir}) when is_atom(Model) ->
-    Schemas = get_all_schemas(Schema, BaseDir),
-    ?print_stats(Schemas),
-    PrSchemas = [ #schema{namespace=Ns,
-                          url=Url,
-                          types=parse_types(S)} || {Ns, Url, S, _} <- Schemas ],
+    NewTypes.
+-spec parse_schema(list(binary()), atom(), file:name_all()) -> #model{}.
+parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
+    Schemas = get_all_schemas(Schemas0, BaseDir),
+    %%logger:notice("~p~n", [Schemas]),
+    PrSchemas = [ S#schema{url=Url,
+                           types=parse_types(Types)} ||
+                    {_, Url, #schema{types=Types} = S, _} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
-    {ews_model:append_model(Acc, NewTypes, Model), Model}.
+    NewTypes.
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
 
-get_all_schemas(TopSchema) ->
+get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    Input = {Namespace, undefined, TopSchema},
+    Input = {Namespace, undefined, #schema{namespace=Namespace,
+                                           types=TopSchema}},
     AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
-    lists:ukeysort(1, AllSchemas).
+    lists:ukeysort(1, AllSchemas ++ get_all_schemas(T));
+get_all_schemas([]) ->
+    [];
+get_all_schemas(Schema) ->
+    get_all_schemas([Schema]).
 
-get_all_schemas(TopSchema, BaseDir) ->
+get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    Input = {Namespace, undefined, TopSchema, BaseDir},
+    Input = {Namespace, undefined, #schema{namespace=Namespace,
+                                           types=TopSchema}, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
-    lists:ukeysort(1, AllSchemas).
+    lists:ukeysort(1, AllSchemas ++ get_all_schemas(T, BaseDir));
+get_all_schemas([], _)->
+    [];
+get_all_schemas(Schema, BaseDir) ->
+    get_all_schemas([Schema], BaseDir).
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
         [] ->
             [{Ns, Base, Schema} | Acc];
         Imports ->
-            ImpSchemas = [ {ImpNs, Url, import_schema(Url)} ||
+            ImpSchemas = [ {ImpNs, Url, import_schema(Url, ImpNs)} ||
                              {ImpNs, Url} <- Imports,
                              Url /= undefined,
                              not lists:keymember(ImpNs, 1, Acc) ],
@@ -106,7 +123,7 @@ do_get_all_schemas_local({Ns, Base, Schema, BaseDir}, Acc) ->
             [{Ns, Base, Schema, BaseDir} | Acc];
         Imports ->
             logger:debug("Imports: ~p~n", [Imports]),
-            ImpSchemas = [ {ImpNs, Url, import_schema(Url, BaseDir),
+            ImpSchemas = [ {ImpNs, Url, import_schema(Url, ImpNs, BaseDir),
                             basedir(Url, BaseDir)} ||
                              {ImpNs, Url} <- Imports,
                              Url /= undefined,
@@ -125,26 +142,53 @@ basedir(Url, BaseDir) ->
             filename:join(BaseDir, DirName)
     end.
 
-find_imports(Schema) ->
+find_imports(#schema{types=Schema}) ->
     Imports = wh:get_children(Schema, "import"),
     [ {wh:get_attribute(I, namespace),
        wh:get_attribute(I, schemaLocation)} || I <- Imports ].
 
-import_schema(SchemaUrl) ->
+import_schema(SchemaUrl, ImpNs) ->
     {ok, Bin} = request_cached(SchemaUrl),
-    {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
-                                    [{space, normalize},
-                                     {namespace_conformant, true},
-                                     {validation, schema}]),
-    Schema.
+    {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+    find_schema(split_schemas(Schemas), ImpNs).
 
-import_schema(SchemaUrl, BaseDir) ->
+import_schema(SchemaUrl, ImpNs, BaseDir) ->
     {ok, Bin} = request_cached(SchemaUrl, BaseDir),
-    {Schema, _} = xmerl_scan:string(binary_to_list(Bin),
-                                    [{space, normalize},
-                                     {namespace_conformant, true},
-                                     {validation, schema}]),
-    Schema.
+    {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
+                                     [{space, normalize},
+                                      {namespace_conformant, true},
+                                      {validation, schema}]),
+    find_schema(split_schemas(Schemas), ImpNs).
+
+split_schemas(#xmlElement{} = Schemas) ->
+    do_split_schemas([Schemas], []).
+
+do_split_schemas([#xmlElement{
+                     expanded_name =
+                         {'http://www.w3.org/2001/XMLSchema',schema}}
+                  = Schema | Tail
+                 ], Acc) ->
+    Ns = wh:get_attribute(Schema, targetNamespace),
+    do_split_schemas(Tail, [#schema{ namespace = Ns
+                                   , types = Schema
+                                   } | Acc]);
+do_split_schemas([#xmlElement{content = Content} | Tail], Acc0) ->
+    Acc = do_split_schemas(Content, Acc0),
+    do_split_schemas(Tail, Acc);
+do_split_schemas([#xmlText{} | Tail], Acc) ->
+    do_split_schemas(Tail, Acc);
+do_split_schemas([], Acc) ->
+    Acc.
+
+find_schema([#schema{namespace = ImpNs} = Schema | _ ], ImpNs) ->
+    Schema;
+find_schema([_ | T], ImpNs) ->
+    find_schema(T, ImpNs);
+find_schema([], ImpNs) ->
+    error({cant_find_import_schema, ImpNs}).
 
 request_cached(SchemaUrl) ->
     CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
@@ -289,6 +333,7 @@ maybe_ref(Qname, Element) ->
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
+    %%logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
     Children = wh:get_all_child_elements(ComplexType),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
@@ -569,7 +614,10 @@ process(Types, Model) ->
                 %% pass 2
                 case process(Retry, [], Ts, [], [], TypeMap, Model, root, []) of
                     {A2, E2, [], []} -> {A2 ++ A, E2 ++ E};
-                    {_, _, R2, []} -> error({cannot_resolve, R2})
+                    {_, _, R2, []} ->
+                        %%logger:error("Can't resolve all refs~n~p~n",
+                        %%             [lists:usort(ets:tab2list(TypeMap))]),
+                        error({cannot_resolve, R2})
                 end
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
@@ -586,11 +634,23 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             {AccWithSubTypes, SubElems, Retry2, _} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
                         TypeMap, Model, Parent, AttrAcc),
-            Type = #type{qname=TypeName, extends=Ext,
-                         abstract=Abstract, elems=SubElems},
-            ews_model:put(Type, Model, TypeMap),
-            process(Rest, Retry2, Ts, [Type | AccWithSubTypes], [Elem | ElemAcc],
-                    TypeMap, Model, Parent, AttrAcc);
+            %% Check if any child is a reference.
+            case [ Ref || #element{type=#reference{}} = Ref <- SubElems] of
+                [] ->
+                    Type = #type{qname=TypeName, extends=Ext,
+                                 abstract=Abstract, elems=SubElems},
+                    ews_model:put(Type, Model, TypeMap),
+                    process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
+                            [Elem | ElemAcc],
+                            TypeMap, Model, Parent, AttrAcc);
+                [_ | _] ->
+                    %% At least one child is a reference, put this
+                    %% element in the Retry acc and it shoud be
+                    %% resolved for the second pass.
+                    process(Rest, [E | Retry2], Ts, AccWithSubTypes,
+                            [Elem | ElemAcc],
+                            TypeMap, Model, Parent, AttrAcc)
+            end;
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type),
@@ -610,7 +670,7 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
-            process(Rest, [E | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+            process(Rest, [E | Retry], Ts, TypeAcc, [E | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
             %% Override with meta from element with reference
