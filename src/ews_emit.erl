@@ -235,7 +235,7 @@ create_graph(Tbl) ->
                              [ews_model:get_subs(K, Tbl) || K <- Deps]),
                 dict:store(Qn, Deps ++ [K || {K, _} <- DepsSubs], D)
         end,
-    dict:to_list(lists:foldl(F, dict:new(), Types)).
+    lists:sort(dict:to_list(lists:foldl(F, dict:new(), Types))).
 
 emit_enum(Values, Indent) ->
     TickedValues = [tick_word(V) || V <- Values],
