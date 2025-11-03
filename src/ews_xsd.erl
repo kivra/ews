@@ -60,6 +60,7 @@
 %% ----------------------------------------------------------------------------
 %% Api
 
+-spec parse_schema(list(binary()), atom()) -> #model{}.
 parse_schema(Schemas0, Model) when is_atom(Model) ->
     Schemas = get_all_schemas(Schemas0),
     %%logger:notice("~p~n", [Schemas]),
@@ -68,6 +69,7 @@ parse_schema(Schemas0, Model) when is_atom(Model) ->
                     {_, Url, #schema{types=Types} = S} <- Schemas ],
     NewTypes = process(propagate_namespaces(PrSchemas), Model),
     NewTypes.
+-spec parse_schema(list(binary()), atom(), file:name_all()) -> #model{}.
 parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
     Schemas = get_all_schemas(Schemas0, BaseDir),
     %%logger:notice("~p~n", [Schemas]),
