@@ -44,11 +44,11 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
--define(HTTP_OPTS, [ {connect_options,
-                      [ {connect_timeout, timer:seconds(400)}
-                      , {recv_timeout, timer:seconds(400)}
-                      ]}
-                   , with_body
+-define(HTTP_OPTS, [ %% {connect_options,
+                     %%  [ {connect_timeout, timer:seconds(400)}
+                     %%  , {recv_timeout, timer:seconds(400)}
+                     %%  ]}
+                    with_body
                    ]).
 
 -ifdef(DEBUG).
