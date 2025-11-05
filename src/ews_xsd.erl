@@ -84,8 +84,10 @@ parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
 
 get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
+    %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
-                                           types=TopSchema}},
+                                           types=ExpandedSchema}},
     AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas ++ get_all_schemas(T));
 get_all_schemas([]) ->
@@ -95,14 +97,35 @@ get_all_schemas(Schema) ->
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
+    %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
-                                           types=TopSchema}, BaseDir},
+                                           types=ExpandedSchema}, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
     lists:ukeysort(1, AllSchemas ++ get_all_schemas(T, BaseDir));
 get_all_schemas([], _)->
     [];
 get_all_schemas(Schema, BaseDir) ->
     get_all_schemas([Schema], BaseDir).
+
+find_includes(#xmlElement{content=Content}, Ns) ->
+    #xmlElement{content=find_includes(Content, Ns)};
+find_includes([#xmlText{} = Txt | T], Ns) ->
+    [Txt | find_includes(T, Ns)];
+find_includes([#xmlElement{
+                  expanded_name =
+                      {'http://www.w3.org/2001/XMLSchema',
+                       include}} = IncElem | T], Ns) ->
+    Url = wh:get_attribute(IncElem, schemaLocation),
+    %%logger:notice("Url: ~tp~n", [Url]),
+    #schema{types = Include} = import_schema(Url, Ns),
+    #xmlElement{content=Content} = Include,
+    Content ++ find_includes(T, Ns);
+find_includes([#xmlElement{content=Content} = Elem | T], Ns) ->
+    [Elem#xmlElement{content=find_includes(Content, Ns)} |
+     find_includes(T, Ns)];
+find_includes([], _) ->
+    [].
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
@@ -143,7 +166,9 @@ basedir(Url, BaseDir) ->
     end.
 
 find_imports(#schema{types=Schema}) ->
+    %%logger:notice("Schema: ~tp~n", [Schema]),
     Imports = wh:get_children(Schema, "import"),
+    %%logger:notice("Imports: ~tp~n", [Imports]),
     [ {wh:get_attribute(I, namespace),
        wh:get_attribute(I, schemaLocation)} || I <- Imports ].
 
