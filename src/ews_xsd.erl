@@ -250,6 +250,7 @@ request_cached(SchemaUrl, BaseDir) ->
                 {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [SchemaUrl]),
                     {error, Error}
             end;
         %% Not a URI, fetch locally
@@ -259,6 +260,7 @@ request_cached(SchemaUrl, BaseDir) ->
                 {ok, Bin} ->
                     {ok, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [XSDFilename]),
                     {error, Error}
             end
     end.
