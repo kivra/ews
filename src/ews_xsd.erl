@@ -173,6 +173,7 @@ find_imports(#schema{types=Schema}) ->
        wh:get_attribute(I, schemaLocation)} || I <- Imports ].
 
 import_schema(SchemaUrl, ImpNs) ->
+    %%logger:notice("Import: ~tp~n", [SchemaUrl]),
     {ok, Bin} = request_cached(SchemaUrl),
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
@@ -181,6 +182,7 @@ import_schema(SchemaUrl, ImpNs) ->
     find_schema(split_schemas(Schemas), ImpNs).
 
 import_schema(SchemaUrl, ImpNs, BaseDir) ->
+    %%logger:notice("Import: ~tp  (~tp)~n", [SchemaUrl, BaseDir]),
     {ok, Bin} = request_cached(SchemaUrl, BaseDir),
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
@@ -556,6 +558,7 @@ to_integer(List) when is_list(List) ->
     list_to_integer(List).
 
 parse_restriction_property(Restriction) ->
+    %%logger:notice("Restriction: ~tp~n", [Restriction]),
     Value = wh:get_attribute(Restriction, value),
     case wh:get_simple_name(Restriction) of
         "minExclusive" ->
@@ -690,10 +693,12 @@ process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
         TypeMap, Model, Parent, AttrAcc) ->
     process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
             Model, Parent, AttrAcc);
-process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest],
+process([#element{name=Name, type=#reference{name=RName}, parts=[]} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
+    %%logger:notice("Element with ref: ~tp~n", [E]),
+    Qname = type_qname(RName, Name),
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
@@ -713,7 +718,7 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
-    Qtype = qname(T, no_ns),
+    Qtype = type_qname(T, Qname),
     case to_base(Qtype) of
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
@@ -766,6 +771,66 @@ type_name({Ns, N}, {_, Parent}) ->
     {Ns, Parent++"@"++N};
 type_name({Ns, N}, root) ->
     {Ns, N}.
+
+type_qname({_,_} = Qname, _) ->
+    Qname;
+type_qname(Name, {Ns, _}) ->
+    case is_builtin(Name) of
+        true -> {no_ns, Name};
+        false -> {Ns, Name}
+    end.
+
+is_builtin("anyURI") -> true;
+is_builtin("anyAtomicType") -> true;
+is_builtin("anySimpleType") -> true;
+is_builtin("base64Binary") -> true;
+is_builtin("boolean") -> true;
+is_builtin("byte") -> true;
+is_builtin("date") -> true;
+is_builtin("dateTime") -> true;
+is_builtin("dateTimeStamp") -> true;
+is_builtin("dayTimeDuration") -> true;
+is_builtin("decimal") -> true;
+is_builtin("double") -> true;
+is_builtin("duration") -> true;
+is_builtin("ENTITIES") -> true;
+is_builtin("ENTITY") -> true;
+is_builtin("float") -> true;
+is_builtin("gDay") -> true;
+is_builtin("gMonth") -> true;
+is_builtin("gMonthDay") -> true;
+is_builtin("gYear") -> true;
+is_builtin("gYearMonth") -> true;
+is_builtin("hexBinary") -> true;
+is_builtin("ID") -> true;
+is_builtin("IDREF") -> true;
+is_builtin("IDREFS") -> true;
+is_builtin("int") -> true;
+is_builtin("integer") -> true;
+is_builtin("language") -> true;
+is_builtin("long") -> true;
+is_builtin("Name") -> true;
+is_builtin("NCName") -> true;
+is_builtin("negativeInteger") -> true;
+is_builtin("NMTOKEN") -> true;
+is_builtin("NMTOKENS") -> true;
+is_builtin("nonNegativeInteger") -> true;
+is_builtin("nonPositiveInteger") -> true;
+is_builtin("normalizedString") -> true;
+is_builtin("NOTATION") -> true;
+is_builtin("positiveInteger") -> true;
+is_builtin("precisionDecimal") -> true;
+is_builtin("QName") -> true;
+is_builtin("short") -> true;
+is_builtin("string") -> true;
+is_builtin("time") -> true;
+is_builtin("token") -> true;
+is_builtin("unsignedByte") -> true;
+is_builtin("unsignedInt") -> true;
+is_builtin("unsignedLong") -> true;
+is_builtin("unsignedShort") -> true;
+is_builtin("yearMonthDuration") -> true;
+is_builtin(OtherType) when is_list(OtherType) -> false.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
     [{Qname, process_simple(S)} | process_all_simple(Rest) ];
