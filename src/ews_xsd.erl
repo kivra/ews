@@ -17,7 +17,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ---------------------------------------------------------------------------
 %%% WSDL Types parsing
-%%% Doesn't support: group, attributeGroup, include and notation types
+%%% Doesn't support: group, attributeGroup and notation types
 %%%                  unique, key or keyref
 %%% FIXME: Merge elements and types.
 %%% ---------------------------------------------------------------------------
