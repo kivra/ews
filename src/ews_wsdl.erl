@@ -57,7 +57,7 @@ fetch(WsdlUrl) ->
     end.
 
 parse(WsdlBin, Model) when is_atom(Model) ->
-    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+    {WsdlDoc, _} = xmerl_scan:string(unicode:characters_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
                                       {validation, schema}]),
@@ -75,7 +75,7 @@ parse(WsdlBin, Model) when is_atom(Model) ->
           types=Types}.
 
 parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
-    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+    {WsdlDoc, _} = xmerl_scan:string(unicode:characters_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
                                       {validation, schema}]),
@@ -101,7 +101,7 @@ parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
 parse_local(WsdlPath, Model) when is_atom(Model) ->
     {ok, WsdlBin} = file:read_file(WsdlPath),
     WsdlBasePath = filename:dirname(WsdlPath),
-    {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
+    {WsdlDoc, _} = xmerl_scan:string(unicode:characters_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
                                       {validation, schema}]),
