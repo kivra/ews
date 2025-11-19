@@ -39,7 +39,7 @@ model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     file:close(Fd).
 
 output_typedef(#type{alias=Alias}) ->
-    ["-type '#", atom_to_list(Alias), "'() :: tuple().  "
+    ["-type '#", utf8_atom_to_list(Alias), "'() :: tuple().  "
      "%% Needed due to circular type definition\n"].
 
 output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved) ->
@@ -142,11 +142,11 @@ record_spec(T, Unresolved) ->
         false ->
             ["#", tick_word(T), "{}"];
         true ->
-            ["'#", atom_to_list(T), "'()"]
+            ["'#", utf8_atom_to_list(T), "'()"]
     end.
 
 tick_word(Word) when is_atom(Word) ->
-    tick_word(atom_to_list(Word));
+    tick_word(utf8_atom_to_list(Word));
 tick_word(Word) ->
     case erl_scan:string(Word) of
         {ok, [{atom, _, _}], _} ->
@@ -251,3 +251,7 @@ erl_type({_,_} = T) ->
 erl_type(T) ->
     #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
     output_erl_type(ET).
+
+%% This outputs an atom as an utf8 string.
+utf8_atom_to_list(Atom) ->
+    binary_to_list(atom_to_binary(Atom)).
