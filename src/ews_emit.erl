@@ -146,13 +146,18 @@ record_spec(T, Unresolved) ->
     end.
 
 tick_word(Word) when is_atom(Word) ->
-    tick_word(utf8_atom_to_list(Word));
-tick_word(Word) ->
-    case erl_scan:string(Word) of
+    do_tick_word(utf8_atom_to_list(Word));
+tick_word(Word) when is_list(Word) ->
+    do_tick_word(
+      binary_to_list(
+        unicode:characters_to_binary(Word, unicode, utf8))).
+
+do_tick_word(Utf8Word) ->
+    case erl_scan:string(Utf8Word) of
         {ok, [{atom, _, _}], _} ->
-            Word;
+            Utf8Word;
         _ ->
-            [$', Word, $']
+            [$', Utf8Word, $']
     end.
 
 check_nillable(Base, #meta{nillable = "true"}) ->
