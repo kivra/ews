@@ -339,6 +339,12 @@ validate_xml({_, [_|_] = As, []}, #type{qname=Key, alias=Alias,
             Attrs = validate_attrs(As, PossAttrs, #{}),
             list_to_tuple([Alias, Attrs | ValidatedXml])
     end;
+validate_xml({_, [], []}, #type{alias=Alias, elems=[]}, _Tbl) ->
+    %% An element that should be empty.
+    %% Should become an empty record like this:
+    %% -record(sausage, {}).
+    %% return `{sausage}`
+    {Alias};
 validate_xml({_, As, []}, #type{}, _Tbl) ->
     %% This is broken, an empty type that shouldn't be.
     case is_nil(As) of
