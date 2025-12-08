@@ -73,7 +73,7 @@ test_in(InHdr, In, Model, Service, Op, Tbl) ->
     ?assertMatch(Service, Svc),
     ?assertMatch(Op, OpName),
     ?assertMatch(InHdrVals, InHdrs),
-    cond_assert(InVals, InRes),
+    ?assertMatch(InVals, InRes),
     ok.
 
 test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
@@ -89,7 +89,7 @@ test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
     {ok, HdrOut, OpOut} = ews:decode_service_op_result(Model, Service, Op,
                                                        HdrResp, Resp),
     ?assertMatch(OutHdrVals, HdrOut),
-    cond_assert(OutVals, OpOut),
+    ?assertMatch(OutVals, OpOut),
     ok.
 
 test_fault(undefined, _, _, _, _, _) -> ok;
@@ -170,9 +170,3 @@ erl_type({_,_} = T) ->
 erl_type(T) ->
     #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
     ET.
-
-%% TODO: ews should decode empty record, but it seems it doesn't
-cond_assert([{_}], _) ->
-    ok;
-cond_assert(In, Res) ->
-    ?assertMatch(In, Res).
