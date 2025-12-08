@@ -16,6 +16,7 @@
 -export([ google_v201306_ensure_record/1
         , google_v201306_correct_service/1
         , colliding_types/1
+        , empty_records_decode/1
         , serialize_deserialize/1
         , dont_emit_simplecontent/1
         , many_schemas_n_refs/1
@@ -30,6 +31,7 @@ groups() ->
        ]}
     , {mm_service,
        [ dont_emit_simplecontent
+       , empty_records_decode
        ]}
     , {mm_notification,
        [ colliding_types
@@ -115,6 +117,31 @@ dont_emit_simplecontent(_Config) ->
                                 "SignatureValueType"}
                               , Tbl)),
     ok = ews_test:test_everything(ek_mm_test),
+    ok.
+
+empty_records_decode(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "mm_service.wsdl"),
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+    ews:add_wsdl_to_model(ek_mm_test, File),
+    %%ews:emit_complete_model_types(ek_mm_test, "/tmp/le_service.hrl"),
+    %% "client" serializes request
+    PoserMessage =
+        [{get_posers}],
+    %%ok = ews:get_service_op_info(ek_mm_test, "service", "poser"),
+    PoserSOAP = ews:serialize_service_op( ek_mm_test
+                                        , "service"
+                                        , "poser"
+                                        , []
+                                        , PoserMessage
+                                        ),
+    {ok, {Svc, OpName, [], OpIn}} = ews:decode_in(ek_mm_test, PoserSOAP),
+    logger:notice("PoserSOAP: ~tp~n", [PoserSOAP]),
+    ?assertMatch("service", Svc),
+    ?assertMatch("poser", OpName),
+    ?assertMatch(PoserMessage, OpIn),
     ok.
 
 colliding_types(_Config) ->
