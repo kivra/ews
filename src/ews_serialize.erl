@@ -339,7 +339,13 @@ validate_xml({_, [_|_] = As, []}, #type{qname=Key, alias=Alias,
             Attrs = validate_attrs(As, PossAttrs, #{}),
             list_to_tuple([Alias, Attrs | ValidatedXml])
     end;
-validate_xml({_, [], []}, #type{alias=Alias, elems=[]}, _Tbl) ->
+validate_xml({_, [], []}, #type{alias=Alias, elems=[], attrs=[_|_]}, _Tbl) ->
+    %% An element that should be empty, but with attributes
+    %% Should become an empty record like this:
+    %% -record(sausage, {'__attrs' :: #{a => binary()}}).
+    %% return `{sausage, undefined}`
+    {Alias, undefined};
+validate_xml({_, [], []}, #type{alias=Alias, elems=[], attrs=[]}, _Tbl) ->
     %% An element that should be empty.
     %% Should become an empty record like this:
     %% -record(sausage, {}).
