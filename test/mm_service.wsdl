@@ -19,10 +19,20 @@
       <xsd:element name="getPosersResponse">
         <xsd:complexType>
           <xsd:sequence>
-            <xsd:element name="return" type="integer" minOccurs="0" maxOccurs="unbounded"/>
+            <xsd:element name="fluster" type="FlusterType"/>
           </xsd:sequence>
         </xsd:complexType>
       </xsd:element>
+      <xsd:simpleType name="FlusterType">
+        <xsd:annotation>
+          <xsd:documentation>This pattern triggered a bug in wh.erl</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xs:string">
+          <xsd:pattern value="[\w\d\p{Zs}\-/_.,:]*"/>
+          <xsd:minLength value="1"/>
+          <xsd:maxLength value="80"/>
+        </xsd:restriction>
+      </xsd:simpleType>
       <xsd:element name="PosersFault">
         <xsd:complexType>
           <xsd:sequence>
