@@ -117,6 +117,7 @@ dont_emit_simplecontent(_Config) ->
                                 "SignatureValueType"}
                               , Tbl)),
     ok = ews_test:test_everything(ek_mm_test),
+    meck:unload(hackney),
     ok.
 
 empty_records_decode(_Config) ->
@@ -142,6 +143,7 @@ empty_records_decode(_Config) ->
     ?assertMatch("service", Svc),
     ?assertMatch("poser", OpName),
     ?assertMatch(PoserMessage, OpIn),
+    meck:unload(hackney),
     ok.
 
 colliding_types(_Config) ->
@@ -177,6 +179,7 @@ colliding_types(_Config) ->
                  ews_model:get(EmailHeaderType, Tbl)),
     ?assertMatch(#type{alias=header, elems=[_]},
                  ews_model:get(SmsHeaderType, Tbl)),
+    meck:unload(hackney),
     ok.
 
 serialize_deserialize(_Config) ->
@@ -227,6 +230,7 @@ serialize_deserialize(_Config) ->
                                                  [Resp]),
 
     ?assertMatch(SmsMessage, OpOut),
+    meck:unload(hackney),
     ok.
 
 many_schemas_n_refs(_Config) ->
