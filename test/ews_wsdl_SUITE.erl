@@ -143,6 +143,27 @@ empty_records_decode(_Config) ->
     ?assertMatch("service", Svc),
     ?assertMatch("poser", OpName),
     ?assertMatch(PoserMessage, OpIn),
+    OutMessage =
+        [{get_posers_response,
+          <<"fluster">>,
+          {secret, undefined},
+          13}],
+    OutSOAP =
+        iolist_to_binary(
+          ews:encode_service_op_result( ek_mm_test
+                                      , "service"
+                                      , "poser"
+                                      , []
+                                      , OutMessage
+                                      )),
+    XmlTerm = ews_xml:decode(OutSOAP),
+    {ok, {HdrResp, Resp}} = ews_soap:parse_envelope(XmlTerm),
+    {ok, _HdrOut, OpOut} = ews:decode_service_op_result( ek_mm_test
+                                                      , "service"
+                                                      , "poser"
+                                                      , HdrResp
+                                                      , Resp),
+    ?assertMatch(OutMessage, OpOut),
     meck:unload(hackney),
     ok.
 

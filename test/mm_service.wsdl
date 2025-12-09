@@ -20,6 +20,8 @@
         <xsd:complexType>
           <xsd:sequence>
             <xsd:element name="fluster" type="FlusterType"/>
+            <xsd:element name="apa" ref="Secret"/>
+            <xsd:element name="bepa" type="integer"/>
           </xsd:sequence>
         </xsd:complexType>
       </xsd:element>
@@ -33,10 +35,35 @@
           <xsd:maxLength value="80"/>
         </xsd:restriction>
       </xsd:simpleType>
+      <xsd:simpleType name="SekretessSattAvTYPE">
+        <xsd:annotation>
+          <xsd:documentation>
+            This should trigger an empty record with just __attrs
+          </xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xs:string">
+            <xsd:enumeration value="JA"/>
+          </xsd:restriction>
+      </xsd:simpleType>
+      <xsd:simpleType name="tns:JaNejTYPE">
+        <xsd:restriction base="xs:string">
+          <xsd:enumeration value="JA"/>
+          <xsd:enumeration value="NEJ"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+      <xsd:element name="Secret" type="Secret"/>
+      <xsd:complexType name="Secret">
+        <xsd:simpleContent>
+          <xsd:extension base="tns:JaNejTYPE">
+            <xsd:attribute name="sattAv" type="SekretessSattAvTYPE"/>
+          </xsd:extension>
+        </xsd:simpleContent>
+      </xsd:complexType>
       <xsd:element name="PosersFault">
         <xsd:complexType>
           <xsd:sequence>
-            <xsd:element name="code" type="integer"/>
+            <xsd:element name="apa" ref="Secret"/>
+            <xsd:element name="bepa" type="integer"/>
           </xsd:sequence>
         </xsd:complexType>
       </xsd:element>
