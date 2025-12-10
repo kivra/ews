@@ -175,6 +175,7 @@ find_imports(#schema{types=Schema}) ->
 import_schema(SchemaUrl, ImpNs) ->
     %%logger:notice("Import: ~tp~n", [SchemaUrl]),
     {ok, Bin} = request_cached(SchemaUrl),
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -184,6 +185,7 @@ import_schema(SchemaUrl, ImpNs) ->
 import_schema(SchemaUrl, ImpNs, BaseDir) ->
     %%logger:notice("Import: ~tp  (~tp)~n", [SchemaUrl, BaseDir]),
     {ok, Bin} = request_cached(SchemaUrl, BaseDir),
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
