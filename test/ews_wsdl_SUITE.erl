@@ -1,3 +1,4 @@
+%% coding: utf-8
 -module(ews_wsdl_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -259,6 +260,13 @@ many_schemas_n_refs(_Config) ->
                                     test_wsdl_file("tiny.wsdl")),
     TmpFile = tempfile(),
     ok = ews:emit_complete_model_types(tiny, TmpFile),
+    %% Test so generated .hrl file does not contain latin-1
+    {ok, Utf8File} = file:read_file(TmpFile),
+    UnicodeString = unicode:characters_to_list(Utf8File, utf8),
+    ?assertNotMatch({incomplete,_,_}, UnicodeString),
+    ?assertNotMatch({error,_,_}, UnicodeString),
+    ?assertMatch(true, is_list(UnicodeString)),
+    %% Test a message
     Find = [{find,
              {find_love_class,
               #{'UserId' => <<"TEST">>,
@@ -269,7 +277,8 @@ many_schemas_n_refs(_Config) ->
                #{'Gender' => <<"Foden">>,
                  'Internet' => 1},
                undefined,
-               <<"197001011234">>},
+               <<"197001011234">>,
+              'skriven på adressen'},
               {query_columns_class,
                #{'Vkiid' => 1,
                  'Vkid' => 1}}}}],
