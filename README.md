@@ -10,12 +10,23 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 4.0.0 and 4.1.0
+
+* Support for `include` in schemas.
+* Handle non-ASCII in types
+* Fix for a bug that didn't decode emtpy records like `-record(foo, {}).`
+
 ## Changes between 3.1.0 and 4.0.0
 
-* Breaking changes
+Breaking changes
 
 * `ews:call_service_op` will now return `{ok, [term()]}` instead of `{ok, term()}`, cause there can actually  be more than one message returned.
 * `ews:decode_in` will not return `{ok, {Svc, Op, list(Headers), list(Body)}}`
+
+Other changes
+
+* Non-optional attributes in `__attrs` will now have `:=` in their typespec
+* A more consistent ordering of records. First in dep order, then namespace and lastly name. This will reorder everything once now, but less in the future.
 
 ## Changes between 3.0.1 and 3.1.0
 
