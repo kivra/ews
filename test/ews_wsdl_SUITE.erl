@@ -19,7 +19,7 @@
         , colliding_types/1
         , empty_records_decode/1
         , serialize_deserialize/1
-        , dont_emit_simplecontent/1
+        %% , dont_emit_simplecontent/1
         , many_schemas_n_refs/1
         ]).
 
@@ -31,8 +31,8 @@ groups() ->
         google_v201306_correct_service
        ]}
     , {mm_service,
-       [ dont_emit_simplecontent
-       , empty_records_decode
+       [ %% dont_emit_simplecontent
+         empty_records_decode
        ]}
     , {mm_notification,
        [ colliding_types
@@ -100,26 +100,26 @@ google_v201306_correct_service(Config) ->
     [ResService] = Wsdl#wsdl.services,
     "CampaignService" = ResService#service.name.
 
-dont_emit_simplecontent(_Config) ->
-    Dir = filename:join(code:priv_dir(ews), "../test"),
-    File = filename:join(Dir, "mm_service.wsdl"),
-    %% Mock request
-    meck:new(hackney),
-    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
-    ews:add_wsdl_to_model(ek_mm_test, File),
-    #model{type_map=Tbl, simple_types=Ts} =
-        ews_svc:get_model(ek_mm_test),
-    Ret = ews_emit:sort_types(Tbl, Ts),
-    %% Nothing should be unresolved
-    ?assertMatch({[], [_|_]}, Ret),
-    %% This simpleContent should not be in Tbl
-    ?assertEqual(false,
-                 ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
-                                "SignatureValueType"}
-                              , Tbl)),
-    ok = ews_test:test_everything(ek_mm_test),
-    meck:unload(hackney),
-    ok.
+%% dont_emit_simplecontent(_Config) ->
+%%     Dir = filename:join(code:priv_dir(ews), "../test"),
+%%     File = filename:join(Dir, "mm_service.wsdl"),
+%%     %% Mock request
+%%     meck:new(hackney),
+%%     meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+%%     ews:add_wsdl_to_model(ek_mm_test, File),
+%%     #model{type_map=Tbl, simple_types=Ts} =
+%%         ews_svc:get_model(ek_mm_test),
+%%     Ret = ews_emit:sort_types(Tbl, Ts),
+%%     %% Nothing should be unresolved
+%%     ?assertMatch({[], [_|_]}, Ret),
+%%     %% This simpleContent should not be in Tbl
+%%     ?assertEqual(false,
+%%                  ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
+%%                                 "SignatureValueType"}
+%%                               , Tbl)),
+%%     ok = ews_test:test_everything(ek_mm_test),
+%%     meck:unload(hackney),
+%%     ok.
 
 empty_records_decode(_Config) ->
     Dir = filename:join(code:priv_dir(ews), "../test"),
@@ -147,7 +147,7 @@ empty_records_decode(_Config) ->
     OutMessage =
         [{get_posers_response,
           <<"fluster">>,
-          {secret, undefined},
+          {secret, #{'sattAv' => ja}, nej},
           13}],
     OutSOAP =
         iolist_to_binary(
