@@ -328,7 +328,7 @@ parse_type(#xmlElement{} = Type) ->
         "notation" ->
             notation;
         Other ->
-            ?log("ERROR: unrecognized xsd-element: ~p~n",
+            logger:warning("ERROR: unrecognized xsd-element: ~p~n",
                  [Other]),
             {error, {unknown_type, Other}}
     end.
@@ -364,23 +364,42 @@ maybe_ref(Qname, Element) ->
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
-    %%logger:notice("ComplexType: ~p~n", [Name]),
+    %% logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
     Children = wh:get_all_child_elements(ComplexType),
+    %%logger:notice("Children: ~tp~n", [Children]),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
     Extension = parse_type(wh:find_element(ComplexType, "extension")),
     case Children of
-        [#xmlElement{name = simpleContent} = SimpleContent] ->
+        [#xmlElement{expanded_name =
+                         {'http://www.w3.org/2001/XMLSchema',
+                          simpleContent}} = SimpleContent] ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction")),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
             %% TODO: handle extenstions without this ugly hack
             %% This is converted to a simple_type since we don't want to emit
-            %% a record for a simpleContent
+            %% a record for a simpleContent.
+            %% Unless of course the simpleContent has attributes, then we
+            %% need to emit a special record like this:
+            %% -record(foo, {'__attrs' :: #{bar => string() | binary()} | undefined
+            %%               value :: integer() | undefined}).
             RestrictionFinal = extract_base(RestrictionSC, ExtensionSC),
-            #simple_type{name=Name,
-                         restrictions=RestrictionFinal
-                         };
+            %% logger:notice("SimpleContent: ~tp~n", [SimpleContent]),
+            %% logger:notice("ExtensionSC: ~tp~n", [ExtensionSC]),
+            #extension{parts=ExtensionParts} = ExtensionSC,
+            case [ EP || #attribute{} = EP <- ExtensionParts ] of
+                [] ->
+                    #simple_type{name=Name,
+                                 restrictions=RestrictionFinal
+                                };
+                [#attribute{} | _] = Attributes ->
+                    %% logger:notice("SimpleContentAttrs: ~tp~n", [Attributes]),
+                    #simple_content{name=Name,
+                                    restrictions=RestrictionFinal,
+                                    attrs=Attributes
+                                   }
+            end;
         _ ->
             ChildTypes = [ parse_type(C) || C <- Children ],
             Parts = flatten_children(ChildTypes),
@@ -614,15 +633,21 @@ insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
                        [{doc, Doc}]
                end,
     insert_nss(Ts, Ns, [E#element{name=qname(N, Ns), parts=NewParts}|Res]);
-insert_nss([A = #attribute{name=N} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [A#attribute{name=qname(N, Ns)}|Res]);
+insert_nss([A = #attribute{type=T} | Ts], Ns, Res) ->
+    insert_nss(Ts, Ns, [A#attribute{type=attr_qname(T, Ns)}|Res]);
 insert_nss([St = #simple_type{name=N} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [St#simple_type{name=qname(N, Ns)}|Res]);
+insert_nss([St = #simple_content{name=N,attrs=Attrs} | Ts], Ns, Res) ->
+    NewAttrs = insert_nss(Attrs, Ns, []),
+    %% logger:notice("insert_nss NewAttrs: ~tp~n", [NewAttrs]),
+    NewRes = [St#simple_content{name=qname(N, Ns), attrs=NewAttrs}|Res],
+    insert_nss(Ts, Ns, NewRes);
 insert_nss([Ct = #complex_type{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewPs = insert_nss(Ps, Ns, []),
     NewRes = [Ct#complex_type{name=qname(N, Ns), parts=NewPs}|Res],
     insert_nss(Ts, Ns, NewRes);
 insert_nss([_E | Ts], Ns, Res) ->
+    %% logger:warning("warning: unhandled ~tp~n", [E]),
     insert_nss(Ts, Ns, Res);
 insert_nss([], _, Res) ->
     lists:reverse(Res).
@@ -649,7 +674,7 @@ process(Types, Model) ->
                     {_, _, R2, []} ->
                         %%logger:error("Can't resolve all refs~n~p~n",
                         %%             [lists:usort(ets:tab2list(TypeMap))]),
-                        error({cannot_resolve, R2})
+                        error({cannot_resolve, R2, Ts})
                 end
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
@@ -758,13 +783,66 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, T
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#attribute{} = A | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
-        Parent, AttrAcc)->
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent,
-            [ A | AttrAcc]);
+process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
+        | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
+    #restriction{base_type = Bs} = Restrictions,
+    %% We don't want to pass in Retry in processing of parts
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
+        {AccWithSubTypes, [], [], AttrAcc} ->
+            MaybeBaseOrEnum =
+                case {to_base(type_qname(Bs, Qname)),
+                      lists:keyfind(Bs, 1, Ts)} of
+                    {false, false} -> undefined;
+                    {false, {_Qtype, BOrE}} -> BOrE;
+                    {BOrE, _} -> BOrE
+                end,
+            case MaybeBaseOrEnum of
+                undefined ->
+                    %% logger:error("Can't find simpletype: ~tp~nTs: ~tp~n",
+                    %%              [CT, Ts]),
+                    process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, AttrAcc);
+                BaseOrEnum ->
+                    SC = #sc{qname={ok,"value"}, type=BaseOrEnum,
+                             %% hard code meta, the encasing element has the
+                             %% correct meta.
+                             meta=#meta{min=1, max=1}},
+                    %% logger:notice("AttrAcc ~tp~n", [AttrAcc]),
+                    Type = #type{qname=Qname,
+                                 elems=[SC],
+                                 attrs=AttrAcc},
+                    ews_model:put(Type, Model, TypeMap),
+                    process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
+                            TypeMap, Model, Parent, [])
+            end;
+        {_, _, [_|_], AttrAcc} ->
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc)
+    end;
+process([#attribute{type=Type, base=undefined} = A | Rest], Retry, Ts, TypeAcc,
+        ElemAcc, TypeMap, Model, Parent, AttrAcc)->
+    case to_base(Type) of
+        false ->
+            case lists:keyfind(Type, 1, Ts) of
+                false ->
+                    logger:error("Can't find simpletype: ~tp~n",
+                                 [Type]),
+                    process(Rest, [A | Retry], Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, AttrAcc);
+                {_Qtype, BaseOrEnum} ->
+                    NewA = A#attribute{base=BaseOrEnum},
+                    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, [NewA | AttrAcc])
+            end;
+        #base{} = Base ->
+            NewA = A#attribute{base=Base},
+            process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap,
+                    Model, Parent, [NewA | AttrAcc])
+    end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc)
   when not is_record(T, attribute) ->
-    ?log("warning: unhandled ~p~n", [T]),
+    logger:warning("warning: unhandled ~tp~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
 process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent, AttrAcc) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry, lists:reverse(AttrAcc)}.
@@ -777,6 +855,14 @@ type_name({Ns, N}, root) ->
 type_qname({_,_} = Qname, _) ->
     Qname;
 type_qname(Name, {Ns, _}) ->
+    case is_builtin(Name) of
+        true -> {"no_ns", Name};
+        false -> {Ns, Name}
+    end.
+
+attr_qname({_,_} = Qname, _) ->
+    Qname;
+attr_qname(Name, Ns) ->
     case is_builtin(Name) of
         true -> {"no_ns", Name};
         false -> {Ns, Name}

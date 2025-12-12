@@ -51,17 +51,24 @@ output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved
     [Line1, string:join(PartRows, JoinStr), "}).\n"];
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
+    %% logger:notice("Tp: ~tp~n", [Tp]),
     Line0 = "%% @doc Possible keys for '__attrs'\n",
-    AttrDocs = [ ["%% ", tick_word(A), " :: ", no_ns(T), "\n"] ||
-                   #attribute{name={_,A},type=T} <- Attrs ],
+    AttrDocs = [ ["%% ", tick_word(no_ns(A)), " :: ", no_ns(T), "\n"] ||
+                   #attribute{name=A,type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     Attr = ["'__attrs' :: #{"],
     AttrIndent = Indent + iolist_size(Attr),
     AttrEnd = output_attr_undefined(Attrs),
-    AttrRows = [lists:flatten([tick_word(A), output_map_default(U),
-                               erl_type(T)]) ||
-                   #attribute{name={_,A},use=U,type=T} <- Attrs],
+    AttrRows = [lists:flatten([tick_word(no_ns(A)), output_map_default(U),
+                               output_single_type( B
+                                                 , #meta{max=1}
+                                                 , AttrIndent
+                                                 , Tbl
+                                                 , ModelRef
+                                                 , Unresolved
+                                                 )]) ||
+                   #attribute{name=A,use=U,base=B} <- Attrs],
     JoinAttrs = ",\n"++lists:duplicate(AttrIndent, $ ),
     AttrStr = lists:flatten([Attr, string:join(AttrRows, JoinAttrs), AttrEnd]),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
@@ -71,6 +78,14 @@ output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
                                          JoinStr), "}).\n"].
 
 output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
+            ModelRef, Unresolved) ->
+    A = ews_alias:create(Qname),
+    #meta{min=Min} = M,
+    Base = [tick_word(A), " :: "],
+    SpecIndent = Indent + iolist_size(Base),
+    Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved),
+    check_min(check_nillable([Base, Ts], M), Min);
+output_part(#sc{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
     A = ews_alias:create(Qname),
     #meta{min=Min} = M,
@@ -249,13 +264,6 @@ emit_enum(Values, Indent) ->
 
 no_ns({_NS, N}) -> N;
 no_ns(N) -> N.
-
-erl_type({_,_} = T) ->
-    #base{erl_type = ET} = ews_xsd:to_base(T),
-    output_erl_type(ET);
-erl_type(T) ->
-    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
-    output_erl_type(ET).
 
 %% This outputs an atom as an utf8 string.
 utf8_atom_to_list(Atom) ->

@@ -156,6 +156,10 @@ def_attrs([#attribute{ name = {_, Name}, type = Type}| T], Acc) ->
     Key = list_to_atom(Name),
     Value = def_erl(erl_type(Type)),
     def_attrs(T, Acc#{Key => Value});
+def_attrs([#attribute{ name = Name, type = Type}| T], Acc) ->
+    Key = list_to_atom(Name),
+    Value = def_erl(erl_type(Type)),
+    def_attrs(T, Acc#{Key => Value});
 def_attrs([], Acc) ->
     Acc.
 

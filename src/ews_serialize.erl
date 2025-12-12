@@ -164,8 +164,9 @@ encode_term(Term, #type{qname=Key, alias=A, attrs=[]}, Tbl) when is_tuple(Term) 
     end;
 encode_term(Term, #type{qname=Key, alias=A, attrs=[_|_]=PossAttrs}, Tbl)
   when is_tuple(Term) ->
-    logger:debug("PossAttrs: ~p~n", [PossAttrs]),
+    %% logger:notice("PossAttrs: ~p~n", [PossAttrs]),
     [Name, Attrs|Values] = tuple_to_list(Term), %% TODO: Move this one clause up
+    %% logger:notice("Attrs: ~p~n", [Attrs]),
     EncAttrs = encode_attributes(Attrs, PossAttrs, Key),
     Super = ews_model:get_super(Name, Tbl),
     case ews_model:get(Name, Tbl) of
@@ -189,6 +190,8 @@ encode_term(Term, #type{qname=Key, alias=A, attrs=[_|_]=PossAttrs}, Tbl)
     end;
 encode_term(Term, #type{qname={_, N}}, _) ->
     error({"expected #"++N++"{}", Term});
+encode_term(Term, #sc{type=Type}, Tbl) ->
+    encode_term(Term, Type, Tbl);
 encode_term(Term, #base{erl_type=Type, list=IsList}, _) ->
     case is_list(Term) of
         false ->
@@ -224,6 +227,8 @@ encode_attributes(undefined, _, _) ->
     [].
 
 do_encode_attributes([Attr | Tail], PossAttrs, Name, Acc) ->
+    %% logger:notice("encoding: PossAttrs: ~tp~nAttr: ~tp~nName: ~tp~n",
+    %%               [PossAttrs, Attr, Name]),
     EncAttr = encode_attr(PossAttrs, Attr, Name),
     do_encode_attributes(Tail, PossAttrs, Name, [EncAttr | Acc]);
 do_encode_attributes([], _, _, Acc) ->
@@ -231,10 +236,14 @@ do_encode_attributes([], _, _, Acc) ->
 
 encode_attr(Attrs, {Id, Value}, Name) when is_atom(Id) ->
     encode_attr(Attrs, {atom_to_list(Id), Value}, Name);
-encode_attr([#attribute{name = {_, Id}, type = Type} | _Tail],
+encode_attr([#attribute{name = {_, Id}, base = BaseType} | _Tail],
             {Id, Value}, _Name) ->
-    BaseType = erl_type(Type),
-    {Id, encode_single_base(Value, BaseType)};
+    [{txt, Enc}] = encode_term(Value, BaseType, noarg),
+    {Id, Enc};
+encode_attr([#attribute{name = Id, base = BaseType} | _Tail],
+            {Id, Value}, _Name) ->
+    [{txt, Enc}] = encode_term(Value, BaseType, noarg),
+    {Id, Enc};
 encode_attr([#attribute{name = _} | Tail], {Id, Value}, Name) ->
     encode_attr(Tail, {Id, Value}, Name);
 encode_attr([], {Id, _Value}, Name) ->
@@ -374,7 +383,8 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=[]}, Tbl) ->
             ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
             list_to_tuple([Alias | ValidatedXml])
     end;
-validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=PossAttrs}, Tbl) ->
+validate_xml({_, As, Cs} = In,
+             #type{qname=Key, alias=Alias, attrs=PossAttrs}, Tbl) ->
     case is_nil(As) of
         true ->
             nil;
@@ -385,10 +395,20 @@ validate_xml({_, As, Cs}, #type{qname=Key, alias=Alias, attrs=PossAttrs}, Tbl) -
                         #type{qname=InheritedKey} ->
                             ews_model:get_parts(InheritedKey, Tbl)
                     end,
-            Pairs = match_children_elems(Cs, Elems, [], []),
-            ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
-            Attrs = validate_attrs(As, PossAttrs, #{}),
-            list_to_tuple([Alias, Attrs | ValidatedXml])
+            case Elems of
+                %% Special case of a simpleContent with attributes
+                [#sc{type=BaseOrEnum}] ->
+                    %% logger:notice("decode PossAttrs: ~tp~nAs: ~tp~n",
+                    %%               [PossAttrs, As]),
+                    Sc = validate_xml(In, BaseOrEnum, Tbl),
+                    Attrs = validate_attrs(As, PossAttrs, #{}),
+                    list_to_tuple([Alias, Attrs, Sc]);
+                _ ->
+                    Pairs = match_children_elems(Cs, Elems, [], []),
+                    ValidatedXml =[ validate_xml(T, E, Tbl) || {T, E} <- Pairs ],
+                    Attrs = validate_attrs(As, PossAttrs, #{}),
+                    list_to_tuple([Alias, Attrs | ValidatedXml])
+            end
     end;
 validate_xml({_Qname, As, []}, #base{}, _) ->
     case is_nil(As) of
@@ -466,25 +486,38 @@ match_children_elems([], [], Acc, Res) ->
 validate_attrs([{?SCHEMA_INSTANCE_NS, _} | As], PossAttrs, Acc) ->
     validate_attrs(As, PossAttrs, Acc);
 validate_attrs([{Name, Value} | As], PossAttrs, Acc) ->
-    case [ P || #attribute{name = {_, N}} = P <- PossAttrs, N == Name ] of
-        [] ->
+    Attr =
+        case {[ P || #attribute{name = {_, N}} = P <- PossAttrs, N == Name ],
+              [ P || #attribute{name = N} = P <- PossAttrs, N == Name ]} of
+            {[], []} -> undefined;
+            {[#attribute{} = A], _} -> A;
+            {_, [#attribute{} = A]} -> A
+        end,
+    case Attr of
+        undefined ->
             logger:notice("Unexpected attribute: ~p~n", [Name]),
             validate_attrs(As, PossAttrs, Acc);
-        [#attribute{type = Type}] ->
-            %% TODO: how to we handle utf8 in both Name and Value?
+        #attribute{base = BaseOrEnum} ->
             %% By compiling with debug_info the typespec in the records should
             %% load all possible atoms.
-            QType = qname(Type),
-            #base{erl_type=ErlType} = ews_xsd:to_base(QType),
-            NameAtom = list_to_existing_atom(Name),
-            ValueBase = to_base(list_to_binary(Value), ErlType),
-            validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBase})
+            case BaseOrEnum of
+                #base{erl_type=ErlType} ->
+                    NameAtom = list_to_existing_atom(Name),
+                    ValueBase = to_base(list_to_binary(Value), ErlType),
+                    validate_attrs(As, PossAttrs, Acc#{NameAtom => ValueBase});
+                #enum{values=Vs} ->
+                    case lists:keyfind(Value, 2, Vs) of
+                        false ->
+                            error({"failed to convert enum", {Value, Vs}});
+                        {V, _} ->
+                            NameAtom = list_to_existing_atom(Name),
+                            validate_attrs(As, PossAttrs,
+                                           Acc#{NameAtom => V})
+                    end
+            end
     end;
 validate_attrs([], _, Acc) ->
     Acc.
-
-qname({_,_} = Qname) -> Qname;
-qname(Name) -> {"no_ns", Name}.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
 to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
@@ -558,10 +591,3 @@ field_to_map(V, _M) ->
 
 field_names(Parts) ->
     [ews_alias:create(QN) || #elem{qname = QN} <- Parts].
-
-erl_type({_,_} = T) ->
-    #base{erl_type = ET} = ews_xsd:to_base(T),
-    ET;
-erl_type(T) ->
-    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
-    ET.
