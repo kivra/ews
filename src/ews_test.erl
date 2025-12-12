@@ -149,6 +149,8 @@ def_elems([#elem{type = {_,_} = Qname,
     [[def_type({no_name, Qname}, Tbl)] | def_elems(T, Tbl)];
 def_elems([#elem{type = {_,_} = Qname} | T], Tbl) ->
     [def_type({no_name, Qname}, Tbl) | def_elems(T, Tbl)];
+def_elems([#sc{type = Qname, meta = Meta} | T], Tbl) ->
+    def_elems([#elem{type = Qname, meta = Meta} | T], Tbl);
 def_elems([], _) ->
     [].
 
