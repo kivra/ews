@@ -1,3 +1,4 @@
+%% coding: utf-8
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Copyright (c) 2013-2017 Campanja
 %%% Copyright (c) 2017-2020 [24]7.ai
@@ -79,7 +80,7 @@ emit_tag({txt, Content}, _) ->
 emit_tag({{Ns, txt}, Content}, Nss) ->
     %% Ugly hack for namespaced txts
     {Prefix, _XmlNsDecl, _NewNss} = get_ns_prefix(Ns, Nss),
-    to_string({Prefix, export_text(Content)});
+    to_utf8_string({Prefix, export_text(Content)});
 emit_tag({{Ns, Name}, Attributes, Children}, Nss) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
     QName = {Prefix, Name},
@@ -102,14 +103,17 @@ emit_attributes([{{NsN, N}, {NsV, V}} | Attrs], Nss, Acc) ->
     {PrefixN, XmlNsDeclN, NewNss} = get_ns_prefix(NsN, Nss),
     {PrefixV, XmlNsDeclV, NewerNss} = get_ns_prefix(NsV, NewNss),
     NewAttrs = lists:usort(XmlNsDeclN ++ XmlNsDeclV) ++
-               [{to_string({PrefixN, N}), to_string({PrefixV, V})}] ++ Attrs,
+               [{to_utf8_string({PrefixN, N}),
+                 to_utf8_string({PrefixV, V})}] ++ Attrs,
     emit_attributes(NewAttrs, NewerNss, Acc);
 emit_attributes([{{Ns, N}, Value} | Attrs], Nss, Acc) ->
     {Prefix, XmlNsDecl, NewNss} = get_ns_prefix(Ns, Nss),
-    NewAttrs = XmlNsDecl++[{to_string({Prefix, N}), Value}]++Attrs,
+    NewAttrs = XmlNsDecl++[{to_utf8_string({Prefix, N}),
+                            to_utf8_string(Value)}]++Attrs,
     emit_attributes(NewAttrs, NewNss, Acc);
 emit_attributes([{Key, Value} | Attrs], Nss, Acc) ->
-    emit_attributes(Attrs, Nss, [[to_string(Key), "=\"", Value, "\""] | Acc]);
+    emit_attributes(Attrs, Nss, [[to_utf8_string(Key), "=\"",
+                                  to_utf8_string(Value), "\""] | Acc]);
 emit_attributes([], _, Acc) ->
     [" ", string:join(lists:reverse(Acc), " ")].
 
@@ -121,19 +125,25 @@ emit_children(Name, Children, Nss) ->
     [">", [ emit_tag(C, Nss) || C <- Children ], emit_end_tag(Name)].
 
 emit_start_tag({Ns, Name}) ->
-    ["<", to_string(Ns), ":", to_string(Name)];
+    ["<", to_utf8_string(Ns), ":", to_utf8_string(Name)];
 emit_start_tag(Name) ->
-    ["<", to_string(Name)].
+    ["<", to_utf8_string(Name)].
 
 emit_end_tag({Ns, Name}) ->
-    ["</", to_string(Ns), ":", to_string(Name), ">"];
+    ["</", to_utf8_string(Ns), ":", to_utf8_string(Name), ">"];
 emit_end_tag(Name) ->
-    ["</", to_string(Name), ">"].
+    ["</", to_utf8_string(Name), ">"].
 
-to_string({Ns, Name}) -> [Ns, ":", Name];
-to_string(Name) when is_atom(Name) -> atom_to_list(Name);
-to_string(Name) when is_binary(Name) -> binary_to_list(Name);
-to_string(Name) when is_list(Name) -> Name.
+to_utf8_string({Ns, Name}) ->
+    [to_utf8_string(Ns), ":", to_utf8_string(Name)];
+to_utf8_string(Name) when is_atom(Name) -> utf8_atom_to_list(Name);
+to_utf8_string(Name) when is_binary(Name) -> binary_to_list(Name);
+to_utf8_string(Name) when is_list(Name) ->
+    binary_to_list(
+      unicode:characters_to_binary(Name, unicode, utf8)).
+
+utf8_atom_to_list(Atom) ->
+    binary_to_list(atom_to_binary(Atom)).
 
 %% Escape special characters `\r` `<' and `&', flattening the text.
 %% Also escapes `>', just for symmetry.
@@ -451,5 +461,11 @@ split_on_space_test() ->
         binary_to_list(
           <<"<res />"/utf8>>),
     ?assertMatch(["res"], split_on_space(TestTag)).
+
+to_utf8_string_test() ->
+    ?assertMatch(["Ã¶",":","Ã¶"], to_utf8_string({"ö","ö"})),
+    ?assertMatch("Ã¶", to_utf8_string(ö)),
+    ?assertMatch("Ã¶", to_utf8_string(<<"ö"/utf8>>)),
+    ?assertMatch("Ã¶", to_utf8_string("ö")).
 
 -endif.

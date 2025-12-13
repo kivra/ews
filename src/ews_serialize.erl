@@ -202,16 +202,16 @@ encode_term(Term, #base{erl_type=Type, list=IsList}, _) ->
         true ->
             error({"expected non-list "++atom_to_list(Type), Term})
     end;
-encode_term(Term, #enum{values=Values, list=IsList}, _) ->
+encode_term(Term, #enum{values=Values, list=IsList, type=Type}, _) ->
     case is_list(Term) of
         true when IsList ->
-            ListParts = [ encode_single_enum(T, Values) || T <- Term ],
+            ListParts = [ encode_single_enum(T, Values, Type) || T <- Term ],
             [{txt, string:join(ListParts, " ")}];
         true ->
             Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
             error({"expected non-list "++Accept, Term});
         false ->
-            [{txt, encode_single_enum(Term, Values)}]
+            [{txt, encode_single_enum(Term, Values, Type)}]
     end.
 
 %% If the type had attributes we have to add them to the attributes
@@ -251,8 +251,10 @@ encode_attr([], {Id, _Value}, Name) ->
 
 encode_single_base(Term, BaseType) ->
     case BaseType of
-        string when is_binary(Term); is_list(Term) ->
+        string when is_binary(Term) ->
             Term;
+        string when is_list(Term) ->
+            unicode:characters_to_binary(Term, utf8);
         integer when is_integer(Term) ->
             integer_to_list(Term);
         float when is_float(Term) ->
@@ -263,13 +265,13 @@ encode_single_base(Term, BaseType) ->
             error({"expected "++atom_to_list(BaseType), Term})
     end.
 
-encode_single_enum(Term, Values) ->
+encode_single_enum(Term, Values, #base{erl_type=ErlType}) ->
     case lists:keyfind(Term, 1, Values) of
         false ->
             Accept = string:join([ atom_to_list(A) || {A,_} <- Values ], " | "),
             error({bad_term, Term, "expected one of: " ++ Accept});
         {Term, Value} ->
-            Value
+            encode_single_base(Value, ErlType)
     end.
 
 %% ---------------------------------------------------------------------------
@@ -520,7 +522,8 @@ validate_attrs([], _, Acc) ->
     Acc.
 
 to_base(Txt, string) when is_binary(Txt) -> Txt;
-to_base(Txt, string) when is_list(Txt) -> list_to_binary(Txt);
+to_base(Txt, string) when is_list(Txt) ->
+    unicode:characters_to_binary(Txt, unicode, utf8);
 to_base(Txt, integer) -> list_to_integer(binary_to_list(Txt));
 to_base(Txt, float) -> try_cast_float(binary_to_list(Txt));
 to_base(<<"true">>, boolean) -> true;

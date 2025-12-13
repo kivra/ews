@@ -63,8 +63,13 @@ forbidden_characters(_Config) ->
                 [{{"http://minameddelanden.gov.se/schema/Recipient",
                    "AgreementText"},
                   [],
-                  [{txt,<<"yo&\r\n<>öö/utf-8">>}]}]}]}],
-    Output = ews_xml:decode(iolist_to_binary(ews_xml:encode(Input))),
+                  [{txt,<<"yo&\r\n<>öö"/utf8>>}]}]}]}],
+    InIO = ews_xml:encode(Input),
+    ct:pal("InIO: ~tp~n", [InIO]),
+    %%hackney:request(post, <<"http://localhost:12345/">>, [], InIO, []),
+    InSOAP = iolist_to_binary(InIO),
+    ct:pal("InSOAP: ~tp~n", [InSOAP]),
+    Output = ews_xml:decode(InSOAP),
     ?assertMatch(Input, Output).
 
 import_any_order(_Config) ->

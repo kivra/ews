@@ -269,7 +269,7 @@ many_schemas_n_refs(_Config) ->
     %% Test a message
     Find = [{find,
              {find_love_class,
-              #{'UserId' => <<"TEST">>,
+              #{'UserId' => <<"TöST"/utf8>>,
                 'Password' => <<"TEST">>,
                 'AccountID' => <<>>,
                 'TargetType' => 1},
@@ -284,13 +284,14 @@ many_schemas_n_refs(_Config) ->
                  'Vkid' => 1}}}}],
     ct:pal("Find: ~p", [Find]),
     Header = [{api_soap_header, <<"apa">>, undefined}],
-    FindSOAP = iolist_to_binary(
-                 ews:serialize_service_op( tiny
-                                         , "NNAPIWebService"
-                                         , "Find"
-                                         , Header
-                                         , Find
-                                         )),
+    FindSOAP =
+        ews:serialize_service_op( tiny
+                                , "NNAPIWebService"
+                                , "Find"
+                                , Header
+                                , Find
+                                ),
+    ct:pal("FindSOAP:  ~tp~n", [FindSOAP]),
     {ok, {Svc, OpName, OpHdr, OpIn}} = ews:decode_in(tiny, FindSOAP),
     ?assertMatch("NNAPIWebService", Svc),
     ?assertMatch("Find", OpName),
