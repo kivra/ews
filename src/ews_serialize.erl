@@ -432,7 +432,7 @@ validate_xml({_Qname, As, []}, #enum{}, _) ->
             undefined
     end;
 validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
-    Str = binary_to_list(Txt),
+    Str = unicode:characters_to_list(Txt, utf8),
     case lists:keyfind(Str, 2, Vs) of
         false ->
             error({"failed to convert enum", {Txt, Vs}});
