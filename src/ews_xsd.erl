@@ -322,7 +322,7 @@ parse_type(#xmlElement{} = Type) ->
         "anyAttribute" ->
             anyAttribute;
         "group" ->
-            group;
+            parse_group(Type);
         "attributeGroup" ->
             attributeGroup;
         "notation" ->
@@ -441,6 +441,21 @@ list_or_union(Simple) ->
             {list, wh:get_child(List, "simpleType")}
     end.
 
+parse_group(Group) ->
+    Ref = wh:get_attribute(Group, ref),
+    maybe_group_ref(Ref, Group).
+
+maybe_group_ref(undefined, Group) ->
+    Name = wh:get_attribute(Group, name),
+    Children = wh:get_all_child_elements(Group),
+    ChildTypes = [ parse_type(C) || C <- Children ],
+    Parts = flatten_children(ChildTypes),
+    #group{name=Name, parts=Parts};
+maybe_group_ref(Reference, Group) ->
+    MinOccurs = to_integer(wh:get_attribute(Group, minOccurs)),
+    MaxOccurs = to_integer(wh:get_attribute(Group, maxOccurs)),
+    #group_ref{ref=Reference,
+               min_occurs=MinOccurs, max_occurs=MaxOccurs}.
 
 parse_attribute(Attribute) ->
     Name = wh:get_attribute(Attribute, name),
@@ -573,7 +588,7 @@ print_schema_stats(Schema) ->
                   length(Notations),
                   length(Annotations)]).
 
-to_integer(undefined) -> 1;
+to_integer(undefined) -> undefined;
 to_integer("unbounded") -> infinite;
 to_integer(List) when is_list(List) ->
     list_to_integer(List).
@@ -646,6 +661,12 @@ insert_nss([Ct = #complex_type{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewPs = insert_nss(Ps, Ns, []),
     NewRes = [Ct#complex_type{name=qname(N, Ns), parts=NewPs}|Res],
     insert_nss(Ts, Ns, NewRes);
+insert_nss([Gr = #group{name=N, parts=Ps} | Ts], Ns, Res) ->
+    NewPs = insert_nss(Ps, Ns, []),
+    NewRes = [Gr#group{name=qname(N, Ns), parts=NewPs}|Res],
+    insert_nss(Ts, Ns, NewRes);
+insert_nss([Grr = #group_ref{ref=N} | Ts], Ns, Res) ->
+    insert_nss(Ts, Ns, [Grr#group_ref{ref=qname(N, Ns)} | Res]);
 insert_nss([_E | Ts], Ns, Res) ->
     %% logger:warning("warning: unhandled ~tp~n", [E]),
     insert_nss(Ts, Ns, Res);
@@ -826,8 +847,8 @@ process([#attribute{type=Type, base=undefined} = A | Rest], Retry, Ts, TypeAcc,
         false ->
             case lists:keyfind(Type, 1, Ts) of
                 false ->
-                    logger:error("Can't find simpletype: ~tp~n",
-                                 [Type]),
+                    %% logger:error("Can't find simpletype: ~tp~n",
+                    %%              [Type]),
                     process(Rest, [A | Retry], Ts, TypeAcc, ElemAcc, TypeMap,
                             Model, Parent, AttrAcc);
                 {_Qtype, BaseOrEnum} ->
@@ -840,12 +861,46 @@ process([#attribute{type=Type, base=undefined} = A | Rest], Retry, Ts, TypeAcc,
             process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap,
                     Model, Parent, [NewA | AttrAcc])
     end;
+process([#group{} = Group | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+        Parent, AttrAcc) ->
+    ews_model:put_group(Group, Model, TypeMap),
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
+process([#group_ref{ref=Ref, min_occurs=Min, max_occurs=Max} = Grr | Rest],
+        Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
+    %% logger:notice("GroupRef: ~tp~n", [Ref]),
+    case ews_model:get_group(Ref, Model, TypeMap) of
+        false ->
+            process(Rest, [Grr | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc);
+        #group{parts=Ps} ->
+            %% Turn a group into a sequence
+            NewPs = propagate_meta(Ps, Min, Max),
+            process(NewPs ++ Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc)
+    end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc)
   when not is_record(T, attribute) ->
     logger:warning("warning: unhandled ~tp~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
 process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent, AttrAcc) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry, lists:reverse(AttrAcc)}.
+
+propagate_meta([#element{min_occurs=Min, max_occurs=Max} = E | T],
+               RefMin, RefMax) ->
+    [E#element{min_occurs=maybe_override(RefMin, Min),
+               max_occurs=maybe_override(RefMax, Max)} |
+     propagate_meta(T, RefMin, RefMax)];
+propagate_meta([#group_ref{min_occurs=Min, max_occurs=Max} = Grr | T],
+               RefMin, RefMax) ->
+    [Grr#group_ref{min_occurs=maybe_override(RefMin, Min),
+                   max_occurs=maybe_override(RefMax, Max)} |
+     propagate_meta(T, RefMin, RefMax)];
+propagate_meta([], _, _) ->
+    [].
+
+maybe_override(undefined, undefined) -> 1;
+maybe_override(undefined, N) -> N;
+maybe_override(N, _) -> N.
 
 type_name({Ns, N}, {_, Parent}) ->
     {Ns, Parent++"@"++N};
@@ -941,7 +996,10 @@ process_simple(#simple_type{restrictions=Rs, order=Order}) ->
 
 parse_meta(#element{default=D, fixed=F, nillable=N,
                     min_occurs=Min, max_occurs=Max}) ->
-    #meta{nillable=N, default=D, fixed=F, min=Min, max=Max}.
+    #meta{nillable=N, default=D, fixed=F, min=def_one(Min), max=def_one(Max)}.
+
+def_one(undefined) -> 1;
+def_one(Any) -> Any.
 
 %% TODO: Handle more refined basic spec types (i.e. non_neg_integer() etc)
 to_base({"http://www.w3.org/2001/XMLSchema", "boolean"} = Qn) ->

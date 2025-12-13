@@ -22,6 +22,9 @@
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
          is_root/2, append_model/3]).
+-export([ put_group/3
+        , get_group/3
+        ]).
 
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
@@ -41,6 +44,9 @@ put(#elem{qname=Key} = E, _Model, Table) ->
 
 put_elem(#elem{qname=Key} = E, Parent, Table) ->
     ets:insert_new(Table, {{Key, Parent}, E}).
+
+put_group(#group{name=Key} = G, Model, Table) ->
+    ets:insert_new(Table, {{group, Model, Key}, G}).
 
 replace(#type{qname=Key} = Type, Table) ->
     ets:insert(Table, {Key, Type});
@@ -75,6 +81,14 @@ get_elem({_,_} = Key, Parent, Table) ->
             false;
         [[Elem]] ->
             Elem
+    end.
+
+get_group({_,_} = Key, Model, Table) ->
+    case ets:lookup(Table, {group, Model, Key}) of
+        [{{group, Model, Key}, Value}] ->
+            Value;
+        [] ->
+            false
     end.
 
 get_parts(Key, Table) ->

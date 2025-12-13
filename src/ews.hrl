@@ -43,6 +43,8 @@
 -record(simple_content, {name, order, restrictions, attrs=[]}).
 -record(attribute, {name, base, type, use, default, fixed}).
 -record(complex_type, {name, extends, abstract, restrictions, parts, attrs=[]}).
+-record(group, {name, parts}).
+-record(group_ref, {ref, min_occurs=1, max_occurs=1}).
 -record(reference, {name}).
 
 -record(restriction, {base_type, values}).
