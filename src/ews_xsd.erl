@@ -220,7 +220,9 @@ find_schema([], ImpNs) ->
     error({cant_find_import_schema, ImpNs}).
 
 request_cached(SchemaUrl) ->
-    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    CacheApp = application:get_env(ews, cache_base_app, ews),
+    CacheDir = application:get_env(ews, cache_base_dir,
+                                   code:priv_dir(CacheApp)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
     case file:read_file(File) of
