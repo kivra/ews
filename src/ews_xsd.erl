@@ -241,7 +241,9 @@ request_cached(SchemaUrl) ->
     end.
 
 request_cached(SchemaUrl, BaseDir) ->
-    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    CacheApp = application:get_env(ews, cache_base_app, ews),
+    CacheDir = application:get_env(ews, cache_base_dir,
+                                   code:priv_dir(CacheApp)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
     URI = uri_string:parse(SchemaUrl),
