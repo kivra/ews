@@ -236,6 +236,7 @@ request_cached(SchemaUrl) ->
                 {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [SchemaUrl]),
                     {error, Error}
             end
     end.
