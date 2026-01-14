@@ -15,6 +15,8 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * Support for `include` in schemas.
 * Handle non-ASCII in types
 * Fix for a bug that didn't decode emtpy records like `-record(foo, {}).`
+* Handle `group`.
+* Handle `simpleContent` with attributes by creating a record for it.
 
 ## Changes between 3.1.0 and 4.0.0
 
@@ -55,6 +57,17 @@ rendered XML instead of the internal ews representation.
 Version 3.0.0 introduces an extra field called `__attrs` first of record
 where the XSD defines attributes. `__attrs` is a map and keys should be
 atoms.
+
+### New simpleContent with attributes support
+
+Version 4.1.0 introduces new logic for simpleContent with attributes.
+Normally we don't emit records for simpleContent, but if the simpleContent
+has attributes we have to. Since the simpleContent isn't an element we
+don't have a name for the field in the record so it will get the special
+name `value`. Example:
+
+    -record(foo, {'__attrs' :: #{bar => string() | binary()} | undefined
+                  value :: integer() | undefined}).
 
 ## Interface
 
