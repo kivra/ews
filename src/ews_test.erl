@@ -73,7 +73,7 @@ test_in(InHdr, In, Model, Service, Op, Tbl) ->
     ?assertMatch(Service, Svc),
     ?assertMatch(Op, OpName),
     ?assertMatch(InHdrVals, InHdrs),
-    cond_assert(InVals, InRes),
+    ?assertMatch(InVals, InRes),
     ok.
 
 test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
@@ -89,7 +89,7 @@ test_out(OutHdr, Out, Model, Service, Op, Tbl) ->
     {ok, HdrOut, OpOut} = ews:decode_service_op_result(Model, Service, Op,
                                                        HdrResp, Resp),
     ?assertMatch(OutHdrVals, HdrOut),
-    cond_assert(OutVals, OpOut),
+    ?assertMatch(OutVals, OpOut),
     ok.
 
 test_fault(undefined, _, _, _, _, _) -> ok;
@@ -149,30 +149,28 @@ def_elems([#elem{type = {_,_} = Qname,
     [[def_type({no_name, Qname}, Tbl)] | def_elems(T, Tbl)];
 def_elems([#elem{type = {_,_} = Qname} | T], Tbl) ->
     [def_type({no_name, Qname}, Tbl) | def_elems(T, Tbl)];
+def_elems([#sc{type = Qname, meta = Meta} | T], Tbl) ->
+    def_elems([#elem{type = Qname, meta = Meta} | T], Tbl);
 def_elems([], _) ->
     [].
 
-def_attrs([#attribute{ name = {_, Name}, type = Type}| T], Acc) ->
+def_attrs([#attribute{name = {_, Name}, base = BaseOrEnum}| T], Acc) ->
     Key = list_to_atom(Name),
-    Value = def_erl(erl_type(Type)),
+    Value = erl_type(BaseOrEnum),
+    def_attrs(T, Acc#{Key => Value});
+def_attrs([#attribute{name = Name, base = BaseOrEnum}| T], Acc) ->
+    Key = list_to_atom(Name),
+    Value = erl_type(BaseOrEnum),
     def_attrs(T, Acc#{Key => Value});
 def_attrs([], Acc) ->
     Acc.
+
+erl_type(#base{erl_type = ET}) ->
+    def_erl(ET);
+erl_type(#enum{values = [{Key,_Value}|_]}) ->
+    Key.
 
 def_erl(string) -> <<"ö"/utf8>>;
 def_erl(integer) -> 17;
 def_erl(float) -> 1.0;
 def_erl(boolean) -> true.
-
-erl_type({_,_} = T) ->
-    #base{erl_type = ET} = ews_xsd:to_base(T),
-    ET;
-erl_type(T) ->
-    #base{erl_type = ET} = ews_xsd:to_base({"no_ns", T}),
-    ET.
-
-%% TODO: ews should decode empty record, but it seems it doesn't
-cond_assert([{_}], _) ->
-    ok;
-cond_assert(In, Res) ->
-    ?assertMatch(In, Res).

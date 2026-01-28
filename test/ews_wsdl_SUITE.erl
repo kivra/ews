@@ -1,3 +1,4 @@
+%% coding: utf-8
 -module(ews_wsdl_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -16,8 +17,9 @@
 -export([ google_v201306_ensure_record/1
         , google_v201306_correct_service/1
         , colliding_types/1
+        , empty_records_decode/1
         , serialize_deserialize/1
-        , dont_emit_simplecontent/1
+        , test_mm_service/1
         , many_schemas_n_refs/1
         ]).
 
@@ -29,7 +31,8 @@ groups() ->
         google_v201306_correct_service
        ]}
     , {mm_service,
-       [ dont_emit_simplecontent
+       [ test_mm_service
+       , empty_records_decode
        ]}
     , {mm_notification,
        [ colliding_types
@@ -97,24 +100,62 @@ google_v201306_correct_service(Config) ->
     [ResService] = Wsdl#wsdl.services,
     "CampaignService" = ResService#service.name.
 
-dont_emit_simplecontent(_Config) ->
+test_mm_service(_Config) ->
     Dir = filename:join(code:priv_dir(ews), "../test"),
     File = filename:join(Dir, "mm_service.wsdl"),
     %% Mock request
     meck:new(hackney),
     meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
     ews:add_wsdl_to_model(ek_mm_test, File),
-    #model{type_map=Tbl, simple_types=Ts} =
-        ews_svc:get_model(ek_mm_test),
-    Ret = ews_emit:sort_types(Tbl, Ts),
-    %% Nothing should be unresolved
-    ?assertMatch({[], [_|_]}, Ret),
-    %% This simpleContent should not be in Tbl
-    ?assertEqual(false,
-                 ews_model:get({"http://www.w3.org/2000/09/xmldsig#",
-                                "SignatureValueType"}
-                              , Tbl)),
     ok = ews_test:test_everything(ek_mm_test),
+    meck:unload(hackney),
+    ok.
+
+empty_records_decode(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "mm_service.wsdl"),
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+    ews:add_wsdl_to_model(ek_mm_test, File),
+    %%ews:emit_complete_model_types(ek_mm_test, "/tmp/le_service.hrl"),
+    %% "client" serializes request
+    PoserMessage =
+        [{get_posers}],
+    %%ok = ews:get_service_op_info(ek_mm_test, "service", "poser"),
+    PoserSOAP = ews:serialize_service_op( ek_mm_test
+                                        , "service"
+                                        , "poser"
+                                        , []
+                                        , PoserMessage
+                                        ),
+    {ok, {Svc, OpName, [], OpIn}} = ews:decode_in(ek_mm_test, PoserSOAP),
+    logger:notice("PoserSOAP: ~tp~n", [PoserSOAP]),
+    ?assertMatch("service", Svc),
+    ?assertMatch("poser", OpName),
+    ?assertMatch(PoserMessage, OpIn),
+    OutMessage =
+        [{get_posers_response,
+          <<"fluster">>,
+          {secret, #{'sattAv' => ja}, nej},
+          13}],
+    OutSOAP =
+        iolist_to_binary(
+          ews:encode_service_op_result( ek_mm_test
+                                      , "service"
+                                      , "poser"
+                                      , []
+                                      , OutMessage
+                                      )),
+    XmlTerm = ews_xml:decode(OutSOAP),
+    {ok, {HdrResp, Resp}} = ews_soap:parse_envelope(XmlTerm),
+    {ok, _HdrOut, OpOut} = ews:decode_service_op_result( ek_mm_test
+                                                      , "service"
+                                                      , "poser"
+                                                      , HdrResp
+                                                      , Resp),
+    ?assertMatch(OutMessage, OpOut),
+    meck:unload(hackney),
     ok.
 
 colliding_types(_Config) ->
@@ -150,6 +191,7 @@ colliding_types(_Config) ->
                  ews_model:get(EmailHeaderType, Tbl)),
     ?assertMatch(#type{alias=header, elems=[_]},
                  ews_model:get(SmsHeaderType, Tbl)),
+    meck:unload(hackney),
     ok.
 
 serialize_deserialize(_Config) ->
@@ -200,6 +242,7 @@ serialize_deserialize(_Config) ->
                                                  [Resp]),
 
     ?assertMatch(SmsMessage, OpOut),
+    meck:unload(hackney),
     ok.
 
 many_schemas_n_refs(_Config) ->
@@ -207,9 +250,16 @@ many_schemas_n_refs(_Config) ->
                                     test_wsdl_file("tiny.wsdl")),
     TmpFile = tempfile(),
     ok = ews:emit_complete_model_types(tiny, TmpFile),
+    %% Test so generated .hrl file does not contain latin-1
+    {ok, Utf8File} = file:read_file(TmpFile),
+    UnicodeString = unicode:characters_to_list(Utf8File, utf8),
+    ?assertNotMatch({incomplete,_,_}, UnicodeString),
+    ?assertNotMatch({error,_,_}, UnicodeString),
+    ?assertMatch(true, is_list(UnicodeString)),
+    %% Test a message
     Find = [{find,
              {find_love_class,
-              #{'UserId' => <<"TEST">>,
+              #{'UserId' => <<"TöST"/utf8>>,
                 'Password' => <<"TEST">>,
                 'AccountID' => <<>>,
                 'TargetType' => 1},
@@ -217,19 +267,21 @@ many_schemas_n_refs(_Config) ->
                #{'Gender' => <<"Foden">>,
                  'Internet' => 1},
                undefined,
-               <<"197001011234">>},
+               <<"197001011234">>,
+              'skriven på adressen'},
               {query_columns_class,
                #{'Vkiid' => 1,
                  'Vkid' => 1}}}}],
     ct:pal("Find: ~p", [Find]),
     Header = [{api_soap_header, <<"apa">>, undefined}],
-    FindSOAP = iolist_to_binary(
-                 ews:serialize_service_op( tiny
-                                         , "NNAPIWebService"
-                                         , "Find"
-                                         , Header
-                                         , Find
-                                         )),
+    FindSOAP =
+        ews:serialize_service_op( tiny
+                                , "NNAPIWebService"
+                                , "Find"
+                                , Header
+                                , Find
+                                ),
+    ct:pal("FindSOAP:  ~tp~n", [FindSOAP]),
     {ok, {Svc, OpName, OpHdr, OpIn}} = ews:decode_in(tiny, FindSOAP),
     ?assertMatch("NNAPIWebService", Svc),
     ?assertMatch("Find", OpName),

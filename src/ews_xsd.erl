@@ -17,7 +17,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% ---------------------------------------------------------------------------
 %%% WSDL Types parsing
-%%% Doesn't support: group, attributeGroup, include and notation types
+%%% Doesn't support: group, attributeGroup and notation types
 %%%                  unique, key or keyref
 %%% FIXME: Merge elements and types.
 %%% ---------------------------------------------------------------------------
@@ -44,11 +44,11 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
--define(HTTP_OPTS, [ {connect_options,
-                      [ {connect_timeout, timer:seconds(400)}
-                      , {recv_timeout, timer:seconds(400)}
-                      ]}
-                   , with_body
+-define(HTTP_OPTS, [ %% {connect_options,
+                     %%  [ {connect_timeout, timer:seconds(400)}
+                     %%  , {recv_timeout, timer:seconds(400)}
+                     %%  ]}
+                    with_body
                    ]).
 
 -ifdef(DEBUG).
@@ -84,8 +84,10 @@ parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
 
 get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
+    %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
-                                           types=TopSchema}},
+                                           types=ExpandedSchema}},
     AllSchemas = lists:flatten(do_get_all_schemas(Input, [])),
     lists:ukeysort(1, AllSchemas ++ get_all_schemas(T));
 get_all_schemas([]) ->
@@ -95,14 +97,35 @@ get_all_schemas(Schema) ->
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
+    %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
-                                           types=TopSchema}, BaseDir},
+                                           types=ExpandedSchema}, BaseDir},
     AllSchemas = lists:flatten(do_get_all_schemas_local(Input, [])),
     lists:ukeysort(1, AllSchemas ++ get_all_schemas(T, BaseDir));
 get_all_schemas([], _)->
     [];
 get_all_schemas(Schema, BaseDir) ->
     get_all_schemas([Schema], BaseDir).
+
+find_includes(#xmlElement{content=Content}, Ns) ->
+    #xmlElement{content=find_includes(Content, Ns)};
+find_includes([#xmlText{} = Txt | T], Ns) ->
+    [Txt | find_includes(T, Ns)];
+find_includes([#xmlElement{
+                  expanded_name =
+                      {'http://www.w3.org/2001/XMLSchema',
+                       include}} = IncElem | T], Ns) ->
+    Url = wh:get_attribute(IncElem, schemaLocation),
+    %%logger:notice("Url: ~tp~n", [Url]),
+    #schema{types = Include} = import_schema(Url, Ns),
+    #xmlElement{content=Content} = Include,
+    Content ++ find_includes(T, Ns);
+find_includes([#xmlElement{content=Content} = Elem | T], Ns) ->
+    [Elem#xmlElement{content=find_includes(Content, Ns)} |
+     find_includes(T, Ns)];
+find_includes([], _) ->
+    [].
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
@@ -143,12 +166,16 @@ basedir(Url, BaseDir) ->
     end.
 
 find_imports(#schema{types=Schema}) ->
+    %%logger:notice("Schema: ~tp~n", [Schema]),
     Imports = wh:get_children(Schema, "import"),
+    %%logger:notice("Imports: ~tp~n", [Imports]),
     [ {wh:get_attribute(I, namespace),
        wh:get_attribute(I, schemaLocation)} || I <- Imports ].
 
 import_schema(SchemaUrl, ImpNs) ->
+    %%logger:notice("Import: ~tp~n", [SchemaUrl]),
     {ok, Bin} = request_cached(SchemaUrl),
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -156,7 +183,9 @@ import_schema(SchemaUrl, ImpNs) ->
     find_schema(split_schemas(Schemas), ImpNs).
 
 import_schema(SchemaUrl, ImpNs, BaseDir) ->
+    %%logger:notice("Import: ~tp  (~tp)~n", [SchemaUrl, BaseDir]),
     {ok, Bin} = request_cached(SchemaUrl, BaseDir),
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {Schemas, _} = xmerl_scan:string(binary_to_list(Bin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -191,7 +220,9 @@ find_schema([], ImpNs) ->
     error({cant_find_import_schema, ImpNs}).
 
 request_cached(SchemaUrl) ->
-    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    CacheApp = application:get_env(ews, cache_base_app, ews),
+    CacheDir = application:get_env(ews, cache_base_dir,
+                                   code:priv_dir(CacheApp)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
     case file:read_file(File) of
@@ -205,12 +236,15 @@ request_cached(SchemaUrl) ->
                 {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [SchemaUrl]),
                     {error, Error}
             end
     end.
 
 request_cached(SchemaUrl, BaseDir) ->
-    CacheDir = application:get_env(ews, cache_base_dir, code:priv_dir(ews)),
+    CacheApp = application:get_env(ews, cache_base_app, ews),
+    CacheDir = application:get_env(ews, cache_base_dir,
+                                   code:priv_dir(CacheApp)),
     File = filename:join([CacheDir, "xsds", escape_slash(SchemaUrl)]),
     ok = filelib:ensure_dir(File),
     URI = uri_string:parse(SchemaUrl),
@@ -225,6 +259,7 @@ request_cached(SchemaUrl, BaseDir) ->
                 {ok, _, _, Bin} ->
                     {error, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [SchemaUrl]),
                     {error, Error}
             end;
         %% Not a URI, fetch locally
@@ -234,6 +269,7 @@ request_cached(SchemaUrl, BaseDir) ->
                 {ok, Bin} ->
                     {ok, Bin};
                 {error, Error} ->
+                    logger:error("Problem fetching XSD: ~tp~n", [XSDFilename]),
                     {error, Error}
             end
     end.
@@ -291,13 +327,13 @@ parse_type(#xmlElement{} = Type) ->
         "anyAttribute" ->
             anyAttribute;
         "group" ->
-            group;
+            parse_group(Type);
         "attributeGroup" ->
             attributeGroup;
         "notation" ->
             notation;
         Other ->
-            ?log("ERROR: unrecognized xsd-element: ~p~n",
+            logger:warning("ERROR: unrecognized xsd-element: ~p~n",
                  [Other]),
             {error, {unknown_type, Other}}
     end.
@@ -333,23 +369,42 @@ maybe_ref(Qname, Element) ->
 
 parse_complex_type(ComplexType) ->
     Name = wh:get_attribute(ComplexType, name),
-    %%logger:notice("ComplexType: ~p~n", [Name]),
+    %% logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
     Children = wh:get_all_child_elements(ComplexType),
+    %%logger:notice("Children: ~tp~n", [Children]),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
     Extension = parse_type(wh:find_element(ComplexType, "extension")),
     case Children of
-        [#xmlElement{name = simpleContent} = SimpleContent] ->
+        [#xmlElement{expanded_name =
+                         {'http://www.w3.org/2001/XMLSchema',
+                          simpleContent}} = SimpleContent] ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction")),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
             %% TODO: handle extenstions without this ugly hack
             %% This is converted to a simple_type since we don't want to emit
-            %% a record for a simpleContent
+            %% a record for a simpleContent.
+            %% Unless of course the simpleContent has attributes, then we
+            %% need to emit a special record like this:
+            %% -record(foo, {'__attrs' :: #{bar => string() | binary()} | undefined
+            %%               value :: integer() | undefined}).
             RestrictionFinal = extract_base(RestrictionSC, ExtensionSC),
-            #simple_type{name=Name,
-                         restrictions=RestrictionFinal
-                         };
+            %% logger:notice("SimpleContent: ~tp~n", [SimpleContent]),
+            %% logger:notice("ExtensionSC: ~tp~n", [ExtensionSC]),
+            #extension{parts=ExtensionParts} = ExtensionSC,
+            case [ EP || #attribute{} = EP <- ExtensionParts ] of
+                [] ->
+                    #simple_type{name=Name,
+                                 restrictions=RestrictionFinal
+                                };
+                [#attribute{} | _] = Attributes ->
+                    %% logger:notice("SimpleContentAttrs: ~tp~n", [Attributes]),
+                    #simple_content{name=Name,
+                                    restrictions=RestrictionFinal,
+                                    attrs=Attributes
+                                   }
+            end;
         _ ->
             ChildTypes = [ parse_type(C) || C <- Children ],
             Parts = flatten_children(ChildTypes),
@@ -391,6 +446,21 @@ list_or_union(Simple) ->
             {list, wh:get_child(List, "simpleType")}
     end.
 
+parse_group(Group) ->
+    Ref = wh:get_attribute(Group, ref),
+    maybe_group_ref(Ref, Group).
+
+maybe_group_ref(undefined, Group) ->
+    Name = wh:get_attribute(Group, name),
+    Children = wh:get_all_child_elements(Group),
+    ChildTypes = [ parse_type(C) || C <- Children ],
+    Parts = flatten_children(ChildTypes),
+    #group{name=Name, parts=Parts};
+maybe_group_ref(Reference, Group) ->
+    MinOccurs = to_integer(wh:get_attribute(Group, minOccurs)),
+    MaxOccurs = to_integer(wh:get_attribute(Group, maxOccurs)),
+    #group_ref{ref=Reference,
+               min_occurs=MinOccurs, max_occurs=MaxOccurs}.
 
 parse_attribute(Attribute) ->
     Name = wh:get_attribute(Attribute, name),
@@ -523,12 +593,13 @@ print_schema_stats(Schema) ->
                   length(Notations),
                   length(Annotations)]).
 
-to_integer(undefined) -> 1;
+to_integer(undefined) -> undefined;
 to_integer("unbounded") -> infinite;
 to_integer(List) when is_list(List) ->
     list_to_integer(List).
 
 parse_restriction_property(Restriction) ->
+    %%logger:notice("Restriction: ~tp~n", [Restriction]),
     Value = wh:get_attribute(Restriction, value),
     case wh:get_simple_name(Restriction) of
         "minExclusive" ->
@@ -582,15 +653,27 @@ insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
                        [{doc, Doc}]
                end,
     insert_nss(Ts, Ns, [E#element{name=qname(N, Ns), parts=NewParts}|Res]);
-insert_nss([A = #attribute{name=N} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [A#attribute{name=qname(N, Ns)}|Res]);
+insert_nss([A = #attribute{type=T} | Ts], Ns, Res) ->
+    insert_nss(Ts, Ns, [A#attribute{type=attr_qname(T, Ns)}|Res]);
 insert_nss([St = #simple_type{name=N} | Ts], Ns, Res) ->
     insert_nss(Ts, Ns, [St#simple_type{name=qname(N, Ns)}|Res]);
+insert_nss([St = #simple_content{name=N,attrs=Attrs} | Ts], Ns, Res) ->
+    NewAttrs = insert_nss(Attrs, Ns, []),
+    %% logger:notice("insert_nss NewAttrs: ~tp~n", [NewAttrs]),
+    NewRes = [St#simple_content{name=qname(N, Ns), attrs=NewAttrs}|Res],
+    insert_nss(Ts, Ns, NewRes);
 insert_nss([Ct = #complex_type{name=N, parts=Ps} | Ts], Ns, Res) ->
     NewPs = insert_nss(Ps, Ns, []),
     NewRes = [Ct#complex_type{name=qname(N, Ns), parts=NewPs}|Res],
     insert_nss(Ts, Ns, NewRes);
+insert_nss([Gr = #group{name=N, parts=Ps} | Ts], Ns, Res) ->
+    NewPs = insert_nss(Ps, Ns, []),
+    NewRes = [Gr#group{name=qname(N, Ns), parts=NewPs}|Res],
+    insert_nss(Ts, Ns, NewRes);
+insert_nss([Grr = #group_ref{ref=N} | Ts], Ns, Res) ->
+    insert_nss(Ts, Ns, [Grr#group_ref{ref=qname(N, Ns)} | Res]);
 insert_nss([_E | Ts], Ns, Res) ->
+    %% logger:warning("warning: unhandled ~tp~n", [E]),
     insert_nss(Ts, Ns, Res);
 insert_nss([], _, Res) ->
     lists:reverse(Res).
@@ -617,7 +700,7 @@ process(Types, Model) ->
                     {_, _, R2, []} ->
                         %%logger:error("Can't resolve all refs~n~p~n",
                         %%             [lists:usort(ets:tab2list(TypeMap))]),
-                        error({cannot_resolve, R2})
+                        error({cannot_resolve, R2, Ts})
                 end
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
@@ -663,10 +746,12 @@ process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
         TypeMap, Model, Parent, AttrAcc) ->
     process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
             Model, Parent, AttrAcc);
-process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest],
+process([#element{name=Name, type=#reference{name=RName}, parts=[]} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
+    %%logger:notice("Element with ref: ~tp~n", [E]),
+    Qname = type_qname(RName, Name),
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
@@ -686,7 +771,7 @@ process([#element{name=_Name, type=#reference{name=Qname}, parts=[]} = E | Rest]
 process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
-    Qtype = qname(T, no_ns),
+    Qtype = type_qname(T, Qname),
     case to_base(Qtype) of
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
@@ -724,21 +809,176 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, T
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#attribute{} = A | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
-        Parent, AttrAcc)->
-    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent,
-            [ A | AttrAcc]);
+process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
+        | Rest], Retry, Ts,
+        TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
+    #restriction{base_type = Bs} = Restrictions,
+    %% We don't want to pass in Retry in processing of parts
+    case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
+        {AccWithSubTypes, [], [], AttrAcc} ->
+            MaybeBaseOrEnum =
+                case {to_base(type_qname(Bs, Qname)),
+                      lists:keyfind(Bs, 1, Ts)} of
+                    {false, false} -> undefined;
+                    {false, {_Qtype, BOrE}} -> BOrE;
+                    {BOrE, _} -> BOrE
+                end,
+            case MaybeBaseOrEnum of
+                undefined ->
+                    %% logger:error("Can't find simpletype: ~tp~nTs: ~tp~n",
+                    %%              [CT, Ts]),
+                    process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, AttrAcc);
+                BaseOrEnum ->
+                    SC = #sc{qname={ok,"value"}, type=BaseOrEnum,
+                             %% hard code meta, the encasing element has the
+                             %% correct meta.
+                             meta=#meta{min=1, max=1}},
+                    %% logger:notice("AttrAcc ~tp~n", [AttrAcc]),
+                    Type = #type{qname=Qname,
+                                 elems=[SC],
+                                 attrs=AttrAcc},
+                    ews_model:put(Type, Model, TypeMap),
+                    process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
+                            TypeMap, Model, Parent, [])
+            end;
+        {_, _, [_|_], AttrAcc} ->
+            process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc)
+    end;
+process([#attribute{type=Type, base=undefined} = A | Rest], Retry, Ts, TypeAcc,
+        ElemAcc, TypeMap, Model, Parent, AttrAcc)->
+    case to_base(Type) of
+        false ->
+            case lists:keyfind(Type, 1, Ts) of
+                false ->
+                    %% logger:error("Can't find simpletype: ~tp~n",
+                    %%              [Type]),
+                    process(Rest, [A | Retry], Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, AttrAcc);
+                {_Qtype, BaseOrEnum} ->
+                    NewA = A#attribute{base=BaseOrEnum},
+                    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap,
+                            Model, Parent, [NewA | AttrAcc])
+            end;
+        #base{} = Base ->
+            NewA = A#attribute{base=Base},
+            process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap,
+                    Model, Parent, [NewA | AttrAcc])
+    end;
+process([#group{} = Group | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+        Parent, AttrAcc) ->
+    ews_model:put_group(Group, Model, TypeMap),
+    process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
+process([#group_ref{ref=Ref, min_occurs=Min, max_occurs=Max} = Grr | Rest],
+        Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
+    %% logger:notice("GroupRef: ~tp~n", [Ref]),
+    case ews_model:get_group(Ref, Model, TypeMap) of
+        false ->
+            process(Rest, [Grr | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc);
+        #group{parts=Ps} ->
+            %% Turn a group into a sequence
+            NewPs = propagate_meta(Ps, Min, Max),
+            process(NewPs ++ Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
+                    Parent, AttrAcc)
+    end;
 process([T | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc)
   when not is_record(T, attribute) ->
-    ?log("warning: unhandled ~p~n", [T]),
+    logger:warning("warning: unhandled ~tp~n", [T]),
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
 process([], Retry, _, TypeAcc, ElemAcc, _TypeMap, _Model, _Parent, AttrAcc) ->
     {TypeAcc, lists:reverse(ElemAcc), Retry, lists:reverse(AttrAcc)}.
+
+propagate_meta([#element{min_occurs=Min, max_occurs=Max} = E | T],
+               RefMin, RefMax) ->
+    [E#element{min_occurs=maybe_override(RefMin, Min),
+               max_occurs=maybe_override(RefMax, Max)} |
+     propagate_meta(T, RefMin, RefMax)];
+propagate_meta([#group_ref{min_occurs=Min, max_occurs=Max} = Grr | T],
+               RefMin, RefMax) ->
+    [Grr#group_ref{min_occurs=maybe_override(RefMin, Min),
+                   max_occurs=maybe_override(RefMax, Max)} |
+     propagate_meta(T, RefMin, RefMax)];
+propagate_meta([], _, _) ->
+    [].
+
+maybe_override(undefined, undefined) -> 1;
+maybe_override(undefined, N) -> N;
+maybe_override(N, _) -> N.
 
 type_name({Ns, N}, {_, Parent}) ->
     {Ns, Parent++"@"++N};
 type_name({Ns, N}, root) ->
     {Ns, N}.
+
+type_qname({_,_} = Qname, _) ->
+    Qname;
+type_qname(Name, {Ns, _}) ->
+    case is_builtin(Name) of
+        true -> {"no_ns", Name};
+        false -> {Ns, Name}
+    end.
+
+attr_qname({_,_} = Qname, _) ->
+    Qname;
+attr_qname(Name, Ns) ->
+    case is_builtin(Name) of
+        true -> {"no_ns", Name};
+        false -> {Ns, Name}
+    end.
+
+is_builtin("anyURI") -> true;
+is_builtin("anyAtomicType") -> true;
+is_builtin("anySimpleType") -> true;
+is_builtin("base64Binary") -> true;
+is_builtin("boolean") -> true;
+is_builtin("byte") -> true;
+is_builtin("date") -> true;
+is_builtin("dateTime") -> true;
+is_builtin("dateTimeStamp") -> true;
+is_builtin("dayTimeDuration") -> true;
+is_builtin("decimal") -> true;
+is_builtin("double") -> true;
+is_builtin("duration") -> true;
+is_builtin("ENTITIES") -> true;
+is_builtin("ENTITY") -> true;
+is_builtin("float") -> true;
+is_builtin("gDay") -> true;
+is_builtin("gMonth") -> true;
+is_builtin("gMonthDay") -> true;
+is_builtin("gYear") -> true;
+is_builtin("gYearMonth") -> true;
+is_builtin("hexBinary") -> true;
+is_builtin("ID") -> true;
+is_builtin("IDREF") -> true;
+is_builtin("IDREFS") -> true;
+is_builtin("int") -> true;
+is_builtin("integer") -> true;
+is_builtin("language") -> true;
+is_builtin("long") -> true;
+is_builtin("Name") -> true;
+is_builtin("NCName") -> true;
+is_builtin("negativeInteger") -> true;
+is_builtin("NMTOKEN") -> true;
+is_builtin("NMTOKENS") -> true;
+is_builtin("nonNegativeInteger") -> true;
+is_builtin("nonPositiveInteger") -> true;
+is_builtin("normalizedString") -> true;
+is_builtin("NOTATION") -> true;
+is_builtin("positiveInteger") -> true;
+is_builtin("precisionDecimal") -> true;
+is_builtin("QName") -> true;
+is_builtin("short") -> true;
+is_builtin("string") -> true;
+is_builtin("time") -> true;
+is_builtin("token") -> true;
+is_builtin("unsignedByte") -> true;
+is_builtin("unsignedInt") -> true;
+is_builtin("unsignedLong") -> true;
+is_builtin("unsignedShort") -> true;
+is_builtin("yearMonthDuration") -> true;
+is_builtin(OtherType) when is_list(OtherType) -> false.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
     [{Qname, process_simple(S)} | process_all_simple(Rest) ];
@@ -761,7 +1001,10 @@ process_simple(#simple_type{restrictions=Rs, order=Order}) ->
 
 parse_meta(#element{default=D, fixed=F, nillable=N,
                     min_occurs=Min, max_occurs=Max}) ->
-    #meta{nillable=N, default=D, fixed=F, min=Min, max=Max}.
+    #meta{nillable=N, default=D, fixed=F, min=def_one(Min), max=def_one(Max)}.
+
+def_one(undefined) -> 1;
+def_one(Any) -> Any.
 
 %% TODO: Handle more refined basic spec types (i.e. non_neg_integer() etc)
 to_base({"http://www.w3.org/2001/XMLSchema", "boolean"} = Qn) ->

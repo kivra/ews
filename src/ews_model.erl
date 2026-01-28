@@ -22,6 +22,9 @@
          get_from_base/2, get_from_alias/2, get_super/2, get_subs/2,
          keys/1, values/1, elem_keys/1, elem_values/1,
          is_root/2, append_model/3]).
+-export([ put_group/3
+        , get_group/3
+        ]).
 
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
@@ -41,6 +44,9 @@ put(#elem{qname=Key} = E, _Model, Table) ->
 
 put_elem(#elem{qname=Key} = E, Parent, Table) ->
     ets:insert_new(Table, {{Key, Parent}, E}).
+
+put_group(#group{name=Key} = G, Model, Table) ->
+    ets:insert_new(Table, {{group, Model, Key}, G}).
 
 replace(#type{qname=Key} = Type, Table) ->
     ets:insert(Table, {Key, Type});
@@ -75,6 +81,14 @@ get_elem({_,_} = Key, Parent, Table) ->
             false;
         [[Elem]] ->
             Elem
+    end.
+
+get_group({_,_} = Key, Model, Table) ->
+    case ets:lookup(Table, {group, Model, Key}) of
+        [{{group, Model, Key}, Value}] ->
+            Value;
+        [] ->
+            false
     end.
 
 get_parts(Key, Table) ->
@@ -253,6 +267,23 @@ merge_elem_lists(Elems1, Elems2) ->
                      Error ->
                          error({unmatched_element, Error, E1, Elems2}),
                          {error, {unmatched_element, E1, Elems2}}
+                 end;
+             (SC1 = #sc{qname = Qn1, meta = #meta{min = Min}}, {SCs, SC2s}) ->
+                 case lists:splitwith(fun (#sc{qname = Qn2}) ->
+                                              Qn2 /= Qn1
+                                      end, SC2s) of
+                     {H, [SC2 | T]} ->
+                         case merge_sc(SC1, SC2) of
+                             E = {error, _} ->
+                                 E;
+                             NewSC ->
+                                 {[NewSC | SCs], H ++ T}
+                         end;
+                     {_, []} when Min == 0 ->
+                         {[SC1 | SCs], SC2s};
+                     Error ->
+                         error({unmatched_element, Error, SC1, Elems2}),
+                         {error, {unmatched_element, SC1, Elems2}}
                  end
          end,
     case lists:foldl(MF, {[], Elems2}, Elems1) of
@@ -275,6 +306,12 @@ merge_elem(E1 = #elem{qname = Qn, type = T1, meta = M1},
            #elem{qname = Qn, type = T2, meta = M2}) ->
     E1#elem{type = combine_types(T1, T2), meta = combine_meta(M1, M2)};
 merge_elem(E1, E2) ->
+    {error, {incompatible_elements, E1, E2}}.
+
+merge_sc(E1 = #sc{qname = Qn, type = T1, meta = M1},
+           #sc{qname = Qn, type = T2, meta = M2}) ->
+    E1#sc{type = combine_types(T1, T2), meta = combine_meta(M1, M2)};
+merge_sc(E1, E2) ->
     {error, {incompatible_elements, E1, E2}}.
 
 combine_types(T, T) ->

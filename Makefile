@@ -35,3 +35,6 @@ ct:
 
 xref:
 	rebar3 xref
+
+repl:
+	rebar3 as test shell

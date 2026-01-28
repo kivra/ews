@@ -8,13 +8,78 @@
                   name="service"
                   targetNamespace="http://example.com/service">
   <wsdl:types>
-    <xsd:schema>
+    <xsd:schema targetNamespace="http://example.com/service">
       <xsd:import namespace="http://example.com/importer"
                   schemaLocation="importer.xsd"/>
+      <xsd:element name="getPosers">
+        <xsd:complexType>
+          <xsd:sequence/>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="getPosersResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="fluster" type="FlusterType"/>
+            <xsd:element name="apa" ref="Secret"/>
+            <xsd:element name="bepa" type="integer"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:simpleType name="FlusterType">
+        <xsd:annotation>
+          <xsd:documentation>This pattern triggered a bug in wh.erl</xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xs:string">
+          <xsd:pattern value="[\w\d\p{Zs}\-/_.,:]*"/>
+          <xsd:minLength value="1"/>
+          <xsd:maxLength value="80"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+      <xsd:simpleType name="SekretessSattAvTYPE">
+        <xsd:annotation>
+          <xsd:documentation>
+            This should trigger an empty record with just __attrs
+          </xsd:documentation>
+        </xsd:annotation>
+        <xsd:restriction base="xs:string">
+            <xsd:enumeration value="JA"/>
+          </xsd:restriction>
+      </xsd:simpleType>
+      <xsd:simpleType name="tns:JaNejTYPE">
+        <xsd:restriction base="xs:string">
+          <xsd:enumeration value="JA"/>
+          <xsd:enumeration value="NEJ"/>
+        </xsd:restriction>
+      </xsd:simpleType>
+      <xsd:element name="Secret" type="Secret"/>
+      <xsd:complexType name="Secret">
+        <xsd:simpleContent>
+          <xsd:extension base="tns:JaNejTYPE">
+            <xsd:attribute name="sattAv" type="SekretessSattAvTYPE"/>
+          </xsd:extension>
+        </xsd:simpleContent>
+      </xsd:complexType>
+      <xsd:element name="PosersFault">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="apa" ref="Secret"/>
+            <xsd:element name="bepa" type="integer"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
     </xsd:schema>
   </wsdl:types>
   <wsdl:message name="deliveredReq">
     <wsdl:part name="parameters" element="importer:delivered"/>
+  </wsdl:message>
+  <wsdl:message name="getPosersRequest">
+    <wsdl:part name="parameters" element="tns:getPosers"/>
+  </wsdl:message>
+  <wsdl:message name="getPosersResponse">
+    <wsdl:part name="parameters" element="tns:getPosersResponse"/>
+  </wsdl:message>
+  <wsdl:message name="getPosersFault">
+    <wsdl:part name="fault" element="tns:PosersFault"/>
   </wsdl:message>
   <wsdl:portType name="ExamplePort">
     <wsdl:operation name="pokebowl">
@@ -22,10 +87,27 @@
       <wsdl:output message="tns:deliveredReq"/>
       <wsdl:fault name="fault" message="tns:deliveredReq"/>
     </wsdl:operation>
+    <wsdl:operation name="poser">
+      <wsdl:input message="tns:getPosersRequest"/>
+      <wsdl:output message="tns:getPosersResponse"/>
+      <wsdl:fault name="fault" message="tns:getPosersFault"/>
+    </wsdl:operation>
   </wsdl:portType>
   <wsdl:binding name="ExampleBinding" type="tns:ExamplePort">
     <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
     <wsdl:operation name="pokebowl">
+      <soap:operation soapAction=""/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="fault">
+        <soap:fault name="fault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="poser">
       <soap:operation soapAction=""/>
       <wsdl:input>
         <soap:body use="literal"/>

@@ -40,8 +40,11 @@
 -record(element, {name, type, default, fixed, nillable=false,
                   min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions}).
--record(attribute, {name, type, use, default, fixed}).
+-record(simple_content, {name, order, restrictions, attrs=[]}).
+-record(attribute, {name, base, type, use, default, fixed}).
 -record(complex_type, {name, extends, abstract, restrictions, parts, attrs=[]}).
+-record(group, {name, parts}).
+-record(group_ref, {ref, min_occurs, max_occurs}).
 -record(reference, {name}).
 
 -record(restriction, {base_type, values}).
@@ -57,6 +60,7 @@
 -record(base, {xsd_type, erl_type, restrictions, list=false, union=false}).
 -record(enum, {type, values, list=false, union=false}).
 -record(meta, {nillable=false, default, fixed, max, min}).
+-record(sc, {qname, type, meta, attrs=[]}).
 
 %% Macro definitions
 -ifdef(DEBUG).

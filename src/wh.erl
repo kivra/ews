@@ -41,8 +41,15 @@ get_attribute(#xmlElement{attributes=Attrs, namespace=Ns}, Name) ->
             case lists:member($:, Attr) of
                 true when not IsHttp ->
                     [Tns, BaseName] = string:tokens(Attr, ":"),
-                    {_, Uri} = lists:keyfind(Tns, 1, Ns#xmlNamespace.nodes),
-                    {atom_to_list(Uri), BaseName};
+                    case lists:keyfind(Tns, 1
+                                      , Ns#xmlNamespace.nodes) of
+                        {_, Uri} ->
+                            {atom_to_list(Uri), BaseName};
+                        %% FIXME: do something smarter to find attrs like
+                        %% "[\\w\\d\\p{Zs}\\-/_.,:]*"
+                        false ->
+                            Attr
+                    end;
                 _ ->
                     Attr
             end

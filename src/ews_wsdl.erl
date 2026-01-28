@@ -57,6 +57,7 @@ fetch(WsdlUrl) ->
     end.
 
 parse(WsdlBin, Model) when is_atom(Model) ->
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -75,6 +76,7 @@ parse(WsdlBin, Model) when is_atom(Model) ->
           types=Types}.
 
 parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),
                                      [{space, normalize},
                                       {namespace_conformant, true},
@@ -99,6 +101,7 @@ parse(WsdlBin, Model, BaseUrl) when is_atom(Model) ->
 %% ews_wsdl:parse_local("mm_api/META-INF/wsdl/public/Recipient.wsdl", mm_rpc).
 %%
 parse_local(WsdlPath, Model) when is_atom(Model) ->
+    %% Yes, binary_to_list. Let xmerl figure out the encoding.
     {ok, WsdlBin} = file:read_file(WsdlPath),
     WsdlBasePath = filename:dirname(WsdlPath),
     {WsdlDoc, _} = xmerl_scan:string(binary_to_list(WsdlBin),

@@ -10,12 +10,25 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 4.0.0 and 4.1.0
+
+* Support for `include` in schemas.
+* Handle non-ASCII in types
+* Fix for a bug that didn't decode emtpy records like `-record(foo, {}).`
+* Handle `group`.
+* Handle `simpleContent` with attributes by creating a record for it.
+
 ## Changes between 3.1.0 and 4.0.0
 
-* Breaking changes
+Breaking changes
 
 * `ews:call_service_op` will now return `{ok, [term()]}` instead of `{ok, term()}`, cause there can actually  be more than one message returned.
 * `ews:decode_in` will not return `{ok, {Svc, Op, list(Headers), list(Body)}}`
+
+Other changes
+
+* Non-optional attributes in `__attrs` will now have `:=` in their typespec
+* A more consistent ordering of records. First in dep order, then namespace and lastly name. This will reorder everything once now, but less in the future.
 
 ## Changes between 3.0.1 and 3.1.0
 
@@ -44,6 +57,17 @@ rendered XML instead of the internal ews representation.
 Version 3.0.0 introduces an extra field called `__attrs` first of record
 where the XSD defines attributes. `__attrs` is a map and keys should be
 atoms.
+
+### New simpleContent with attributes support
+
+Version 4.1.0 introduces new logic for simpleContent with attributes.
+Normally we don't emit records for simpleContent, but if the simpleContent
+has attributes we have to. Since the simpleContent isn't an element we
+don't have a name for the field in the record so it will get the special
+name `value`. Example:
+
+    -record(foo, {'__attrs' :: #{bar => string() | binary()} | undefined
+                  value :: integer() | undefined}).
 
 ## Interface
 
@@ -171,8 +195,8 @@ deserialize all possible ins, outs and faults of all ops the the selected model.
 It will generate defaults for every entry in every record that can be reached.
 A possible ct test would look like this:
 
-`serialize_deserialize(_Config) ->
-    {ok, _} = ews:add_wsdl_to_model(moose,
-                                    "moose.wsdl")),
-    ok = ews_test:test_everything(moose),
-    ok.`
+    serialize_deserialize(_Config) ->
+        {ok, _} = ews:add_wsdl_to_model(moose,
+                                        "moose.wsdl")),
+        ok = ews_test:test_everything(moose),
+        ok.
