@@ -10,6 +10,10 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 4.1.0 and 4.2.0
+
+* Change the order of emited types to `binary() | string()`. This will change almost every line in the generated hrls generated from previous versions.
+
 ## Changes between 4.0.0 and 4.1.0
 
 * Support for `include` in schemas.
