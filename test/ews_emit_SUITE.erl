@@ -69,7 +69,7 @@ simple_graph(_Config) ->
     ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
     <<"-record(t1, {e1 :: integer() | undefined,\n"
-      "             e2 :: string() | binary() | nil | undefined}).\n\n">> =
+      "             e2 :: binary() | string() | nil | undefined}).\n\n">> =
         Bin,
     ok.
 

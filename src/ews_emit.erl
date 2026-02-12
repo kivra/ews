@@ -120,7 +120,7 @@ output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl,
       " | ").
 
 output_erl_type(string) ->
-    "string() | binary()";
+    "binary() | string()";
 output_erl_type(integer) ->
     "integer()";
 output_erl_type(float) ->
