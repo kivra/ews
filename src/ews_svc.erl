@@ -25,6 +25,7 @@
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
          add_wsdl_local/2,
+         add_xsd_local/2,
          list_services/0, list_services/1,
          list_service_ops/1, list_service_ops/2,
          get_op_info/2, get_op_info/3,
@@ -73,6 +74,10 @@ add_wsdl_bin(ModelRef, WsdlBin) ->
 
 add_wsdl_local(ModelRef, WsdlBin) ->
     gen_server:call(?MODULE, {add_wsdl_local, ModelRef, WsdlBin},
+                    timer:minutes(1)).
+
+add_xsd_local(ModelRef, WsdlBin) ->
+    gen_server:call(?MODULE, {add_xsd_local, ModelRef, WsdlBin},
                     timer:minutes(1)).
 
 list_services() ->
@@ -306,6 +311,20 @@ handle_call({add_wsdl_local, ModelRef, WsdlPath}, _, State) ->
     NewState = State#state{services=NewSvcs, models=NewModels,
                            service_index=NewSvcIdx},
     {reply, {ok, Count}, NewState};
+handle_call({add_xsd_local, ModelRef, XsdPath}, _, State) ->
+    #state{models=OldModels} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    {ok, XsdBin} = file:read_file(XsdPath),
+    XsdBasePath = filename:dirname(XsdPath),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                 [{space, normalize},
+                                  {namespace_conformant, true},
+                                  {validation, schema}]),
+    #model{} = Model = ews_xsd:parse_schema([Schema], ModelRef, XsdBasePath),
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewState = State#state{models=NewModels},
+    {reply, ok, NewState};
 handle_call(list_services, _, #state{services=Svcs} = State) ->
     MRefs = maps:keys(Svcs),
     {reply, {ok, [{M, N} || M <- MRefs, {N, _} <- maps:get(M, Svcs)]}, State};
