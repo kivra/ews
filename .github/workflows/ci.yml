@@ -10,7 +10,7 @@ env:
 jobs:
   versioner:
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     permissions:
       contents: write
       packages: write
@@ -50,7 +50,7 @@ jobs:
 
   compile-deps:
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
@@ -76,7 +76,7 @@ jobs:
   compile:
     needs: [compile-deps]
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
@@ -109,7 +109,7 @@ jobs:
   xref:
     needs: [compile]
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
@@ -134,7 +134,7 @@ jobs:
   ct:
     needs: [compile]
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
@@ -159,7 +159,7 @@ jobs:
   eunit:
     needs: [compile]
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
@@ -184,7 +184,7 @@ jobs:
   dialyzer:
     needs: [compile]
     runs-on:
-      group: amd64-runners
+      group: arm-runners
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
