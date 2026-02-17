@@ -8,6 +8,46 @@ env:
   REBAR3_VERSION: "3.26.0"
 
 jobs:
+  versioner:
+    runs-on:
+      group: amd64-runners
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      releaseTag: ${{ steps.semver.outputs.nextStrict }}
+      commitTag: ${{ steps.git.outputs.commitTag }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0 # Need all to see past tags for semver
+
+      - name: Calculate Semantic Version
+        id: semver
+        # this decides if we will tag a release
+        if: github.ref_name == github.event.repository.default_branch && !startsWith(github.event.head_commit.message, 'no-release')
+        uses: ietf-tools/semver-action@c90370b2958652d71c06a3484129a4d423a6d8a8 # v1
+        with:
+          token: ${{ github.token }}
+          branch: master
+          patchAll: true
+          noVersionBumpBehavior: patch
+
+      - name: Calculate Git Version
+        id: git
+        run: |
+          GIT_BRANCH="${GITHUB_REF##*/}"
+          GIT_COMMIT="${GITHUB_SHA:0:7}"
+          echo "commitTag=${GIT_BRANCH}-${GIT_COMMIT}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: ${{ steps.semver.outputs.nextStrict != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.semver.outputs.nextStrict }}" --generate-notes
+
   compile-deps:
     runs-on:
       group: amd64-runners
