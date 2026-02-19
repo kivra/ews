@@ -21,6 +21,7 @@
         , serialize_deserialize/1
         , test_mm_service/1
         , many_schemas_n_refs/1
+        , encode_decode_plain_xsd/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -41,6 +42,9 @@ groups() ->
     , {teleadr,
        [ many_schemas_n_refs
        ]}
+    , {xsds,
+       [ encode_decode_plain_xsd
+       ]}
     ].
 
 all() ->
@@ -48,6 +52,7 @@ all() ->
     , {group, mm_service}
     , {group, mm_notification}
     , {group, teleadr}
+    , {group, xsds}
     ].
 
 init_per_group(google_v201306_campaignService, Config) ->
@@ -80,6 +85,9 @@ init_per_group(mm_service, Config) ->
     Config;
 init_per_group(teleadr, Config) ->
     application:ensure_all_started(ews),
+    Config;
+init_per_group(xsds, Config) ->
+    application:ensure_all_started(ews),
     Config.
 
 end_per_group(google_v201306_campaignService, _Config) ->
@@ -89,7 +97,9 @@ end_per_group(mm_notification, _Config) ->
 end_per_group(mm_service, _Config) ->
     ews:remove_model(ek_mm_test);
 end_per_group(teleadr, _Config) ->
-    ews:remove_model(tiny).
+    ews:remove_model(tiny);
+end_per_group(xsds, _Config) ->
+    ews:remove_model(xsd_test).
 
 google_v201306_ensure_record(Config) ->
     Wsdl = proplists:get_value(google_v201306_campaignService, Config),
@@ -321,6 +331,22 @@ many_schemas_n_refs(_Config) ->
 
     ok = ews_test:test_everything(tiny),
     file:delete(TmpFile),
+    ok.
+
+encode_decode_plain_xsd(_Config) ->
+    ok = ews:add_xsd_to_model(xsd_test,
+                              test_wsdl_file("importee.xsd")),
+    SmsMessage =
+        {sms_message,
+         {header,
+          <<"070123456">>},
+         <<"puss!">>},
+    SmsXML =
+        <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:SmsMessage xmlns:"
+          "p1=\"http://example.com/importee\"><p1:header><p1:From>07012345"
+          "6</p1:From></p1:header><p1:text>puss!</p1:text></p1:SmsMessage>">>,
+    Encoded = ews:encode(xsd_test, SmsMessage),
+    ?assertMatch(SmsXML, Encoded),
     ok.
 
 tempfile() ->

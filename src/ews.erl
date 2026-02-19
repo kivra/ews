@@ -35,6 +35,7 @@
          decode_service_op_result/5,
          decode_service_op_result/6,
          decode_in/1, decode_in/2,
+         encode/1, encode/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_pre_post_hook/1, add_pre_post_hook/2,
@@ -165,6 +166,12 @@ decode_in(Soap) ->
 
 decode_in(Model, Soap) ->
     ews_svc:decode_in(Model, Soap).
+
+encode(Record) ->
+    encode(default, Record).
+
+encode(Model, Record) when is_tuple(Record) ->
+    ews_svc:encode_record(Model, Record).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->

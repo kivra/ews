@@ -41,6 +41,8 @@
          encode_faults/6,
          decode/5, decode/6,
          decode_in/2,
+         encode_record/2,
+         decode_record/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -232,6 +234,21 @@ decode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
     decode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts, Opts).
+
+encode_record(ModelRef, Record) when is_tuple(Record) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    [Alias | _] = tuple_to_list(Record),
+    case ews_alias:get_qname(Alias, ModelRef) of
+        false ->
+            error({not_in_model, Record});
+        Type ->
+            Body = ews_serialize:encode([Record], [Type], Model),
+            XML = ews_soap:make_xml(Body),
+            XML
+    end.
+
+decode_record(ModelRef, _Record) ->
+    _Model = gen_server:call(?MODULE, {get_model, ModelRef}).
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
