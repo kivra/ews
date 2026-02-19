@@ -17,7 +17,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_serialize).
 
--export([encode/3, decode/3, record_to_map/2]).
+-export([ encode/3
+        , decode/3
+        , record_to_map/2
+        ]).
 
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
