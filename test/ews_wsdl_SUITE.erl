@@ -345,8 +345,17 @@ encode_decode_plain_xsd(_Config) ->
         <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:SmsMessage xmlns:"
           "p1=\"http://example.com/importee\"><p1:header><p1:From>07012345"
           "6</p1:From></p1:header><p1:text>puss!</p1:text></p1:SmsMessage>">>,
+    Header =
+        {header,
+          <<"070123456">>},
+    HeaderXML =
+        <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:header xmlns:p1="
+          "\"http://example.com/importee\"><p1:From>070123456</p1:From></p"
+          "1:header>">>,
     Encoded = ews:encode(xsd_test, SmsMessage),
     ?assertMatch(SmsXML, Encoded),
+    EncHeader = ews:encode(xsd_test, Header),
+    ?assertMatch(HeaderXML, EncHeader),
     ok.
 
 tempfile() ->
