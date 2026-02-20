@@ -242,7 +242,7 @@ encode_record(ModelRef, Record) when is_tuple(Record) ->
         false ->
             error({not_in_model, Record});
         Type ->
-            Body = ews_serialize:encode([Record], [Type], Model),
+            Body = ews_serialize:encode_non_root(Record, Type, Model),
             XML = ews_soap:make_xml(Body),
             XML
     end.
