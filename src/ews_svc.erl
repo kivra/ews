@@ -247,8 +247,42 @@ encode_record(ModelRef, Record) when is_tuple(Record) ->
             XML
     end.
 
-decode_record(ModelRef, _Record) ->
-    _Model = gen_server:call(?MODULE, {get_model, ModelRef}).
+decode_record(ModelRef, XML) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case ews_xml:decode(XML) of
+        [{Element, Attr, Children}] = XmlTerm ->
+            case {ews_model:get_elem(Element, Model#model.type_map),
+                  ews_model:get(Element, Model#model.type_map)} of
+                {false, false} ->
+                    %% The encoded element was actually an unnamed type
+                    %% 'Message@foo' and encoded as 'foo'. Use the alias
+                    %% db to find the type a create a fake root elem.
+                    %% TODO: this will probably fail if an unnamed type
+                    %% is overloaded, for example 'foo_1'. This needs to
+                    %% fixed in both encode_non_root and here.
+                    {_, Name} = Element,
+                    {_,_} = Qname =
+                        ews_alias:get_qname(list_to_existing_atom(Name),
+                                            ModelRef),
+                    FakeElem = #elem{qname = Qname, type = Qname},
+                    %% Recreate the element with our internal name
+                    %% '{"Namespace", "Message@foo"}' since it needs to
+                    %% match on the Qname while validating.
+                    FakeTerm = [{Qname, Attr, Children}],
+                    [Res] = ews_serialize:decode(FakeTerm, [FakeElem], Model),
+                    Res;
+                {#elem{} = RootElem, _} ->
+                    %% A root element, just decode as normal.
+                    [Res] = ews_serialize:decode(XmlTerm, [RootElem], Model),
+                    Res;
+                {false, #type{qname = Qname}} ->
+                    %% A named type was encoded. Create a fake root elem
+                    %% so we can validate and decode.
+                    FakeElem = #elem{qname = Qname, type = Qname},
+                    [Res] = ews_serialize:decode(XmlTerm, [FakeElem], Model),
+                    Res
+            end
+    end.
 
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).

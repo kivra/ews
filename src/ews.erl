@@ -36,6 +36,7 @@
          decode_service_op_result/6,
          decode_in/1, decode_in/2,
          encode/1, encode/2,
+         decode/1, decode/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_pre_post_hook/1, add_pre_post_hook/2,
@@ -172,6 +173,12 @@ encode(Record) ->
 
 encode(Model, Record) when is_tuple(Record) ->
     ews_svc:encode_record(Model, Record).
+
+decode(XML) ->
+    decode(default, XML).
+
+decode(Model, XML) ->
+    ews_svc:decode_record(Model, XML).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->

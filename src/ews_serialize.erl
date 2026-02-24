@@ -54,12 +54,12 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
 encode_non_root(Term, MsgElem, #model{type_map=Tbl}) ->
     case ews_model:is_root(MsgElem, Tbl) of
         false ->
-            %% If the record isn't a root element but instead of a type,
+            %% If the record isn't a root element but instead a type,
             %% we have lost the parent element at this stage.
             %% So instead we create an element from the type, similarly
             %% to what libraries in other languages do.
             {Ns, TypeName} = MsgElem,
-            %% This is an unnamed type inside an element remove the
+            %% If this is an unnamed type inside an element remove the
             %% internal ews notation in front of the @ sign.
             Elem = case string:lexemes(TypeName, "@") of
                        [_ParentElem, TypePart] ->
