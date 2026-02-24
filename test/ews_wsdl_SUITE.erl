@@ -336,26 +336,40 @@ many_schemas_n_refs(_Config) ->
 encode_decode_plain_xsd(_Config) ->
     ok = ews:add_xsd_to_model(xsd_test,
                               test_wsdl_file("importee.xsd")),
-    SmsMessage =
+    RootMessage =
         {sms_message,
          {header,
           <<"070123456">>},
          <<"puss!">>},
-    SmsXML =
+    RootXML =
         <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:SmsMessage xmlns:"
           "p1=\"http://example.com/importee\"><p1:header><p1:From>07012345"
           "6</p1:From></p1:header><p1:text>puss!</p1:text></p1:SmsMessage>">>,
-    Header =
+    NamedType =
+        {rsa_key_value_type, <<"15">>, <<"3">>},
+    NamedXML =
+        <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:RSAKeyValueType x"
+          "mlns:p1=\"http://www.w3.org/2000/09/xmldsig#\"><p1:Modulus>15</"
+          "p1:Modulus><p1:Exponent>3</p1:Exponent></p1:RSAKeyValueType>">>,
+    Unnamed =
         {header,
           <<"070123456">>},
-    HeaderXML =
+    UnnamedXML =
         <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:header xmlns:p1="
           "\"http://example.com/importee\"><p1:From>070123456</p1:From></p"
           "1:header>">>,
-    Encoded = ews:encode(xsd_test, SmsMessage),
-    ?assertMatch(SmsXML, Encoded),
-    EncHeader = ews:encode(xsd_test, Header),
-    ?assertMatch(HeaderXML, EncHeader),
+    Encoded = ews:encode(xsd_test, RootMessage),
+    ?assertMatch(RootXML, Encoded),
+    EncNamed = ews:encode(xsd_test, NamedType),
+    ?assertMatch(NamedXML, EncNamed),
+    EncUnnamed = ews:encode(xsd_test, Unnamed),
+    ?assertMatch(UnnamedXML, EncUnnamed),
+    Decoded = ews:decode(xsd_test, Encoded),
+    ?assertMatch(RootMessage, Decoded),
+    DecNamed = ews:decode(xsd_test, EncNamed),
+    ?assertMatch(NamedType, DecNamed),
+    DecUnnamed = ews:decode(xsd_test, EncUnnamed),
+    ?assertMatch(Unnamed, DecUnnamed),
     ok.
 
 tempfile() ->
