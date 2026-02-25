@@ -6,9 +6,17 @@ Erlang Library for interacting with SOAP Web Services.
 ews is a library for interacting with SOAP web services. It includes functionality to
 
 * generate a model from the WSDLs that describe the web services
+* generate a model from plain XSD for file encoding and decoding
 * emit an Erlang .hrl file defining records corresponding to the types in the model
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
+
+## Changes between 4.2.0 and 4.3.0
+
+* Add the possibility to add plain XSDs to the model to generate record for elements and types that aren't part of a WSDL.
+* Encoding and decoding of any records in the model.
+
+Known issues: Encoding and decoding of overloaded unnamed types like `Foo@bar_1` will probably not work.
 
 ## Changes between 4.1.0 and 4.2.0
 
@@ -72,6 +80,25 @@ name `value`. Example:
 
     -record(foo, {'__attrs' :: #{bar => string() | binary()} | undefined
                   value :: integer() | undefined}).
+
+### New XSD support
+
+In order to support encoding and decoding of XML-files that aren't in a message
+in a WSDL, support for adding random XSDs has been added.
+
+    ews:add_xsd_to_model(xsd_test, "test/xmldsig-core-schema.xsd").
+
+    Encoded = ews:encode(xsd_test, #rsa_key_value_type{modulus = <<"15">>,
+                                                       exponent = <<"3">>}).
+        <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:RSAKeyValueType x"
+          "mlns:p1=\"http://www.w3.org/2000/09/xmldsig#\"><p1:Modulus>15</"
+          "p1:Modulus><p1:Exponent>3</p1:Exponent></p1:RSAKeyValueType>">>
+
+    ews:decode(xsd_test, Encoded).
+        #rsa_key_value_type{modulus = <<"15">>,
+                            exponent = <<"3">>}
+
+Known issues: Encoding and decoding of overloaded unnamed types like `Foo@bar_1` will probably not work.
 
 ## Interface
 

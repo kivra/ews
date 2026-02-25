@@ -21,6 +21,7 @@
         , call/7
         , make_fault/3
         , make_soap/2
+        , make_xml/1
         , make_envelope/2
         , parse_envelope/1
         ]).
@@ -83,6 +84,13 @@ make_soap(Header, Body) ->
     {Attrs, Nss} = ews_xml:get_all_nss(Envelope0),
     Envelope1 = {EnvTag, Attrs, Rest},
     [?XML_HDR, ews_xml:encode(Envelope1, Nss)].
+
+make_xml([{Tag, _, Rest}] = Body0) ->
+    {Attrs, Nss} = ews_xml:get_all_nss(Body0),
+    %% logger:notice("Attrs:  ~tp~nNss: ~tp~n", [Attrs, Nss]),
+    Body1 = {Tag, Attrs, Rest},
+    BodyIoList = [?XML_HDR, ews_xml:encode(Body1, Nss)],
+    iolist_to_binary(BodyIoList).
 
 make_envelope(undefined, Body) ->
     {{?SOAPNS, "Envelope"}, [], [make_body(Body)]};

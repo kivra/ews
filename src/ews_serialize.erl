@@ -17,7 +17,11 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -module(ews_serialize).
 
--export([encode/3, decode/3, record_to_map/2]).
+-export([ encode/3
+        , encode_non_root/3
+        , decode/3
+        , record_to_map/2
+        ]).
 
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
@@ -44,6 +48,30 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
             BaseElems = [ ews_model:get_elem(E, Tbl) || E <- MsgElems ],
             Zipped = lists:zip(Terms, BaseElems),
             [ encode_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
+    end.
+
+encode_non_root(Term, MsgElem, #model{type_map=Tbl}) ->
+    case ews_model:is_root(MsgElem, Tbl) of
+        false ->
+            %% If the record isn't a root element but instead a type,
+            %% we have lost the parent element at this stage.
+            %% So instead we create an element from the type, similarly
+            %% to what libraries in other languages do.
+            {Ns, TypeName} = MsgElem,
+            %% If this is an unnamed type inside an element remove the
+            %% internal ews notation in front of the @ sign.
+            Elem = case string:lexemes(TypeName, "@") of
+                       [_ParentElem, TypePart] ->
+                           {Ns, TypePart};
+                       [TypePart] ->
+                           {Ns, TypePart}
+                   end,
+            Type = ews_model:get(MsgElem, Tbl),
+            %% This creates an element with the type's name.
+            [{Elem, [], encode_term(Term, Type, Tbl)}];
+        true ->
+            BaseElem = ews_model:get_elem(MsgElem, Tbl),
+            [ encode_term(Term, BaseElem, Tbl) ]
     end.
 
 %% @doc Decodes and validates an xml string that represents a soap message.

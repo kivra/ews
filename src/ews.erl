@@ -20,6 +20,7 @@
 -export([start/0, stop/0]).
 
 -export([add_wsdl_to_model/1, add_wsdl_to_model/2,
+         add_xsd_to_model/2,
          emit_complete_model_types/1, emit_complete_model_types/2,
          list_services/0, list_services/1, list_model_services/0,
          get_service_ops/1, get_service_ops/2,
@@ -34,6 +35,8 @@
          decode_service_op_result/5,
          decode_service_op_result/6,
          decode_in/1, decode_in/2,
+         encode/1, encode/2,
+         decode/1, decode/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_pre_post_hook/1, add_pre_post_hook/2,
@@ -61,6 +64,14 @@ add_wsdl_to_model(Model, WsdlUrl) when is_atom(Model) ->
             ews_svc:add_wsdl_url(Model, WsdlUrl);
         #{} ->
             ews_svc:add_wsdl_local(Model, WsdlUrl)
+    end.
+
+add_xsd_to_model(Model, WsdlUrl) when is_atom(Model) ->
+    case uri_string:parse(WsdlUrl) of
+        %% #{scheme := _} ->
+        %%     ews_svc:add_wsdl_url(Model, WsdlUrl);
+        #{} ->
+            ews_svc:add_xsd_local(Model, WsdlUrl)
     end.
 
 emit_complete_model_types(Filename) ->
@@ -156,6 +167,18 @@ decode_in(Soap) ->
 
 decode_in(Model, Soap) ->
     ews_svc:decode_in(Model, Soap).
+
+encode(Record) ->
+    encode(default, Record).
+
+encode(Model, Record) when is_tuple(Record) ->
+    ews_svc:encode_record(Model, Record).
+
+decode(XML) ->
+    decode(default, XML).
+
+decode(Model, XML) ->
+    ews_svc:decode_record(Model, XML).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->

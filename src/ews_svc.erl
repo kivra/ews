@@ -25,6 +25,7 @@
 
 -export([add_wsdl_url/2, add_wsdl_bin/2,
          add_wsdl_local/2,
+         add_xsd_local/2,
          list_services/0, list_services/1,
          list_service_ops/1, list_service_ops/2,
          get_op_info/2, get_op_info/3,
@@ -40,6 +41,8 @@
          encode_faults/6,
          decode/5, decode/6,
          decode_in/2,
+         encode_record/2,
+         decode_record/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -73,6 +76,10 @@ add_wsdl_bin(ModelRef, WsdlBin) ->
 
 add_wsdl_local(ModelRef, WsdlBin) ->
     gen_server:call(?MODULE, {add_wsdl_local, ModelRef, WsdlBin},
+                    timer:minutes(1)).
+
+add_xsd_local(ModelRef, WsdlBin) ->
+    gen_server:call(?MODULE, {add_xsd_local, ModelRef, WsdlBin},
                     timer:minutes(1)).
 
 list_services() ->
@@ -228,6 +235,55 @@ decode(ModelRef, ServiceName, OpName, HeaderParts, BodyParts, Opts) ->
     decode_service_op(ModelRef, Model, ServiceName, OpName,
                       HeaderParts, BodyParts, Opts).
 
+encode_record(ModelRef, Record) when is_tuple(Record) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    [Alias | _] = tuple_to_list(Record),
+    case ews_alias:get_qname(Alias, ModelRef) of
+        false ->
+            error({not_in_model, Record});
+        Type ->
+            Body = ews_serialize:encode_non_root(Record, Type, Model),
+            XML = ews_soap:make_xml(Body),
+            XML
+    end.
+
+decode_record(ModelRef, XML) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case ews_xml:decode(XML) of
+        [{Element, Attr, Children}] = XmlTerm ->
+            case {ews_model:get_elem(Element, Model#model.type_map),
+                  ews_model:get(Element, Model#model.type_map)} of
+                {false, false} ->
+                    %% The encoded element was actually an unnamed type
+                    %% 'Message@foo' and encoded as 'foo'. Use the alias
+                    %% db to find the type a create a fake root elem.
+                    %% TODO: this will probably fail if an unnamed type
+                    %% is overloaded, for example 'foo_1'. This needs to
+                    %% fixed in both encode_non_root and here.
+                    {_, Name} = Element,
+                    {_,_} = Qname =
+                        ews_alias:get_qname(list_to_existing_atom(Name),
+                                            ModelRef),
+                    FakeElem = #elem{qname = Qname, type = Qname},
+                    %% Recreate the element with our internal name
+                    %% '{"Namespace", "Message@foo"}' since it needs to
+                    %% match on the Qname while validating.
+                    FakeTerm = [{Qname, Attr, Children}],
+                    [Res] = ews_serialize:decode(FakeTerm, [FakeElem], Model),
+                    Res;
+                {#elem{} = RootElem, _} ->
+                    %% A root element, just decode as normal.
+                    [Res] = ews_serialize:decode(XmlTerm, [RootElem], Model),
+                    Res;
+                {false, #type{qname = Qname}} ->
+                    %% A named type was encoded. Create a fake root elem
+                    %% so we can validate and decode.
+                    FakeElem = #elem{qname = Qname, type = Qname},
+                    [Res] = ews_serialize:decode(XmlTerm, [FakeElem], Model),
+                    Res
+            end
+    end.
+
 add_pre_hook(ModelRef, Hook) ->
     gen_server:call(?MODULE, {add_pre_hook, ModelRef, Hook}).
 add_pre_post_hook(ModelRef, Hook) ->
@@ -306,6 +362,20 @@ handle_call({add_wsdl_local, ModelRef, WsdlPath}, _, State) ->
     NewState = State#state{services=NewSvcs, models=NewModels,
                            service_index=NewSvcIdx},
     {reply, {ok, Count}, NewState};
+handle_call({add_xsd_local, ModelRef, XsdPath}, _, State) ->
+    #state{models=OldModels} = State,
+    OldModel = maps:get(ModelRef, OldModels, undefined),
+    {ok, XsdBin} = file:read_file(XsdPath),
+    XsdBasePath = filename:dirname(XsdPath),
+    {Schema, _} = xmerl_scan:string(binary_to_list(XsdBin),
+                                    [{space, normalize},
+                                     {namespace_conformant, true},
+                                     {validation, schema}]),
+    #model{} = Model = ews_xsd:parse_schema([Schema], ModelRef, XsdBasePath),
+    NewModels = OldModels#{ModelRef => ews_model:append_model(OldModel, Model,
+                                                              ModelRef)},
+    NewState = State#state{models=NewModels},
+    {reply, ok, NewState};
 handle_call(list_services, _, #state{services=Svcs} = State) ->
     MRefs = maps:keys(Svcs),
     {reply, {ok, [{M, N} || M <- MRefs, {N, _} <- maps:get(M, Svcs)]}, State};
