@@ -50,7 +50,6 @@ encode(Terms, MsgElems, #model{type_map=Tbl}) ->
             [ encode_term(Term, Elem, Tbl) || {Term, Elem} <- Zipped ]
     end.
 
--spec encode_non_root(any(), any(), #model{}) -> iolist().
 encode_non_root(Term, MsgElem, #model{type_map=Tbl}) ->
     case ews_model:is_root(MsgElem, Tbl) of
         false ->
