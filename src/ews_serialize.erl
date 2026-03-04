@@ -107,10 +107,15 @@ record_to_map(Term, M = #model{type_map = Tbl}) ->
             [AttrsVal | ElemValues] = Values,
             MapValues = lists:map(fun (V) -> field_to_map(V, M) end,
                                   ElemValues),
+            AttrsList =
+                case AttrsVal of
+                    undefined -> [];
+                    _ -> [{'__attrs', AttrsVal}]
+                end,
             maps:from_list(
-              [{'__attrs', AttrsVal}
-               | [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
-                             V /= undefined]]);
+              AttrsList ++
+              [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
+                          V /= undefined]);
         _ ->
             MapValues = lists:map(fun (V) -> field_to_map(V, M) end, Values),
             maps:from_list(

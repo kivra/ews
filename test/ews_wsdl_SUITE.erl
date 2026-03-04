@@ -90,6 +90,7 @@ init_per_group(teleadr, Config) ->
     Config;
 init_per_group(xsds, Config) ->
     application:ensure_all_started(ews),
+    ok = ews:add_xsd_to_model(xsd_test, test_wsdl_file("importee.xsd")),
     Config.
 
 end_per_group(google_v201306_campaignService, _Config) ->
@@ -336,8 +337,7 @@ many_schemas_n_refs(_Config) ->
     ok.
 
 encode_decode_plain_xsd(_Config) ->
-    ok = ews:add_xsd_to_model(xsd_test,
-                              test_wsdl_file("importee.xsd")),
+    %% Model loaded by init_per_group(xsds, ...)
     RootMessage =
         {sms_message,
          {header,
@@ -379,8 +379,7 @@ encode_decode_plain_xsd(_Config) ->
 %%   - signature_value_type: simpleContent + attrs (#sc{} in elems)
 %%   - signatures: complexType + attrs (#elem{} in elems)
 record_to_map_xsd_with_attrs(_Config) ->
-    %% Model already loaded by init_per_group(xsds, ...)
-    %% via encode_decode_plain_xsd which calls add_xsd_to_model
+    %% Model loaded by init_per_group(xsds, ...)
 
     %% signature_value_type is simpleContent with an Id attribute:
     %%   -record(signature_value_type, {'__attrs', value}).
