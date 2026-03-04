@@ -102,9 +102,21 @@ record_to_map(Term, M = #model{type_map = Tbl}) ->
     [Alias | Values] = tuple_to_list(Term),
     Parts = ews_model:get_parts(Alias, Tbl),
     FieldNames = field_names(Parts),
-    MapValues = lists:map(fun (V) -> field_to_map(V, M) end, Values),
-    maps:from_list([{K, V} ||  {K, V} <- lists:zip(FieldNames, MapValues),
-                               V /= undefined]).
+    case ews_model:get(Alias, Tbl) of
+        #type{attrs = [_|_]} ->
+            [AttrsVal | ElemValues] = Values,
+            MapValues = lists:map(fun (V) -> field_to_map(V, M) end,
+                                  ElemValues),
+            maps:from_list(
+              [{'__attrs', AttrsVal}
+               | [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
+                             V /= undefined]]);
+        _ ->
+            MapValues = lists:map(fun (V) -> field_to_map(V, M) end, Values),
+            maps:from_list(
+              [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
+                          V /= undefined])
+    end.
 %% Internal -------------------------------------------------------------------
 
 %% TODO: handle list of Terms -> check if #meta{max=M}, M > 1
@@ -621,4 +633,7 @@ field_to_map(V, _M) ->
     V.
 
 field_names(Parts) ->
-    [ews_alias:create(QN) || #elem{qname = QN} <- Parts].
+    lists:filtermap(fun(#elem{qname = QN}) -> {true, ews_alias:create(QN)};
+                       (#sc{qname = QN})   -> {true, ews_alias:create(QN)};
+                       (_)                 -> false
+                    end, Parts).

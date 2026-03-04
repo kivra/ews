@@ -22,6 +22,7 @@
         , test_mm_service/1
         , many_schemas_n_refs/1
         , encode_decode_plain_xsd/1
+        , record_to_map_xsd_with_attrs/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -44,6 +45,7 @@ groups() ->
        ]}
     , {xsds,
        [ encode_decode_plain_xsd
+       , record_to_map_xsd_with_attrs
        ]}
     ].
 
@@ -370,6 +372,38 @@ encode_decode_plain_xsd(_Config) ->
     ?assertMatch(NamedType, DecNamed),
     DecUnnamed = ews:decode(xsd_test, EncUnnamed),
     ?assertMatch(Unnamed, DecUnnamed),
+    ok.
+
+%% Regression test: record_to_map must handle types with XML attributes.
+%% Uses real XSD types from xmldsig-core-schema.xsd (loaded via importee.xsd):
+%%   - signature_value_type: simpleContent + attrs (#sc{} in elems)
+%%   - signatures: complexType + attrs (#elem{} in elems)
+record_to_map_xsd_with_attrs(_Config) ->
+    %% Model already loaded by init_per_group(xsds, ...)
+    %% via encode_decode_plain_xsd which calls add_xsd_to_model
+
+    %% signature_value_type is simpleContent with an Id attribute:
+    %%   -record(signature_value_type, {'__attrs', value}).
+    SigVal = {signature_value_type, #{}, <<"dGVzdA==">>},
+    SigValMap = ews:record_to_map(xsd_test, SigVal),
+    ?assert(is_map(SigValMap)),
+    ?assertMatch(#{'__attrs' := #{}, value := <<"dGVzdA==">>}, SigValMap),
+
+    %% Same with an actual attribute value
+    SigVal2 = {signature_value_type, #{'Id' => <<"sig-1">>}, <<"dGVzdA==">>},
+    SigValMap2 = ews:record_to_map(xsd_test, SigVal2),
+    ?assertMatch(#{'__attrs' := #{'Id' := <<"sig-1">>}, value := <<"dGVzdA==">>},
+                 SigValMap2),
+
+    %% signatures is a complexType with child elem + Id attribute:
+    %%   -record(signatures, {'__attrs', signature}).
+    %% We pass undefined for the child to keep it simple.
+    Sigs = {signatures, #{}, undefined},
+    SigsMap = ews:record_to_map(xsd_test, Sigs),
+    ?assert(is_map(SigsMap)),
+    ?assertMatch(#{'__attrs' := #{}}, SigsMap),
+    %% signature child is undefined so should be omitted from map
+    ?assertEqual(false, maps:is_key(signature, SigsMap)),
     ok.
 
 tempfile() ->
