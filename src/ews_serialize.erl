@@ -116,7 +116,7 @@ record_to_map(Term, M = #model{type_map = Tbl}) ->
               AttrsList ++
               [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
                           V /= undefined]);
-        _ ->
+        #type{attrs = []} ->
             MapValues = lists:map(fun (V) -> field_to_map(V, M) end, Values),
             maps:from_list(
               [{K, V} || {K, V} <- lists:zip(FieldNames, MapValues),
