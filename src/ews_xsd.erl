@@ -124,6 +124,8 @@ find_includes([#xmlElement{
 find_includes([#xmlElement{content=Content} = Elem | T], Ns) ->
     [Elem#xmlElement{content=find_includes(Content, Ns)} |
      find_includes(T, Ns)];
+find_includes([#xmlComment{} = Comment | T], Ns) ->
+    [Comment | find_includes(T, Ns)];
 find_includes([], _) ->
     [].
 
