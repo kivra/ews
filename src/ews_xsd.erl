@@ -744,14 +744,15 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             TypeName = type_name(Qname, Parent),
             Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
-            {AccWithSubTypes, SubElems, Retry2, _} =
+            {AccWithSubTypes, SubElems, Retry2, AttrAcc1} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
-                        TypeMap, Model, Parent, AttrAcc),
+                        TypeMap, Model, Parent, []),
             %% Check if any child is a reference.
             case [ Ref || #element{type=#reference{}} = Ref <- SubElems] of
                 [] ->
                     Type = #type{qname=TypeName, extends=Ext,
-                                 abstract=Abstract, elems=SubElems},
+                                 abstract=Abstract, elems=SubElems,
+                                 attrs=AttrAcc1},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
                             [Elem | ElemAcc],
