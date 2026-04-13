@@ -15,6 +15,7 @@
           <s:sequence>
             <s:element minOccurs="0" maxOccurs="1" name="api_result" type="tns:api_result" />
           </s:sequence>
+          <s:attribute name="attr_on_unnamed_type" type="ID"/>
         </s:complexType>
       </s:element>
       <s:complexType name="api_result">
