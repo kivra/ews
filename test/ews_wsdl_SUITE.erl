@@ -18,6 +18,7 @@
         , google_v201306_correct_service/1
         , colliding_types/1
         , empty_records_decode/1
+        , unions/1
         , serialize_deserialize/1
         , test_mm_service/1
         , many_schemas_n_refs/1
@@ -35,6 +36,7 @@ groups() ->
     , {mm_service,
        [ test_mm_service
        , empty_records_decode
+       , unions
        ]}
     , {mm_notification,
        [ colliding_types
@@ -169,6 +171,18 @@ empty_records_decode(_Config) ->
                                                       , Resp),
     ?assertMatch(OutMessage, OpOut),
     meck:unload(hackney),
+    ok.
+
+unions(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "mm_service.wsdl"),
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+    ews:add_wsdl_to_model(ek_mm_test, File),
+    UnionTest =
+        {posers_fault, undefined, undefined, <<"moose">>},
+    ews:encode(ek_mm_test, UnionTest),
     ok.
 
 colliding_types(_Config) ->

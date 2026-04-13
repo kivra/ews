@@ -64,8 +64,15 @@
           <xsd:sequence>
             <xsd:element name="apa" ref="Secret"/>
             <xsd:element name="bepa" type="integer"/>
+            <xsd:element name="cepa" ref="UnionTest"/>
           </xsd:sequence>
         </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="UnionTest">
+        <xsd:simpleType>
+          <xsd:union
+              memberTypes="tns:FlusterType tns:JaNejTYPE"/>
+        </xsd:simpleType>
       </xsd:element>
     </xsd:schema>
   </wsdl:types>
