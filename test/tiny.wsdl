@@ -2,6 +2,7 @@
 <wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:s2="http://api.hotbrev.se/FindCounty" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://api.hotbrev.se/" xmlns:s5="http://api.hotbrev.se/LocalityResult" xmlns:s9="http://api.hotbrev.se/ZipCodeResult" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:s6="http://api.hotbrev.se/FindCommunity" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:s10="http://api.hotbrev.se/FindParish" xmlns:s11="http://api.hotbrev.se/ParishResult" xmlns:s3="http://api.hotbrev.se/CountyResult" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:s4="http://api.hotbrev.se/FindLocality" xmlns:s7="http://api.hotbrev.se/CommunityResult" xmlns:s1="http://api.hotbrev.se/FindLove" xmlns:s8="http://api.hotbrev.se/FindZipCode" targetNamespace="http://api.hotbrev.se/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
   <wsdl:types>
     <s:schema elementFormDefault="qualified" targetNamespace="http://api.hotbrev.se/">
+      <!-- a comment that breaks find_includes -->
       <s:import namespace="http://api.hotbrev.se/FindLove" />
       <s:element name="Find">
         <s:complexType>
