@@ -11,6 +11,9 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 4.3.0 and 4.4.0
+* Unions now work, but only if they have the same base since it usess the first base for all of the union.
+
 ## Changes between 4.2.0 and 4.3.0
 
 * Add the possibility to add plain XSDs to the model to generate record for elements and types that aren't part of a WSDL.
