@@ -5,7 +5,6 @@ deps/*
 *.orig
 .eunit
 doc
-rebar.lock
 erl_crash.dump
 *.swp
 *.swo
