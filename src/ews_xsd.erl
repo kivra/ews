@@ -124,6 +124,8 @@ find_includes([#xmlElement{
 find_includes([#xmlElement{content=Content} = Elem | T], Ns) ->
     [Elem#xmlElement{content=find_includes(Content, Ns)} |
      find_includes(T, Ns)];
+find_includes([#xmlComment{} = Comment | T], Ns) ->
+    [Comment | find_includes(T, Ns)];
 find_includes([], _) ->
     [].
 
@@ -428,10 +430,16 @@ extract_extension(#extension{base=Base, parts=ExtParts}) ->
 parse_simple_type(Simple) ->
     Name = wh:get_attribute(Simple, name),
     {Order, NewSimple} = list_or_union(Simple),
-    Restriction = wh:find_element(NewSimple, "restriction"),
-    CompiledRestriction = parse_restriction(Restriction),
-    #simple_type{name=Name, order=Order,
-                 restrictions=CompiledRestriction}.
+    case Order of
+        union ->
+            #simple_type{name=Name, order=Order,
+                         unionmembers = NewSimple};
+        Other when Other == list orelse Other == undefined ->
+            Restriction = wh:find_element(NewSimple, "restriction"),
+            CompiledRestriction = parse_restriction(Restriction),
+            #simple_type{name=Name, order=Order,
+                         restrictions=CompiledRestriction}
+    end.
 
 list_or_union(Simple) ->
     case wh:find_element(Simple, "list") of
@@ -440,11 +448,32 @@ list_or_union(Simple) ->
                 undefined ->
                     {undefined, Simple};
                 Union ->
-                    {union, wh:get_child(Union, "simpleType")}
+                    %% logger:notice("Union: ~tp~n",  [Union]),
+                    [#xmlAttribute{name = memberTypes,
+                                   namespace = Ns,
+                                   value = MemberString}] =
+                        Union#xmlElement.attributes,
+                    QMembers = parse_union_members(
+                                 string:tokens(MemberString, " "), Ns, Union),
+                    {union, QMembers}
             end;
         List ->
             {list, wh:get_child(List, "simpleType")}
     end.
+
+parse_union_members([Member | T], #xmlNamespace{nodes = Nodes} = Ns, Union) ->
+    [Prefix, Name] = string:tokens(Member, ":"),
+    case proplists:get_value(Prefix, Nodes) of
+        undefined ->
+            logger:error("Can't find ns prefix ~tp in union: ~tp~n",
+                         [Prefix, Union]),
+            error({bad_ns_prefix, Prefix});
+        NsAtom ->
+            [{atom_to_list(NsAtom), Name} |
+             parse_union_members(T, Ns, Union) ]
+    end;
+parse_union_members([], _, _) ->
+    [].
 
 parse_group(Group) ->
     Ref = wh:get_attribute(Group, ref),
@@ -471,7 +500,10 @@ parse_attribute(Attribute) ->
     #attribute{name=Name, type=Type, use=Use, default=Default, fixed=Fixed}.
 
 parse_restriction(undefined) -> undefined;
-parse_restriction(Restriction) ->
+parse_restriction(#xmlElement{name = Name, expanded_name = Qname} = Restriction)
+  when Name == restriction orelse Qname == {'http://www.w3.org/2001/XMLSchema',
+                                            restriction} ->
+    %% logger:notice("Restriction: ~tp~n", [Restriction]),
     RestrictionBaseType = wh:get_attribute(Restriction, base),
     Restrictions = wh:get_all_child_elements(Restriction),
     Values = [ parse_restriction_property(R) || R <- Restrictions ],
@@ -714,14 +746,15 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             TypeName = type_name(Qname, Parent),
             Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
-            {AccWithSubTypes, SubElems, Retry2, _} =
+            {AccWithSubTypes, SubElems, Retry2, AttrAcc1} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
-                        TypeMap, Model, Parent, AttrAcc),
+                        TypeMap, Model, Parent, []),
             %% Check if any child is a reference.
             case [ Ref || #element{type=#reference{}} = Ref <- SubElems] of
                 [] ->
                     Type = #type{qname=TypeName, extends=Ext,
-                                 abstract=Abstract, elems=SubElems},
+                                 abstract=Abstract, elems=SubElems,
+                                 attrs=AttrAcc1},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
                             [Elem | ElemAcc],
@@ -736,7 +769,7 @@ process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
             end;
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
-            Base = process_simple(Type),
+            Base = process_simple(Type, Ts),
             Elem = #elem{qname=Qname, type=Base, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
@@ -981,12 +1014,14 @@ is_builtin("yearMonthDuration") -> true;
 is_builtin(OtherType) when is_list(OtherType) -> false.
 
 process_all_simple([#simple_type{name=Qname} = S | Rest]) ->
-    [{Qname, process_simple(S)} | process_all_simple(Rest) ];
+    [{Qname, do_process_simple(S)} | process_all_simple(Rest) ];
 process_all_simple([_ | Rest]) ->
     process_all_simple(Rest);
 process_all_simple([]) -> [].
 
-process_simple(#simple_type{restrictions=Rs, order=Order}) ->
+%% This process can't handle unions correctly
+do_process_simple(#simple_type{restrictions=Rs, order=Order}) ->
+    %% logger:notice("St: ~tp~n", [St]),
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
@@ -997,6 +1032,32 @@ process_simple(#simple_type{restrictions=Rs, order=Order}) ->
         #restriction{base_type=_Base, values=Rvals} = Restriction ->
             BaseRec = to_base(Restriction),
             BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
+    end.
+
+%% This process can handle unions by finding them in the all processed
+%% simple types handles above by process_all_simple
+process_simple(#simple_type{restrictions=Rs, order=Order,
+                            unionmembers=Members}, Ts) ->
+    %% logger:notice("St: ~tp~n", [St]),
+    IsList = case Order of list -> true; _ -> false end,
+    IsUnion = case Order of union -> true; _ -> false end,
+    case {Rs, IsUnion} of
+        {#enumeration{base_type=_Base, values=Values} = Enum, false} ->
+            Vs = [ {ews_alias:create({ok, Str}), Str} ||
+                   {enumeration, Str} <- Values ],
+            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+        {#restriction{base_type=_Base, values=Rvals} = Restriction, false} ->
+            BaseRec = to_base(Restriction),
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion};
+        {undefined, true} ->
+            %% FIXME: get all the base types and restrictions for this union
+            First = hd(Members),
+            case proplists:get_value(First, Ts) of
+                undefined ->
+                    error({non_existent_simple_type, First, Ts});
+                #base{} = BaseRec->
+                    BaseRec#base{list=IsList, union=IsUnion}
+            end
     end.
 
 parse_meta(#element{default=D, fixed=F, nillable=N,

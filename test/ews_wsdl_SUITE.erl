@@ -18,9 +18,11 @@
         , google_v201306_correct_service/1
         , colliding_types/1
         , empty_records_decode/1
+        , unions/1
         , serialize_deserialize/1
         , test_mm_service/1
         , many_schemas_n_refs/1
+        , unnamed_type_w_attrs/1
         , encode_decode_plain_xsd/1
         , record_to_map_xsd_with_attrs/1
         ]).
@@ -35,6 +37,7 @@ groups() ->
     , {mm_service,
        [ test_mm_service
        , empty_records_decode
+       , unions
        ]}
     , {mm_notification,
        [ colliding_types
@@ -42,6 +45,7 @@ groups() ->
        ]}
     , {teleadr,
        [ many_schemas_n_refs
+       , unnamed_type_w_attrs
        ]}
     , {xsds,
        [ encode_decode_plain_xsd
@@ -169,6 +173,18 @@ empty_records_decode(_Config) ->
                                                       , Resp),
     ?assertMatch(OutMessage, OpOut),
     meck:unload(hackney),
+    ok.
+
+unions(_Config) ->
+    Dir = filename:join(code:priv_dir(ews), "../test"),
+    File = filename:join(Dir, "mm_service.wsdl"),
+    %% Mock request
+    meck:new(hackney),
+    meck:expect(hackney, request, 5, {ok, 200, ignore, <<>>}),
+    ews:add_wsdl_to_model(ek_mm_test, File),
+    UnionTest =
+        {posers_fault, undefined, undefined, <<"moose">>},
+    ews:encode(ek_mm_test, UnionTest),
     ok.
 
 colliding_types(_Config) ->
@@ -301,6 +317,7 @@ many_schemas_n_refs(_Config) ->
     ?assertMatch(Header, OpHdr),
     ?assertMatch(Find, OpIn),
     Response = [{find_response,
+                 #{},
                  {api_result,
                   #{error_text => <<>>,
                     count_private => 1,
@@ -334,6 +351,16 @@ many_schemas_n_refs(_Config) ->
 
     ok = ews_test:test_everything(tiny),
     file:delete(TmpFile),
+    ok.
+
+unnamed_type_w_attrs(_Config) ->
+    {ok, _} = ews:add_wsdl_to_model(tiny,
+                                    test_wsdl_file("tiny.wsdl")),
+    FindResponse =
+        {find_response,
+         #{attr_on_unnamed_type => <<"19">>},
+         undefined},
+    ews:encode(tiny, FindResponse),
     ok.
 
 encode_decode_plain_xsd(_Config) ->
