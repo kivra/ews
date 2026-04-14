@@ -57,10 +57,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch dependencies from cache
         uses: actions/cache@v3
         id: cache
@@ -83,10 +80,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch dependencies from cache
         uses: actions/cache@v3
         id: cached-deps
@@ -116,10 +110,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch workspace from cache
         uses: actions/cache@v3
         id: cached-workspace
@@ -141,10 +132,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch workspace from cache
         uses: actions/cache@v3
         id: cached-workspace
@@ -166,10 +154,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch workspace from cache
         uses: actions/cache@v3
         id: cached-workspace
@@ -191,10 +176,7 @@ jobs:
         with:
           otp-version: "${{ env.OTP_VERSION }}"
           rebar3-version: "${{ env.REBAR3_VERSION }}"
-      - name: Configure SSH key
-        uses: ./.github/actions/configure-ssh-key
-        with:
-          ssh_key: ${{ secrets.PRIVATE_SSH_KEY }}
+
       - name: Fetch workspace from cache
         uses: actions/cache@v3
         id: cached-workspace
