@@ -19,6 +19,7 @@
 
 -export([ call/6
         , call/7
+        , call/8
         , make_fault/3
         , make_soap/2
         , make_xml/1
@@ -35,12 +36,17 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts) ->
     call(Endpoint, OpName, SoapAction, Header, Body, Opts, []).
 
 call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
+    call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks, ews).
+
+call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
+     ModelRef) ->
     {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
     %% FIXME: get the timeout into hackney
     _Timeout = maps:get(timeout, Opts, DefaultTimeout),
     IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
-    HttpOpts = maps:get(http_options, Opts, []),
+    HttpOpts0 = maps:get(http_options, Opts, []),
+    HttpOpts = add_pool(HttpOpts0, ModelRef),
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     BodyIoList = make_soap(Header, Body),
@@ -61,6 +67,12 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
         {error, Error} ->
             {error, Error}
     end.
+
+add_pool(Options, ModelRef) ->
+    Model = atom_to_binary(ModelRef),
+    Pool = binary_to_atom(<<"ews_", Model/binary>>, utf8),
+    Options ++ [{pool, Pool},
+                {max_connections, 100}].
 
 %% ----------------------------------------------------------------------------
 

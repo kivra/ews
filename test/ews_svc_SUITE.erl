@@ -255,8 +255,7 @@ one_model_call(_Config) ->
     Opts = #{include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
-    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 8, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -270,7 +269,7 @@ one_model_call(_Config) ->
     EndPoint = "https://adwords.google.com/api/adwords/"
                "cm/v201306/CampaignService",
     Op = "get",
-    [EndPoint, Op, [], encoded, encoded, Opts, []] = CallArgs,
+    [EndPoint, Op, [], encoded, encoded, Opts, [], default] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
@@ -294,8 +293,7 @@ one_model_pre_hook(_Config) ->
     Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
-    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 8, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -314,7 +312,7 @@ one_model_pre_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a2, Op, c2, d2, e2, #{x := 3}, []] = CallArgs,
+    [a2, Op, c2, d2, e2, #{x := 3}, [], default] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
@@ -338,8 +336,7 @@ one_model_post_hook(_Config) ->
     Opts = #{x => 1, include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
-    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 8, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -357,7 +354,7 @@ one_model_post_hook(_Config) ->
         meck:history(ews_soap),
     EndPoint = "https://adwords.google.com/api/adwords/"
                "cm/v201306/CampaignService",
-    [EndPoint, Op, [], encoded, encoded, Opts, []] = CallArgs,
+    [EndPoint, Op, [], encoded, encoded, Opts, [], default] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
@@ -382,8 +379,7 @@ one_model_remove_hook(_Config) ->
     Opts = #{include_headers => false},
 
     meck:new(ews_soap),
-    meck:expect(ews_soap, call, 6, {ok, {header, body}}),
-    meck:expect(ews_soap, call, 7, {ok, {header, body}}),
+    meck:expect(ews_soap, call, 8, {ok, {header, body}}),
 
     meck:new(ews_serialize),
     meck:expect(ews_serialize, encode, 3, encoded),
@@ -401,7 +397,7 @@ one_model_remove_hook(_Config) ->
 
     [{Pid, {ews_soap, call, CallArgs}, {ok, {header, body}}}] =
         meck:history(ews_soap),
-    [a, Op, c, d, e, Opts, []] = CallArgs,
+    [a, Op, c, d, e, Opts, [], default] = CallArgs,
 
     [{Pid, {ews_serialize, encode, HeaderArgs}, encoded},
      {Pid, {ews_serialize, encode, BodyArgs}, encoded},
