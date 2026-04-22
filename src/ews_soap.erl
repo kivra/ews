@@ -70,7 +70,7 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
 
 add_pool(Options, ModelRef) ->
     Model = atom_to_binary(ModelRef),
-    Pool = binary_to_atom(<<"ews_", Model/binary>>),
+    Pool = binary_to_atom(<<"ews_", Model/binary>>, utf8),
     Options ++ [{pool, Pool},
                 {max_connections, 100}].
 
