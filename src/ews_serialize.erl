@@ -465,11 +465,11 @@ validate_xml({_Qname, As, []}, #base{}, _) ->
             undefined
     end;
 validate_xml({_Qname, _, [{txt, Txt}]}, #base{erl_type=Type}, _) ->
-    case catch to_base(Txt, Type) of
-        {'EXIT', _Reason} ->
-            error({"failed to convert base", {Txt, Type}});
-        Term ->
-            Term
+    try
+        to_base(Txt, Type)
+    catch
+        error:_ ->
+            error({"failed to convert base", {Txt, Type}})
     end;
 validate_xml({_Qname, As, []}, #enum{}, _) ->
     case is_nil(As) of
@@ -581,16 +581,17 @@ to_base(<<"1">>, boolean) -> true;
 to_base(<<"0">>, boolean) -> false.
 
 try_cast_float(Str) ->
-    case catch list_to_float(Str) of
-        {'EXIT', _} ->
-            case catch list_to_integer(Str) of
-                {'EXIT', _} ->
-                    Str;
-                Int ->
-                    float(Int)
-            end;
-        Float ->
-            Float
+    try
+        list_to_float(Str)
+    catch
+        error:badarg ->
+            try
+                Int = list_to_integer(Str),
+                float(Int)
+            catch
+                error:badarg ->
+                    Str
+            end
     end.
 
 is_nil(Attributes) ->

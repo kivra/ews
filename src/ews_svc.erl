@@ -859,11 +859,11 @@ encode_faults([], _, _, Acc) ->
     lists:reverse(Acc).
 
 try_encode_fault(Part, [#elem{} = Fault | Faults], Model) ->
-    case catch ews_serialize:encode([Part], [Fault], Model) of
-        {'EXIT', _} ->
-            try_encode_fault(Part, Faults, Model);
-        XML ->
-            XML
+    try
+        ews_serialize:encode([Part], [Fault], Model)
+    catch
+        _:_ ->
+            try_encode_fault(Part, Faults, Model)
     end;
 try_encode_fault(_, [], _) ->
     [].
@@ -928,9 +928,9 @@ parse_fault(#fault{detail=Detail} = Fault, Info, Model) ->
 try_decode_fault([], Detail, _) ->
     Detail;
 try_decode_fault([F|Faults], Detail, Model) ->
-    case catch ews_serialize:decode(Detail, [F], Model) of
-        {'EXIT',_} ->
-            try_decode_fault(Faults, Detail, Model);
-        DecodedDetail ->
-            DecodedDetail
+    try
+        ews_serialize:decode(Detail, [F], Model)
+    catch
+        _:_ ->
+            try_decode_fault(Faults, Detail, Model)
     end.
