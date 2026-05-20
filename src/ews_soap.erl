@@ -67,9 +67,7 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
     end.
 
 add_pool(Options, ModelRef) ->
-    Model = atom_to_binary(ModelRef),
-    Pool = binary_to_atom(<<"ews_", Model/binary>>, utf8),
-    Options ++ [{pool, Pool},
+    Options ++ [{pool, ModelRef},
                 {max_connections, 100}].
 
 add_timeouts(Options0) ->
