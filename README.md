@@ -11,6 +11,11 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 4.4.0 and 5.0.0
+
+* `soap_timeout` has been replaced by `connect_timeout` and `recv_timeout`.
+* By default the hackney pool is now named after the model.
+
 ## Changes between 4.3.0 and 4.4.0
 * Unions now work, but only if they have the same base since it usess the first base for all of the union.
 
@@ -214,9 +219,13 @@ Returns the Erlang representation of the provided result of calling the specifie
 
 The ews application uses the following application environment variables:
 
-`soap_timeout`
+`connect_timeout`
 
-Timeout for SOAP calls in milliseconds (default: 6000).
+Connect timeout for SOAP calls in milliseconds (default: 8000).
+
+`recv_timeout`
+
+Receive timeout for SOAP calls in milliseconds (default: 5000).
 
 `cache_base_dir`
 

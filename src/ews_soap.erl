@@ -40,13 +40,11 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks) ->
 
 call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
      ModelRef) ->
-    {ok, DefaultTimeout} = application:get_env(ews, soap_timeout),
-    %% FIXME: get the timeout into hackney
-    _Timeout = maps:get(timeout, Opts, DefaultTimeout),
     IncludeHttpHdr = maps:get(include_http_response_headers, Opts, false),
     ExtraHeaders = maps:get(http_headers, Opts, []),
     HttpOpts0 = maps:get(http_options, Opts, []),
-    HttpOpts = add_pool(HttpOpts0, ModelRef),
+    HttpOpts1 = add_pool(HttpOpts0, ModelRef),
+    HttpOpts = add_timeouts(HttpOpts1),
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     BodyIoList = make_soap(Header, Body),
@@ -73,6 +71,23 @@ add_pool(Options, ModelRef) ->
     Pool = binary_to_atom(<<"ews_", Model/binary>>, utf8),
     Options ++ [{pool, Pool},
                 {max_connections, 100}].
+
+add_timeouts(Options0) ->
+    Options1 =
+        case application:get_env(ews, connect_timeout) of
+            undefined ->
+                Options0;
+            {ok, ConnTimeout} when is_integer(ConnTimeout) ->
+                Options0 ++ [{connect_timeout, ConnTimeout}]
+        end,
+    Options =
+        case application:get_env(ews, recv_timeout) of
+            undefined ->
+                Options1;
+            {ok, RecvTimeout} when is_integer(RecvTimeout) ->
+                Options1 ++ [{recv_timeout, RecvTimeout}]
+        end,
+    Options.
 
 %% ----------------------------------------------------------------------------
 
