@@ -52,6 +52,11 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
     [NewEndpoint, _NewOpName, NewSoap, NewHttpOpts] =
         ews_svc:run_hooks(PrePostHooks, HookArgs),
     case hackney:request(post, NewEndpoint, Hdrs, NewSoap, NewHttpOpts) of
+        %% newer hackney have started returning body per default.
+        {ok, 200, HttpHdr, RespXml} when is_binary(RespXml) ->
+            XmlTerm = ews_xml:decode(RespXml),
+            Resp = parse_envelope(XmlTerm),
+            fix_header(Resp, HttpHdr, IncludeHttpHdr);
         {ok, 200, HttpHdr, RespRef} ->
             {ok, RespEnv} = hackney:body(RespRef),
             XmlTerm = ews_xml:decode(RespEnv),
