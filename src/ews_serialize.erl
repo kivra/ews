@@ -242,15 +242,15 @@ dec_node(#pelem{} = P, Xml, Tbl)      -> dec_elem_single(P, Xml, Tbl);
 dec_node(#pfallback{elem = E}, Xml, Tbl) -> validate_xml(Xml, E, Tbl).
 
 %% Decode one xml element into a record. Polymorphic (xsi:type) elements defer
-%% to the runtime, which resolves the concrete subtype from the model.
+%% to the runtime, which resolves the concrete subtype from the model. Callers
+%% (dec_node/3, dec_field/3) handle #pfallback{} themselves, so this only ever
+%% sees a #pelem{} (whose type is always a #ptype{}, per compile_elem/2).
 dec_elem_single(#pelem{type = #ptype{} = PT, orig = Orig}, {_, As, _} = Xml,
                 Tbl) ->
     case has_xsi_type(As) of
         true  -> validate_xml(Xml, Orig, Tbl);
         false -> dec_type(PT, Xml, Tbl)
-    end;
-dec_elem_single(#pfallback{elem = E}, Xml, Tbl) ->
-    validate_xml(Xml, E, Tbl).
+    end.
 
 %% simpleContent with attributes -> {Tag, AttrsMap, Value}.
 dec_type(#ptype{tag = Alias,
