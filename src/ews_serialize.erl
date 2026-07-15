@@ -19,11 +19,15 @@
 
 -export([ encode/3
         , encode_non_root/3
+        , compile_non_root/2
+        , encode_compiled/2
+        , decode_compiled/2
         , decode/3
         , record_to_map/2
         ]).
 
 -include("ews.hrl").
+-include("ews_plan.hrl").
 -include_lib("ews/include/ews.hrl").
 
 -define(SCHEMA_INSTANCE_NS, "http://www.w3.org/2001/XMLSchema-instance").
@@ -73,6 +77,256 @@ encode_non_root(Term, MsgElem, #model{type_map=Tbl}) ->
             BaseElem = ews_model:get_elem(MsgElem, Tbl),
             [ encode_term(Term, BaseElem, Tbl) ]
     end.
+
+%%%===================================================================
+%%% Precompiled encoder (upb-198)
+%%%
+%%% encode_non_root/3 -> encode_term/3 re-run the same ews_model ETS
+%%% lookups (get / get_super / get_parts / get_elem / get_subs / is_root)
+%%% for *every* record. For a homogeneous list those results never change,
+%%% and profiling ek_spar:encode_infil/1 showed ~2/3 of the time spent in
+%%% those lookups (dominated by the unkeyed ets:match in get_from_alias).
+%%%
+%%% compile_non_root/2 walks the model ONCE and resolves every lookup into
+%%% an explicit tree of plan records (see ews_plan.hrl) -- NOT closures, so
+%%% the plan is human-inspectable and can be reused to drive decoding too.
+%%% encode_compiled/2 traverses that tree with a record and touches no ETS;
+%%% it only runs the pure leaf/attr encoders and make_xml/3, so the produced
+%%% term (and thus the XML) is byte-identical to encode_non_root/3.
+%%%
+%%% Anything the compiler cannot statically resolve -- type unions/choices,
+%%% polymorphic subtypes (xsi:type), inline/simple element types, or an
+%%% unexpected record tag at runtime -- becomes a #pfallback{} that defers to
+%%% the runtime encode_term/3, so correctness is preserved; only the fast,
+%%% common path is specialised.
+%%%===================================================================
+
+%% @doc Build a reusable plan for records whose root corresponds to the
+%%      element/type named by MsgElem (a qname). Returns a #pdoc{} tree;
+%%      apply it with encode_compiled/2.
+-spec compile_non_root({string(), string()}, #model{}) -> #pdoc{}.
+compile_non_root({_, _} = MsgElem, #model{type_map = Tbl}) ->
+    case ews_model:is_root(MsgElem, Tbl) of
+        false ->
+            {Ns, TypeName} = MsgElem,
+            Elem = case string:lexemes(TypeName, "@") of
+                       [_ParentElem, TypePart] -> {Ns, TypePart};
+                       [TypePart]              -> {Ns, TypePart}
+                   end,
+            TypeNode = compile_type(ews_model:get(MsgElem, Tbl), Tbl),
+            #pdoc{mode = typed, node = TypeNode, elem_qname = Elem, tbl = Tbl};
+        true ->
+            Node = compile_elem(ews_model:get_elem(MsgElem, Tbl), Tbl),
+            #pdoc{mode = root, node = Node, tbl = Tbl}
+    end.
+
+%% A complex type -> #ptype{}.
+compile_type(#type{qname = Key, alias = Alias, attrs = PossAttrs}, Tbl) ->
+    Fields = [ compile_part(P, Tbl) || P <- ews_model:get_parts(Key, Tbl) ],
+    #ptype{qname = Key, tag = Alias, fields = Fields, attrs = PossAttrs}.
+
+%% A part of a complex type: an own element (#elem) or simpleContent (#sc).
+compile_part(#elem{} = Elem, Tbl) ->
+    compile_elem(Elem, Tbl);
+compile_part(#sc{type = Type}, _Tbl) ->
+    #psc{leaf = #pleaf{model = Type}}.
+
+%% An element whose type is a qname referring to a monomorphic complex type
+%% is specialised into a #pelem{}; everything else becomes a #pfallback{}.
+compile_elem(#elem{qname = Qname, type = {_, _} = TypeKey, meta = Meta} = Elem,
+             Tbl) ->
+    case ews_model:get(TypeKey, Tbl) of
+        #type{} = DeclaredType ->
+            case ews_model:get_subs(TypeKey, Tbl) of
+                [] ->
+                    #pelem{qname = Qname,
+                           card  = card(Meta),
+                           type  = compile_type(DeclaredType, Tbl),
+                           orig  = Elem};
+                _Subtypes ->
+                    %% polymorphism / xsi:type -> keep runtime dispatch
+                    #pfallback{elem = Elem}
+            end;
+        _NotAComplexType ->
+            #pfallback{elem = Elem}
+    end;
+compile_elem(#elem{} = Elem, _Tbl) ->
+    #pfallback{elem = Elem}.
+
+%% Cardinality: max > 1 means the field value is a list whose members each
+%% encode to their own element.
+card(#meta{max = Max}) when Max =:= infinite; (is_integer(Max) andalso Max > 1) ->
+    many;
+card(_Meta) ->
+    single.
+
+%%%-------------------------------------------------------------------
+%%% Applying a compiled plan (encode direction)
+%%%-------------------------------------------------------------------
+
+%% @doc Encode one record with a #pdoc{} plan from compile_non_root/2.
+%%      Returns a body that can be handed straight to ews_soap:make_xml/1.
+-spec encode_compiled(#pdoc{}, tuple()) -> [term()].
+encode_compiled(#pdoc{mode = root, node = Node, tbl = Tbl}, Term) ->
+    [ enc_elem(Node, Term, Tbl) ];
+encode_compiled(#pdoc{mode = typed, node = Node, elem_qname = Q, tbl = Tbl},
+                Term) ->
+    [ {Q, [], enc_type(Node, Term, Tbl)} ].
+
+%% An element node against a field value.
+enc_elem(#pelem{qname = Q, card = many, type = T, orig = O}, Values, Tbl)
+  when is_list(Values) ->
+    [ enc_elem_single(Q, T, V, O, Tbl) || V <- Values ];
+enc_elem(#pelem{qname = Q, type = T, orig = O}, Value, Tbl) ->
+    enc_elem_single(Q, T, Value, O, Tbl);
+enc_elem(#pfallback{elem = Elem}, Value, Tbl) ->
+    encode_term(Value, Elem, Tbl).
+
+enc_elem_single(_Q, _T, Term, Orig, Tbl) when not is_tuple(Term) ->
+    %% nil / [] / list-of-values etc. -> let the runtime handle it
+    encode_term(Term, Orig, Tbl);
+enc_elem_single(Q, #ptype{tag = Tag} = T, Term, _Orig, Tbl)
+  when element(1, Term) =:= Tag ->
+    case enc_type(T, Term, Tbl) of
+        {Attrs, Children} -> {Q, Attrs, Children};   %% make_xml/3 attr merge
+        Children          -> {Q, [], Children}
+    end;
+enc_elem_single(_Q, _T, Term, Orig, Tbl) ->
+    %% record tag did not match the specialised type -> runtime fallback
+    encode_term(Term, Orig, Tbl).
+
+%% A complex type node against a record.
+enc_type(#ptype{fields = Fields, attrs = []}, Term, Tbl) ->
+    [_Name | Values] = tuple_to_list(Term),
+    enc_fields(Fields, Values, Tbl);
+enc_type(#ptype{qname = Key, fields = Fields, attrs = [_ | _] = PossAttrs},
+         Term, Tbl) ->
+    [_Name, Attrs | Values] = tuple_to_list(Term),
+    {encode_attributes(Attrs, PossAttrs, Key),
+     enc_fields(Fields, Values, Tbl)}.
+
+enc_fields(Fields, Values, Tbl) ->
+    lists:flatten([ enc_field(F, V, Tbl)
+                    || {F, V} <- lists:zip(Fields, Values), V =/= undefined ]).
+
+enc_field(#pelem{} = E, V, Tbl)      -> enc_elem(E, V, Tbl);
+enc_field(#psc{leaf = Leaf}, V, Tbl) -> enc_leaf(Leaf, V, Tbl);
+enc_field(#pfallback{elem = E}, V, Tbl) -> encode_term(V, E, Tbl).
+
+%% Leaves reuse the runtime scalar/enum encoder (pure -- ignores Tbl) via the
+%% embedded model record, guaranteeing identical output.
+enc_leaf(#pleaf{model = Model}, V, Tbl) ->
+    encode_term(V, Model, Tbl).
+
+%%%-------------------------------------------------------------------
+%%% Applying a compiled plan (decode direction)
+%%%
+%%% The SAME #pdoc{} tree drives decoding. Structural recursion is guided by
+%%% the plan (so no ews_model:get / get_parts per element); the pure runtime
+%%% helpers (match_children_elems / validate_attrs / validate_xml on leaves)
+%%% are reused so the produced record is identical to decode/3. Nil elements,
+%%% xsi:type polymorphism, and any unexpected shape defer to validate_xml via
+%%% the embedded original #elem/type, preserving correctness.
+%%%-------------------------------------------------------------------
+
+%% @doc Decode a parsed xml term ([{Qname, Attrs, Children}]) with a #pdoc{}
+%%      plan from compile_non_root/2. Returns the erlang record.
+-spec decode_compiled(#pdoc{}, [tuple()]) -> term().
+decode_compiled(#pdoc{mode = root, node = Node, tbl = Tbl}, [{_, _, _} = Xml]) ->
+    dec_node(Node, Xml, Tbl);
+decode_compiled(#pdoc{mode = typed, node = #ptype{} = PT, tbl = Tbl},
+                [{_, _, _} = Xml]) ->
+    dec_type(PT, Xml, Tbl).
+
+dec_node(#pelem{} = P, Xml, Tbl)      -> dec_elem_single(P, Xml, Tbl);
+dec_node(#pfallback{elem = E}, Xml, Tbl) -> validate_xml(Xml, E, Tbl).
+
+%% Decode one xml element into a record. Polymorphic (xsi:type) elements defer
+%% to the runtime, which resolves the concrete subtype from the model.
+dec_elem_single(#pelem{type = #ptype{} = PT, orig = Orig}, {_, As, _} = Xml,
+                Tbl) ->
+    case has_xsi_type(As) of
+        true  -> validate_xml(Xml, Orig, Tbl);
+        false -> dec_type(PT, Xml, Tbl)
+    end;
+dec_elem_single(#pfallback{elem = E}, Xml, Tbl) ->
+    validate_xml(Xml, E, Tbl).
+
+%% simpleContent with attributes -> {Tag, AttrsMap, Value}.
+dec_type(#ptype{tag = Alias,
+                fields = [#psc{leaf = #pleaf{model = BaseOrEnum}}],
+                attrs = [_ | _] = PossAttrs},
+         {_, As, _} = In, Tbl) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            Sc = validate_xml(In, BaseOrEnum, Tbl),
+            list_to_tuple([Alias, validate_attrs(As, PossAttrs, #{}), Sc])
+    end;
+%% Complex type with child elements.
+dec_type(#ptype{tag = Alias, qname = Key, fields = Fields, attrs = PossAttrs},
+         {ElemQ, As, Cs} = In, Tbl) ->
+    case is_nil(As) of
+        true ->
+            nil;
+        false ->
+            try
+                {ok, Elems} = fields_elems(Fields),
+                Pairs  = match_children_elems(Cs, Elems, [], []),
+                Values = dec_pairs(Fields, Pairs, Tbl),
+                case PossAttrs of
+                    [] ->
+                        list_to_tuple([Alias | Values]);
+                    _ ->
+                        list_to_tuple(
+                          [Alias, validate_attrs(As, PossAttrs, #{}) | Values])
+                end
+            catch
+                _:_ ->
+                    %% unexpected shape (empty/nil/grouping edge case) ->
+                    %% re-derive from the model via a synthetic element
+                    validate_xml(In, #elem{qname = ElemQ, type = Key}, Tbl)
+            end
+    end.
+
+%% The original #elem{} for each field, in element order; error if a field is
+%% not element-shaped (so the caller falls back to the runtime decoder).
+fields_elems(Fields) ->
+    fields_elems(Fields, []).
+
+fields_elems([#pelem{orig = E} | T], Acc)    -> fields_elems(T, [E | Acc]);
+fields_elems([#pfallback{elem = E} | T], Acc) -> fields_elems(T, [E | Acc]);
+fields_elems([_ | _], _Acc)                  -> error;
+fields_elems([], Acc)                        -> {ok, lists:reverse(Acc)}.
+
+%% Fields and match pairs are both in element order and 1:1; a mismatch throws
+%% and the caller falls back to validate_xml.
+dec_pairs([F | Fs], [{T, _E} | Ps], Tbl) ->
+    [ dec_field(F, T, Tbl) | dec_pairs(Fs, Ps, Tbl) ];
+dec_pairs([], [], _Tbl) ->
+    [];
+dec_pairs(_, _, _) ->
+    throw(pair_mismatch).
+
+dec_field(#pelem{card = many} = P, T, Tbl) ->
+    [ dec_elem_single(P, X, Tbl) || X <- norm_many(T) ];
+dec_field(#pelem{card = single}, undefined, _Tbl) ->
+    undefined;
+dec_field(#pelem{card = single} = P, T, Tbl) ->
+    dec_elem_single(P, T, Tbl);
+dec_field(#pfallback{elem = E}, T, Tbl) ->
+    validate_xml(T, E, Tbl).
+
+%% match_children_elems bunches repeated children into a list, but leaves a
+%% single occurrence as one element; undefined means the optional child was
+%% absent.
+norm_many(undefined)           -> [];
+norm_many(L) when is_list(L)   -> L;
+norm_many({_, _, _} = One)     -> [One].
+
+has_xsi_type(As) ->
+    lists:keymember({?SCHEMA_INSTANCE_NS, "type"}, 1, As).
 
 %% @doc Decodes and validates an xml string that represents a soap message.
 %%      Returns a structured term that represents the payload

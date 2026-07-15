@@ -36,6 +36,7 @@
          decode_service_op_result/6,
          decode_in/1, decode_in/2,
          encode/1, encode/2,
+         compile_record_encoder/2, encode_compiled/2, decode_compiled/2,
          decode/1, decode/2,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
@@ -173,6 +174,23 @@ encode(Record) ->
 
 encode(Model, Record) when is_tuple(Record) ->
     ews_svc:encode_record(Model, Record).
+
+%% @doc Precompile a reusable encoder for records tagged with Alias, doing
+%%      all model lookups once. Reuse the returned plan across many records
+%%      with encode_compiled/2 -- e.g. when encoding a large homogeneous
+%%      list -- for a large speedup over calling encode/2 per record.
+compile_record_encoder(Model, Alias) ->
+    ews_svc:compile_record_encoder(Model, Alias).
+
+%% @doc Encode one record using a plan from compile_record_encoder/2.
+encode_compiled(Plan, Record) ->
+    ews_svc:encode_record_compiled(Plan, Record).
+
+%% @doc Decode an xml binary into a record using a plan from
+%%      compile_record_encoder/2. The same plan is reusable for both
+%%      directions.
+decode_compiled(Plan, XML) ->
+    ews_svc:decode_record_compiled(Plan, XML).
 
 decode(XML) ->
     decode(default, XML).

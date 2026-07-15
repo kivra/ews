@@ -42,7 +42,10 @@
          decode/5, decode/6,
          decode_in/2,
          encode_record/2,
+         compile_record_encoder/2,
+         encode_record_compiled/2,
          decode_record/2,
+         decode_record_compiled/2,
          add_pre_hook/2, remove_pre_hook/2,
          add_pre_post_hook/2, remove_pre_post_hook/2,
          add_post_hook/2, remove_post_hook/2,
@@ -246,6 +249,27 @@ encode_record(ModelRef, Record) when is_tuple(Record) ->
             XML = ews_soap:make_xml(Body),
             XML
     end.
+
+%% @doc Precompile a reusable encoder for records tagged with Alias. The
+%%      returned plan resolves all model lookups once; reuse it across many
+%%      records (e.g. a batch/infil list) via encode_record_compiled/2.
+compile_record_encoder(ModelRef, Alias) when is_atom(Alias) ->
+    Model = gen_server:call(?MODULE, {get_model, ModelRef}),
+    case ews_alias:get_qname(Alias, ModelRef) of
+        false ->
+            error({not_in_model, Alias});
+        Type ->
+            ews_serialize:compile_non_root(Type, Model)
+    end.
+
+encode_record_compiled(Plan, Record) when is_tuple(Record) ->
+    ews_soap:make_xml(ews_serialize:encode_compiled(Plan, Record)).
+
+%% @doc Decode an xml binary into a record using a plan from
+%%      compile_record_encoder/2 (the same plan drives encode and decode).
+decode_record_compiled(Plan, XML) ->
+    [{_, _, _} = XmlTerm] = ews_xml:decode(XML),
+    ews_serialize:decode_compiled(Plan, [XmlTerm]).
 
 decode_record(ModelRef, XML) ->
     Model = gen_server:call(?MODULE, {get_model, ModelRef}),
