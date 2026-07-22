@@ -11,6 +11,23 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 5.1.1 and 5.2.0
+
+* New: streaming decode of large XML documents with `ews:stream_decode/7`.
+  A repeated child element (e.g. an unbounded sequence of `Item` elements
+  inside an `Items` container) is decoded record by record from a document
+  fed in chunks, without ever holding the whole document or the whole
+  decoded result in memory. See "Streaming decode of large documents"
+  under Interface below.
+* New: `ews_xml:decode/2` parses xml incrementally: it consumes as much as
+  possible of each chunk, keeps partial input and parser state between
+  calls, and emits completed target elements as xml terms.
+* New: `ews_serialize:compile_elem_plan/2` builds a compiled decode plan
+  for a single element; streaming decode uses it so each record is decoded
+  without any model (ETS) lookups.
+* Fix: `ews:decode_compiled/2` now decodes present-but-empty elements
+  (e.g. `<Note/>`) exactly like `ews:decode/2` does.
+
 ## Changes between 4.4.0 and 5.0.0
 
 * `soap_timeout` has been replaced by `connect_timeout` and `recv_timeout`.
@@ -214,6 +231,79 @@ Returns and encoding of the specified service operation providing the given head
 `ews:decode_service_op_result(Model :: atom(), Service :: list(), Op :: list(), Body :: term(), Options :: map()) -> {ok, term()} | {error, term()}`
 
 Returns the Erlang representation of the provided result of calling the specified operation.
+
+### Streaming decode of large documents
+
+When a document is too large to decode in one go — typically a batch file
+where one container element holds an unbounded number of child elements —
+it can be decoded in a streaming fashion, feeding the raw XML in chunks
+and receiving the repeated child as records, a bounded batch at a time.
+Neither the whole document nor the whole decoded result is ever held in
+memory.
+
+Suppose a schema where the root element `Batch` contains an `Items`
+container with an unbounded sequence of `Item` elements, giving these
+generated records:
+
+    -record(item_type, {id, name, status, note}).
+    -record(items_type, {item :: [#item_type{}] | undefined}).
+
+`ews:stream_decode(Model :: atom(), Container :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, [record()], Rest} | {done, [record()], Rest}`
+
+Decodes up to `Max` child records from `Chunk` plus any data buffered in
+`Rest`. The repeated child is identified by the container record (or its
+alias) and the record field index of the child, e.g. `#items_type{}` and
+`#items_type.item`.
+
+* `Rest` is `<<>>` (or `undefined`) on the first call; on subsequent
+  calls pass the value returned by the previous call. It is an opaque
+  state that carries buffered input, parser state and progress.
+* `{ok, Records, Rest1}` means more input may follow. If exactly `Max`
+  records were returned, call again with an empty chunk to drain
+  already-buffered data before reading more input.
+* `{done, Records, Rest1}` means the container's sequence has ended.
+* `Skip` skips the first `Skip` child elements of the stream without
+  decoding them. Together with `ews_stream:seen(Rest1)` — the number of
+  child elements consumed so far — this allows restarting an interrupted
+  stream from the top of the file and resuming at the same point.
+
+Namespace prefixes declared on ancestor elements (typically the document
+root) are resolved as usual. The child element must not nest inside
+itself, and a self-closing (`<Item/>`) child element is not emitted.
+Decoding uses a compiled plan, so no model lookups are made per record.
+
+Example, decoding a large file read in chunks:
+
+    process(File) ->
+        {ok, Fd} = file:open(File, [read, raw, binary, read_ahead]),
+        try stream(Fd, <<>>, <<>>)
+        after file:close(Fd)
+        end.
+
+    stream(Fd, Chunk, Rest) ->
+        case ews:stream_decode(my_model, #items_type{}, #items_type.item,
+                               Chunk, Rest, 500, 0) of
+            {done, Items, _Rest1} ->
+                handle_items(Items);
+            {ok, Items, Rest1} when length(Items) =:= 500 ->
+                %% Possibly more complete items in the buffer: drain
+                %% before reading more input.
+                handle_items(Items),
+                stream(Fd, <<>>, Rest1);
+            {ok, Items, Rest1} ->
+                handle_items(Items),
+                case file:read(Fd, 65536) of
+                    {ok, Chunk1} -> stream(Fd, Chunk1, Rest1);
+                    eof -> {error, truncated_document}
+                end
+        end.
+
+The underlying incremental xml parser can also be used on its own:
+`ews_xml:stream_new(TargetQname)` creates a parser state, and
+`ews_xml:decode(Chunk, State) -> {XmlTerms, State1}` consumes as much as
+possible of each chunk and returns the target elements completed so far
+as xml terms. `ews_xml:stream_done(State)` reports whether the document's
+root element has been closed.
 
 ### Environment
 
