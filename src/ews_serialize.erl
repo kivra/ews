@@ -20,6 +20,7 @@
 -export([ encode/3
         , encode_non_root/3
         , compile_non_root/2
+        , compile_elem_plan/2
         , encode_compiled/2
         , decode_compiled/2
         , decode/3
@@ -84,8 +85,9 @@ encode_non_root(Term, MsgElem, #model{type_map=Tbl}) ->
 %%% encode_non_root/3 -> encode_term/3 re-run the same ews_model ETS
 %%% lookups (get / get_super / get_parts / get_elem / get_subs / is_root)
 %%% for *every* record. For a homogeneous list those results never change,
-%%% and profiling ek_spar:encode_infil/1 showed ~2/3 of the time spent in
-%%% those lookups (dominated by the unkeyed ets:match in get_from_alias).
+%%% and profiling batch encoding in a client application showed ~2/3 of
+%%% the time spent in those lookups (dominated by the unkeyed ets:match
+%%% in get_from_alias).
 %%%
 %%% compile_non_root/2 walks the model ONCE and resolves every lookup into
 %%% an explicit tree of plan records (see ews_plan.hrl) -- NOT closures, so
@@ -119,6 +121,23 @@ compile_non_root({_, _} = MsgElem, #model{type_map = Tbl}) ->
             Node = compile_elem(ews_model:get_elem(MsgElem, Tbl), Tbl),
             #pdoc{mode = root, node = Node, tbl = Tbl}
     end.
+
+-doc """
+Build a reusable decode plan for a single `#elem{}`, e.g. the
+repeated child element of a container that is being streamed with
+`ews_stream`. The element is compiled with cardinality one, so
+applying the plan with `decode_compiled/2` to one xml term returns
+one record. Elements the compiler cannot specialise fall back to the
+runtime decoder, exactly as in `compile_non_root/2`.
+""".
+-spec compile_elem_plan(Elem :: #elem{}, Model :: #model{}) -> #pdoc{}.
+compile_elem_plan(#elem{meta = Meta0} = Elem, #model{type_map = Tbl}) ->
+    Meta = case Meta0 of
+               #meta{} -> Meta0#meta{min = 1, max = 1};
+               undefined -> #meta{min = 1, max = 1}
+           end,
+    Elem1 = Elem#elem{meta = Meta},
+    #pdoc{mode = root, node = compile_elem(Elem1, Tbl), tbl = Tbl}.
 
 %% A complex type -> #ptype{}.
 compile_type(#type{qname = Key, alias = Alias, attrs = PossAttrs}, Tbl) ->
@@ -264,6 +283,11 @@ dec_type(#ptype{tag = Alias,
             Sc = validate_xml(In, BaseOrEnum, Tbl),
             list_to_tuple([Alias, validate_attrs(As, PossAttrs, #{}), Sc])
     end;
+%% A present-but-empty element has several shape-dependent results
+%% (undefined / {Alias} / {Alias, undefined} / attrs-only record); defer
+%% to the runtime decoder for exact parity with decode/3.
+dec_type(#ptype{qname = Key}, {_, _, []} = In, Tbl) ->
+    validate_xml(In, ews_model:get(Key, Tbl), Tbl);
 %% Complex type with child elements.
 dec_type(#ptype{tag = Alias, qname = Key, fields = Fields, attrs = PossAttrs},
          {ElemQ, As, Cs} = In, Tbl) ->

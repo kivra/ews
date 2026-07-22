@@ -37,7 +37,7 @@
          decode_in/1, decode_in/2,
          encode/1, encode/2,
          compile_record_encoder/2, encode_compiled/2, decode_compiled/2,
-         decode/1, decode/2,
+         decode/1, decode/2, stream_decode/7,
          record_to_map/1, record_to_map/2,
          add_pre_hook/1, add_pre_hook/2,
          add_pre_post_hook/1, add_pre_post_hook/2,
@@ -197,6 +197,31 @@ decode(XML) ->
 
 decode(Model, XML) ->
     ews_svc:decode_record(Model, XML).
+
+-doc """
+Stream-decode repeated child elements out of a large XML document
+fed in chunks, without holding the whole document in memory.
+Container is a record (or its alias atom) for the type that holds
+the repeated child, RecordIdx the record field index of that child
+(e.g. `#my_container.my_child`). Rest is `<<>>` or `undefined` on the
+first call, thereafter the state from the previous call. At most
+Max records are decoded per call; the first Skip elements of the
+stream are skipped without decoding (restart support).
+Returns `{ok, Records, State}` (feed more data, or an empty chunk to
+drain when exactly Max records were returned) or
+`{done, Records, State}` when the repeated sequence has ended.
+""".
+-spec stream_decode(Model :: atom(),
+                    Container :: tuple() | atom(),
+                    RecordIdx :: pos_integer(),
+                    Chunk :: binary(),
+                    Rest :: binary() | undefined | ews_stream:state(),
+                    Max :: pos_integer(),
+                    Skip :: non_neg_integer()) ->
+          {ok, Records :: [tuple()], ews_stream:state()} |
+          {done, Records :: [tuple()], ews_stream:state()}.
+stream_decode(Model, Container, RecordIdx, Chunk, Rest, Max, Skip) ->
+    ews_stream:decode(Model, Container, RecordIdx, Chunk, Rest, Max, Skip).
 
 %% Convert a record representation of a term to a map.
 record_to_map(R) ->
