@@ -28,6 +28,21 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * Fix: `ews:decode_compiled/2` now decodes present-but-empty elements
   (e.g. `<Note/>`) exactly like `ews:decode/2` does.
 
+## Changes between 5.0.0 and 5.1.0
+
+* New: precompiled encode/decode plans for fast batch processing.
+  `ews:compile_record_encoder/2` walks the model once and resolves every
+  model (ETS) lookup into a reusable plan tree — plain records (see
+  `src/ews_plan.hrl`), not closures, so a plan is human-inspectable.
+  `ews:encode_compiled/2` and `ews:decode_compiled/2` apply the plan; the
+  same plan drives both directions. Profiling batch encoding showed ~2/3
+  of the time spent in repeated model lookups, which the plan eliminates.
+  Constructs the compiler cannot specialise statically (type unions,
+  polymorphic subtypes/xsi:type, inline simple types) fall back to the
+  runtime encoder/decoder per node, so results are identical to
+  `ews:encode/2` / `ews:decode/2`. See "Precompiled encode/decode plans"
+  under Interface below.
+
 ## Changes between 4.4.0 and 5.0.0
 
 * `soap_timeout` has been replaced by `connect_timeout` and `recv_timeout`.
@@ -231,6 +246,43 @@ Returns and encoding of the specified service operation providing the given head
 `ews:decode_service_op_result(Model :: atom(), Service :: list(), Op :: list(), Body :: term(), Options :: map()) -> {ok, term()} | {error, term()}`
 
 Returns the Erlang representation of the provided result of calling the specified operation.
+
+### Precompiled encode/decode plans
+
+`ews:encode/2` and `ews:decode/2` repeat the same model (ETS) lookups for
+every record. When processing a large homogeneous batch — encoding or
+decoding many records of the same type — those lookups dominate. A plan
+resolves them once, up front:
+
+`ews:compile_record_encoder(Model :: atom(), Alias :: atom()) -> Plan`
+
+Builds a reusable plan for records tagged with `Alias` (the record name,
+as emitted in the generated .hrl). The plan is a tree of plain records
+(see `src/ews_plan.hrl`), so it can be inspected in the shell. Raises
+`error({not_in_model, Alias})` for an unknown alias.
+
+`ews:encode_compiled(Plan, Record :: record()) -> Xml :: binary()`
+
+Encodes one record with the plan. Same output as `ews:encode/2`.
+
+`ews:decode_compiled(Plan, Xml :: binary()) -> record()`
+
+Decodes an xml binary with the same plan. Same result as `ews:decode/2`.
+
+Example, with a model containing `-record(item_type, {id, name})`:
+
+    Plan = ews:compile_record_encoder(my_model, item_type),
+
+    %% Encode a large batch, one xml document per record:
+    Xmls = [ews:encode_compiled(Plan, Item) || Item <- Items],
+
+    %% The same plan decodes too:
+    #item_type{} = ews:decode_compiled(Plan, hd(Xmls)).
+
+Constructs that cannot be specialised statically (type unions,
+polymorphic subtypes/xsi:type, inline simple element types) fall back to
+the runtime encoder/decoder for that node, so compiled results are
+always identical to the uncompiled ones.
 
 ### Streaming decode of large documents
 
