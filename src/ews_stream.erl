@@ -55,9 +55,13 @@ the top of the file. Returns
 `{ok, Records, State}` - feed more data (or an empty chunk if
 exactly Max records were returned, to drain buffered data),
 `{done, Records, State}` - no more target elements in the stream.
+
+Raises `error({not_a_list, Qname})` if the selected field is not a
+repeated element (maxOccurs 1 in the schema, a non-list field in the
+record) - streaming a single-occurrence element makes no sense.
 """.
 -spec decode(ModelRef :: atom(),
-             Container :: tuple() | atom(),
+             ContainingRecord :: tuple() | atom(),
              RecordIdx :: pos_integer(),
              Chunk :: binary(),
              Rest :: binary() | undefined | state(),
@@ -65,16 +69,17 @@ exactly Max records were returned, to drain buffered data),
              Skip :: non_neg_integer()) ->
           {ok, Records :: [tuple()], state()} |
           {done, Records :: [tuple()], state()}.
-decode(ModelRef, Container, RecordIdx, Chunk, Rest, Max, Skip)
+decode(ModelRef, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip)
   when Rest =:= undefined; is_binary(Rest) ->
-    State = init(ModelRef, Container, RecordIdx),
+    State = init(ModelRef, ContainingRecord, RecordIdx),
     Chunk1 = case Rest of
                  undefined -> Chunk;
                  <<>> -> Chunk;
                  _ -> <<Rest/binary, Chunk/binary>>
              end,
-    decode(ModelRef, Container, RecordIdx, Chunk1, State, Max, Skip);
-decode(_ModelRef, _Container, _RecordIdx, Chunk, #{xml := _} = State, Max, Skip)
+    decode(ModelRef, ContainingRecord, RecordIdx, Chunk1, State, Max, Skip);
+decode(_ModelRef, _ContainingRecord, _RecordIdx, Chunk,
+       #{xml := _} = State, Max, Skip)
   when is_binary(Chunk), is_integer(Max), Max > 0,
        is_integer(Skip), Skip >= 0 ->
     run(State, Chunk, Max, Skip).
@@ -89,9 +94,9 @@ seen(#{seen := Seen}) ->
 
 %% ----------------------------------------------------------------------------
 
-init(ModelRef, Container, RecordIdx) ->
+init(ModelRef, ContainingRecord, RecordIdx) ->
     #model{type_map = Tbl} = Model = ews_svc:get_model(ModelRef),
-    Alias = case Container of
+    Alias = case ContainingRecord of
                 A when is_atom(A) -> A;
                 T when is_tuple(T) -> element(1, T)
             end,
@@ -100,7 +105,17 @@ init(ModelRef, Container, RecordIdx) ->
     %% Records for types with attributes have '__attrs' as their first
     %% field, so the parts list is offset one extra step.
     Offset = case Attrs of [] -> 1; [_|_] -> 2 end,
-    #elem{qname = Qname} = Elem = lists:nth(RecordIdx - Offset, Parts),
+    #elem{qname = Qname, meta = Meta} = Elem = lists:nth(RecordIdx - Offset,
+                                                         Parts),
+    %% Streaming only makes sense for a repeated element (a list field in
+    %% the record, maxOccurs > 1 in the schema).
+    case Meta of
+        #meta{max = Max} when Max =:= infinite;
+                              is_integer(Max) andalso Max > 1 ->
+            ok;
+        _ ->
+            error({not_a_list, Qname})
+    end,
     %% Resolve all model lookups once; every emitted term is then decoded
     %% with the compiled plan instead of the interpretive decoder.
     Plan = ews_serialize:compile_elem_plan(Elem, Model),

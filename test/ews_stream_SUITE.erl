@@ -23,6 +23,7 @@
         , skip_restart/1
         , container_as_record/1
         , empty_container/1
+        , not_a_list_field/1
         , xml_stream_api/1
         ]).
 
@@ -41,6 +42,7 @@ all() ->
     , skip_restart
     , container_as_record
     , empty_container
+    , not_a_list_field
     , xml_stream_api
     ].
 
@@ -125,6 +127,23 @@ empty_container(_Config) ->
          {done, [], St} = stream_all(Xml, 32, 1000, 0),
          ?assertEqual(0, ews_stream:seen(St))
      end || Items <- ["<i:Items></i:Items>", "<i:Items/>", ""]],
+    ok.
+
+%% Selecting a field that is not a repeated element (maxOccurs 1, a
+%% non-list record field) is an error: streaming a single-occurrence
+%% element makes no sense.
+not_a_list_field(_Config) ->
+    Xml = doc(1),
+    %% #batch.batch_info: a single-occurrence complex element.
+    ?assertError({not_a_list, {?BATCH_NS, "BatchInfo"}},
+                 ews:stream_decode(?MODEL, batch, 2, Xml, <<>>, 10, 0)),
+    %% #batch.items: the container itself also occurs only once.
+    ?assertError({not_a_list, {?ITEM_NS, "Items"}},
+                 ews:stream_decode(?MODEL, batch, 3, Xml, <<>>, 10, 0)),
+    %% #batch_info_type.created: a single-occurrence string element.
+    ?assertError({not_a_list, {?BATCH_NS, "Created"}},
+                 ews:stream_decode(?MODEL, batch_info_type, 2,
+                                   Xml, <<>>, 10, 0)),
     ok.
 
 %% The incremental xml parser: decode as much as possible per chunk,

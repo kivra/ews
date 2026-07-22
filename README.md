@@ -248,7 +248,7 @@ generated records:
     -record(item_type, {id, name, status, note}).
     -record(items_type, {item :: [#item_type{}] | undefined}).
 
-`ews:stream_decode(Model :: atom(), Container :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, [record()], Rest} | {done, [record()], Rest}`
+`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, [record()], Rest} | {done, [record()], Rest}`
 
 Decodes up to `Max` child records from `Chunk` plus any data buffered in
 `Rest`. The repeated child is identified by the container record (or its
@@ -271,6 +271,9 @@ Namespace prefixes declared on ancestor elements (typically the document
 root) are resolved as usual. The child element must not nest inside
 itself, and a self-closing (`<Item/>`) child element is not emitted.
 Decoding uses a compiled plan, so no model lookups are made per record.
+The selected field must be a repeated element (maxOccurs > 1 in the
+schema, a list field in the record); otherwise
+`error({not_a_list, Qname})` is raised.
 
 Example, decoding a large file read in chunks:
 
