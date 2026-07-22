@@ -30,6 +30,13 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
+%% The two hackney:body/1 branches in call/8 exist to support hackney 1.x,
+%% where hackney:request/5 returns a body reference. Under hackney 4.x the
+%% body is returned directly as a binary, so those branches look unreachable
+%% to dialyzer against the 4.x specs. Keep both for runtime cross-version
+%% support and silence the resulting failing-call warnings.
+-dialyzer({nowarn_function, [call/8]}).
+
 %% ----------------------------------------------------------------------------
 
 call(Endpoint, OpName, SoapAction, Header, Body, Opts) ->
