@@ -21,6 +21,9 @@
 -export([encode/1,
          encode/2,
          decode/1,
+         decode/2,
+         stream_new/1,
+         stream_done/1,
          compare/2,
          get_all_nss/1
         ]).
@@ -30,6 +33,14 @@
 -type name() :: atom() | string().
 -type qname() :: name() | {name(), name()}.
 -type xml_data() :: {qname(), [{name(), string()}], list()}.
+
+-record(stream, {target :: qname(),
+                 left = <<>> :: binary(),
+                 stack = [] :: list(),
+                 nss = [] :: list(),
+                 done = false :: boolean()}).
+-opaque stream() :: #stream{}.
+-export_type([xml_data/0, stream/0]).
 
 %% ----------------------------------------------------------------------------
 %% Api
@@ -52,6 +63,50 @@ decode(XmlString) when is_binary(XmlString) ->
 decode(XmlString) when is_list(XmlString) ->
     Tokens = scan_tag(XmlString, [], [], []),
     parse_xml(Tokens, [], []).
+
+-doc """
+Create a state for incremental decoding with `decode/2`. Target is
+the qname (as in the ews model, e.g. `{Namespace, Name}`) of the
+repeated element that should be emitted as it completes.
+""".
+-spec stream_new(Target :: qname()) -> stream().
+stream_new(Target) ->
+    #stream{target = Target}.
+
+-doc """
+Decode as much as possible of Chunk (+ any partial input kept from
+previous calls) and return the target elements that have been
+completed, as xml terms in document order.
+
+The parser state carries the unparsed tail, the open-element stack
+and the namespace bindings seen so far, so namespace prefixes
+declared on ancestor elements (typically the document root) resolve
+naturally. Completed target elements are emitted instead of being
+accumulated into their parent, which keeps memory bounded when
+streaming a large document.
+
+Limitations: the target element must not nest inside itself, and a
+self-closing (`<Target/>`) target element is not emitted.
+""".
+-spec decode(Chunk :: binary() | string(), State :: stream()) ->
+          {Emitted :: [xml_data()], stream()}.
+decode(Chunk, #stream{target = Target, left = Left, stack = Stack0,
+                      nss = Nss0, done = Done0} = S) ->
+    Buf = <<Left/binary, (iolist_to_binary(Chunk))/binary>>,
+    {Region, NewLeft} = split_complete(Buf),
+    Tokens = scan_tag(binary_to_list(Region), [], [], []),
+    {Emitted, Stack, Nss, Done} =
+        parse_stream(Tokens, Stack0, Nss0, Target, [], Done0),
+    {Emitted, S#stream{left = NewLeft, stack = Stack, nss = Nss,
+                       done = Done}}.
+
+-doc """
+Returns true when the document's root element has been closed, i.e.
+no more target elements can follow.
+""".
+-spec stream_done(State :: stream()) -> boolean().
+stream_done(#stream{done = Done}) ->
+    Done.
 
 get_all_nss(Data) when is_tuple(Data) andalso size(Data) == 3 ->
     do_get_all_nss([Data], #{?XML_NS => false});
@@ -304,6 +359,88 @@ parse_xml([{Tag, Attrs ,_} | Rest], Stack, Nss) ->
     parse_xml(Rest, [{parse_qname(Tag, NewNss), NewAttrs, []} | Stack], NewNss);
 parse_xml([], Stack, _) ->
     lists:reverse(Stack).
+
+%% Incremental variant of parse_xml used by decode/2: the stack and
+%% namespace bindings survive between calls, and every completed element
+%% whose qname matches Target is emitted instead of pushed back onto the
+%% stack (so a streamed container never accumulates its children). Done
+%% becomes true when a closing tag empties the stack of everything but
+%% loose text, i.e. when the document root has been closed.
+parse_stream([{[$/ | Tag], _, _} | Rest], Stack, Nss, Target, Emitted,
+             Done) ->
+    Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
+    {Element, NewStack} = find_start(Stack, Key),
+    NewNss = lists:keydelete(Tag, 1, Nss),
+    NowDone = Done orelse
+        lists:all(fun({txt, _}) -> true; (_) -> false end, NewStack),
+    case Element of
+        {Target, _, _} ->
+            parse_stream(Rest, NewStack, NewNss, Target, [Element | Emitted],
+                         NowDone);
+        _ ->
+            parse_stream(Rest, [Element | NewStack], NewNss, Target, Emitted,
+                         NowDone)
+    end;
+parse_stream([{txt, _} = Txt | Rest], Stack, Nss, Target, Emitted, Done) ->
+    parse_stream(Rest, [Txt | Stack], Nss, Target, Emitted, Done);
+parse_stream([{Ignore, _, _} | Rest], Stack, Nss, Target, Emitted, Done)
+  when Ignore == "!--"; Ignore == "?xml"; Ignore == "?Xml"; Ignore == "?XML" ->
+    parse_stream(Rest, Stack, Nss, Target, Emitted, Done);
+parse_stream([{Tag, Attrs, _} | Rest], Stack, Nss, Target, Emitted, Done) ->
+    Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
+    {NewNss, NewAttrs} = push_xmlns(Attrs, Key, Nss),
+    parse_stream(Rest, [{parse_qname(Tag, NewNss), NewAttrs, []} | Stack],
+                 NewNss, Target, Emitted, Done);
+parse_stream([], Stack, Nss, _Target, Emitted, Done) ->
+    {lists:reverse(Emitted), Stack, Nss, Done}.
+
+%% Split Buf into a region that the tokenizer can consume completely and
+%% the remaining bytes. The region always ends at a real tag-closing '>'
+%% (the first '>' after the last '<'), so it never ends inside a tag, a
+%% text run or an entity; trailing text and partial tags stay in the
+%% leftover until more data arrives.
+split_complete(Buf) ->
+    case rfind(Buf, $<, byte_size(Buf) - 1) of
+        nomatch ->
+            {<<>>, Buf};
+        L1 ->
+            case find(Buf, $>, L1 + 1) of
+                nomatch ->
+                    %% The last tag is incomplete: end the region at the
+                    %% close of the previous tag instead.
+                    case rfind(Buf, $<, L1 - 1) of
+                        nomatch ->
+                            {<<>>, Buf};
+                        L2 ->
+                            case find(Buf, $>, L2 + 1) of
+                                nomatch -> {<<>>, Buf};
+                                Gt -> split_at(Buf, Gt + 1)
+                            end
+                    end;
+                Gt ->
+                    split_at(Buf, Gt + 1)
+            end
+    end.
+
+split_at(Buf, Pos) ->
+    <<Region:Pos/binary, Left/binary>> = Buf,
+    {Region, Left}.
+
+rfind(_Buf, _C, I) when I < 0 ->
+    nomatch;
+rfind(Buf, C, I) ->
+    case binary:at(Buf, I) of
+        C -> I;
+        _ -> rfind(Buf, C, I - 1)
+    end.
+
+find(Buf, C, From) when From < byte_size(Buf) ->
+    case binary:match(Buf, <<C>>, [{scope, {From, byte_size(Buf) - From}}]) of
+        nomatch -> nomatch;
+        {Pos, 1} -> Pos
+    end;
+find(_, _, _) ->
+    nomatch.
 
 find_start(Stack, Tag) -> find_start(Stack, Tag, []).
 find_start([{{_, Tag} = Qname, Attrs, []}|Rest], Tag, Acc) ->
