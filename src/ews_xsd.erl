@@ -231,7 +231,8 @@ request_cached(SchemaUrl) ->
         {ok, Bin} ->
             {ok, Bin};
         {error, Error} ->
-            case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
+            case hackney:request(get, iolist_to_binary(SchemaUrl), [], [],
+                                 ?HTTP_OPTS) of
                 {ok, 200, _, Bin} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
@@ -254,7 +255,8 @@ request_cached(SchemaUrl, BaseDir) ->
         {{ok, Bin}, _} ->
             {ok, Bin};
         {{error, Error}, #{scheme := _Scheme}} ->
-            case hackney:request(get, SchemaUrl, [], [], ?HTTP_OPTS) of
+            case hackney:request(get, iolist_to_binary(SchemaUrl), [], [],
+                                 ?HTTP_OPTS) of
                 {ok, 200, _, Bin} ->
                     ok = file:write_file(File, Bin),
                     {ok, Bin};
