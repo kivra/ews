@@ -28,17 +28,29 @@ elements.
 Every call returns `{ok, Msg}` or `{error, Reason}`, where Msg tells
 the caller what to do next without inspecting the records:
 
-- `{cont, Count, Records, State}` - the buffered input is exhausted;
-  feed more data.
-- `{max_reached, Count, Records, State}` - Max records were decoded;
-  call again with an empty chunk to drain buffered data before
-  feeding more input.
-- `{trailers, Count, Records, Trailers, State}` - the stream has
-  ended. Trailers is the decoded document *around* the streamed
-  elements: the whole document record with the streamed field set to
-  the empty list (or `undefined` if the root cannot be decoded).
+- `{cont, Count, SkipLeft, Records, State}` - the buffered input is
+  exhausted; feed more data.
+- `{max_reached, Count, SkipLeft, Records, State}` - Max records were
+  decoded; call again with an empty chunk to drain buffered data
+  before feeding more input.
+- `{trailers, Count, SkipLeft, Records, Trailers, State}` - the
+  stream has ended. Trailers is the decoded document *around* the
+  streamed elements: the whole document record with the streamed
+  field set to the empty list (or `undefined` if the root cannot be
+  decoded).
 
-Count is always the number of records decoded in this call.
+Count is always the number of records decoded in this call. Skipped
+elements are NOT included in Count, do not appear in Records and do
+not count towards Max - a call that only skips returns
+`{cont, 0, SkipLeft, [], State}`, never max_reached.
+
+SkipLeft is how many of the Skip elements remain to be skipped after
+this call, so a restart that spans several calls and chunks can be
+followed as it fast-forwards: suppose a run with Max 1000 died after
+10000 processed elements. Restart from the top of the file with
+Skip = 10000 and feed chunks as usual; the messages count SkipLeft
+down from 10000 to 0 (with Count = 0 and Records = [] on the way),
+and decoding then resumes at element 10001.
 
 The XML is parsed incrementally by `ews_xml:decode/2`, which returns
 completed target elements as xml terms as soon as their closing tags
@@ -63,10 +75,12 @@ document from the start.
                      trailers := undefined | {done, tuple() | undefined},
                      seen := non_neg_integer()}.
 -type ews_stream_msg() ::
-        {cont, Count :: non_neg_integer(), Records :: [tuple()], state()} |
-        {max_reached, Count :: non_neg_integer(), Records :: [tuple()],
-         state()} |
-        {trailers, Count :: non_neg_integer(), Records :: [tuple()],
+        {cont, Count :: non_neg_integer(), SkipLeft :: non_neg_integer(),
+         Records :: [tuple()], state()} |
+        {max_reached, Count :: non_neg_integer(),
+         SkipLeft :: non_neg_integer(), Records :: [tuple()], state()} |
+        {trailers, Count :: non_neg_integer(),
+         SkipLeft :: non_neg_integer(), Records :: [tuple()],
          Trailers :: tuple() | undefined, state()}.
 -export_type([state/0, ews_stream_msg/0]).
 
@@ -162,24 +176,29 @@ init(ModelRef, ContainingRecord, RecordIdx) ->
               trailers => undefined, seen => 0}
     end.
 
-run(#{trailers := {done, Trailers}} = State, _Chunk, _Max, _Skip) ->
-    {ok, {trailers, 0, [], Trailers, State}};
+run(#{trailers := {done, Trailers}, seen := Seen} = State,
+    _Chunk, _Max, Skip) ->
+    {ok, {trailers, 0, skip_left(Skip, Seen), [], Trailers, State}};
 run(#{xml := Xml0, pending := Pending0, seen := Seen0,
       plan := Plan} = State, Chunk, Max, Skip) ->
     {Terms, Xml} = ews_xml:decode(Chunk, Xml0),
     {Records, Count, Pending, Seen} =
         take(Pending0 ++ Terms, Seen0, Skip, Max, Plan, [], 0),
     NewState = State#{xml := Xml, pending := Pending, seen := Seen},
+    SkipLeft = skip_left(Skip, Seen),
     case Pending =:= [] andalso ews_xml:stream_done(Xml) of
         true ->
             Trailers = build_trailers(NewState),
             FinalState = NewState#{trailers := {done, Trailers}},
-            {ok, {trailers, Count, Records, Trailers, FinalState}};
+            {ok, {trailers, Count, SkipLeft, Records, Trailers, FinalState}};
         false when Count =:= Max ->
-            {ok, {max_reached, Count, Records, NewState}};
+            {ok, {max_reached, Count, SkipLeft, Records, NewState}};
         false ->
-            {ok, {cont, Count, Records, NewState}}
+            {ok, {cont, Count, SkipLeft, Records, NewState}}
     end.
+
+skip_left(Skip, Seen) when Skip > Seen -> Skip - Seen;
+skip_left(_Skip, _Seen) -> 0.
 
 %% Skip terms while Seen < Skip, then decode up to Max terms into
 %% records. Anything beyond Max stays pending for the next call.

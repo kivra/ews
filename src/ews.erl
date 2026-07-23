@@ -212,14 +212,18 @@ Returns `{ok, Msg}` or `{error, Reason}` (e.g.
 `{error, {not_a_list, Qname}}` if the selected field is not a repeated
 element). Msg is one of
 
-- `{cont, Count, Records, State}` - input exhausted, feed more data
-- `{max_reached, Count, Records, State}` - Max hit, drain with an
-  empty chunk before feeding more input
-- `{trailers, Count, Records, Trailers, State}` - stream ended;
-  Trailers is the decoded document around the streamed elements, with
-  the streamed field set to []
+- `{cont, Count, SkipLeft, Records, State}` - input exhausted, feed
+  more data
+- `{max_reached, Count, SkipLeft, Records, State}` - Max hit, drain
+  with an empty chunk before feeding more input
+- `{trailers, Count, SkipLeft, Records, Trailers, State}` - stream
+  ended; Trailers is the decoded document around the streamed
+  elements, with the streamed field set to []
 
-Count is the number of records decoded in this call.
+Count is the number of records decoded in this call; skipped elements
+are not included and do not count towards Max. SkipLeft is how many
+of the Skip elements remain to be skipped, so a multi-call restart
+can be followed as it fast-forwards (see ews_stream for details).
 """.
 -spec stream_decode(Model :: atom(),
                     ContainingRecord :: tuple() | atom(),

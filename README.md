@@ -312,9 +312,10 @@ alias) and the record field index of the child, e.g. `#items_type{}` and
 tells the caller what to do next (in the style of hackney's `h2_msg()`),
 and always carries the number of records decoded in the call:
 
-    -type ews_stream_msg() :: {cont,        Count, Records, State}
-                 | {max_reached, Count, Records, State}
-                 | {trailers,    Count, Records, Trailers, State}.
+    -type ews_stream_msg() ::
+            {cont,        Count, SkipLeft, Records, State}
+          | {max_reached, Count, SkipLeft, Records, State}
+          | {trailers,    Count, SkipLeft, Records, Trailers, State}.
 
 * `cont` — the buffered input is exhausted; feed more data.
 * `max_reached` — `Max` records were decoded; call again with an empty
@@ -324,13 +325,24 @@ and always carries the number of records decoded in the call:
   *around* the streamed elements: the whole document record with the
   streamed field set to `[]`. Further calls repeat the trailers with
   `Count = 0`.
+* `Count` is the number of records decoded in the call. Skipped
+  elements are NOT included in `Count`, do not appear in `Records` and
+  do not count towards `Max` — a call that only skips returns
+  `{cont, 0, SkipLeft, [], State}`, never `max_reached`.
+* `SkipLeft` is how many of the `Skip` elements remain to be skipped
+  after the call.
 * `Rest` is `<<>>` (or `undefined`) on the first call; on subsequent
   calls pass the `State` from the previous message. It is an opaque
   state that carries buffered input, parser state and progress.
 * `Skip` skips the first `Skip` child elements of the stream without
-  decoding them. Together with `ews_stream:seen(State)` — the number of
-  child elements consumed so far — this allows restarting an interrupted
-  stream from the top of the file and resuming at the same point.
+  decoding them, which allows restarting an interrupted stream from the
+  top of the file. Suppose a run with `Max` 1000 died after 10000
+  processed elements (`ews_stream:seen(State)` at the last checkpoint,
+  or the number of records the caller had handled). Restart with
+  `Rest = <<>>` and `Skip = 10000` and feed chunks as usual: the
+  messages count `SkipLeft` down from 10000 to 0 over as many calls and
+  chunks as it takes (with `Count = 0` and `Records = []` on the way),
+  and decoding then resumes at element 10001.
 * Errors come back as `{error, Reason}`, e.g.
   `{error, {not_a_list, Qname}}` when the selected field is not a
   repeated element, `{error, {not_in_model, Alias}}` for an unknown
@@ -356,14 +368,14 @@ Example, decoding a large file read in chunks:
     stream(Fd, Chunk, Rest) ->
         case ews:stream_decode(my_model, #items_type{}, #items_type.item,
                                Chunk, Rest, 500, 0) of
-            {ok, {trailers, _Count, Items, Batch, _Rest1}} ->
+            {ok, {trailers, _Count, _SkipLeft, Items, Batch, _Rest1}} ->
                 handle_items(Items),
                 %% Batch is the whole document with item = []
                 {ok, Batch};
-            {ok, {max_reached, _Count, Items, Rest1}} ->
+            {ok, {max_reached, _Count, _SkipLeft, Items, Rest1}} ->
                 handle_items(Items),
                 stream(Fd, <<>>, Rest1);
-            {ok, {cont, _Count, Items, Rest1}} ->
+            {ok, {cont, _Count, _SkipLeft, Items, Rest1}} ->
                 handle_items(Items),
                 case file:read(Fd, 65536) of
                     {ok, Chunk1} -> stream(Fd, Chunk1, Rest1);

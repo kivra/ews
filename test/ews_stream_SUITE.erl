@@ -21,6 +21,7 @@
         , chunked_parity/1
         , max_and_drain/1
         , skip_restart/1
+        , skip_progress/1
         , container_as_record/1
         , empty_container/1
         , not_a_list_field/1
@@ -41,6 +42,7 @@ all() ->
     , chunked_parity
     , max_and_drain
     , skip_restart
+    , skip_progress
     , container_as_record
     , empty_container
     , not_a_list_field
@@ -95,7 +97,7 @@ max_and_drain(_Config) ->
     N = 20,
     Max = 3,
     Xml = doc(N),
-    {ok, {max_reached, Max, First, St0}} =
+    {ok, {max_reached, Max, 0, First, St0}} =
         ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                           Xml, <<>>, Max, 0),
     ?assertEqual(Max, length(First)),
@@ -106,7 +108,7 @@ max_and_drain(_Config) ->
     ?assertEqual(expected_trailers(), Trailers),
     [?assert(length(B) =< Max) || B <- Batches],
     %% Calling again after trailers just repeats the trailers.
-    {ok, {trailers, 0, [], Trailers, _}} =
+    {ok, {trailers, 0, 0, [], Trailers, _}} =
         ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                           <<>>, StN, Max, 0),
     ok.
@@ -121,11 +123,40 @@ skip_restart(_Config) ->
     ?assertEqual(N, ews_stream:seen(St)),
     ok.
 
+%% A restart that spans several calls and chunks can be followed via
+%% SkipLeft: it counts down to 0 while records are withheld, and calls
+%% that only skip return cont with Count = 0 - never max_reached, and
+%% skipped elements are not included in Count or Records.
+skip_progress(_Config) ->
+    N = 30,
+    Skip = 25,
+    Xml = doc(N),
+    Msgs = collect_msgs(chunk(Xml, 256), <<>>, 7, Skip, []),
+    %% Calls that still have skipping left decoded nothing.
+    [begin
+         ?assertEqual(0, element(2, M)),
+         ?assertEqual([], element(4, M)),
+         ?assertNotEqual(max_reached, element(1, M))
+     end || M <- Msgs, element(3, M) > 0],
+    %% SkipLeft counts down monotonically from Skip to 0.
+    SkipLefts = [element(3, M) || M <- Msgs],
+    ?assertEqual(SkipLefts, lists:reverse(lists:sort(SkipLefts))),
+    ?assert(hd(SkipLefts) > 0),
+    ?assertEqual(0, lists:last(SkipLefts)),
+    %% Only the last N - Skip records come out, and the stream ends
+    %% with trailers as usual.
+    Records = lists:append([element(4, M) || M <- Msgs]),
+    ?assertEqual(lists:nthtail(Skip, expected_items(N)), Records),
+    {trailers, _, 0, _, Trailers, St} = lists:last(Msgs),
+    ?assertEqual(expected_trailers(), Trailers),
+    ?assertEqual(N, ews_stream:seen(St)),
+    ok.
+
 %% The container can be given as a record tuple instead of its alias.
 container_as_record(_Config) ->
     N = 3,
     Xml = doc(N),
-    {ok, {trailers, N, Streamed, _Trailers, _}} =
+    {ok, {trailers, N, 0, Streamed, _Trailers, _}} =
         ews:stream_decode(?MODEL, {items_type, undefined}, ?ITEM_FIELD_IX,
                           Xml, <<>>, 1000, 0),
     ?assertEqual(expected_items(N), Streamed),
@@ -191,7 +222,7 @@ broken_xml(_Config) ->
                                    Bad3, <<>>, 10, 0)),
     %% Input that is not XML at all: nothing to decode, more input
     %% might still bring the document - cont with zero records.
-    {ok, {cont, 0, [], _}} =
+    {ok, {cont, 0, 0, [], _}} =
         ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                           <<"hello world">>, <<>>, 10, 0),
     %% A truncated document never produces trailers; the caller sees
@@ -205,7 +236,7 @@ broken_xml(_Config) ->
     %% the model come back as undefined.
     Other = <<"<Other xmlns=\"http://example.com/other\">"
               "<Foo>1</Foo></Other>">>,
-    {ok, {trailers, 0, [], undefined, _}} =
+    {ok, {trailers, 0, 0, [], undefined, _}} =
         ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                           Other, <<>>, 10, 0),
     ok.
@@ -251,30 +282,45 @@ stream_all(Xml, ChunkSize, Max, Skip) ->
 stream_chunks([Chunk | Chunks], Rest, Max, Skip, Acc) ->
     case ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                            Chunk, Rest, Max, Skip) of
-        {ok, {trailers, Count, Records, Trailers, St}} ->
+        {ok, {trailers, Count, _SkipLeft, Records, Trailers, St}} ->
             Count = length(Records),
             {done, lists:append(lists:reverse([Records | Acc])), Trailers,
              St};
-        {ok, {max_reached, Max, Records, St}} ->
+        {ok, {max_reached, Max, _SkipLeft, Records, St}} ->
             %% Full batch: drain buffered data before feeding more input.
             Max = length(Records),
             stream_chunks([<<>> | Chunks], St, Max, Skip, [Records | Acc]);
-        {ok, {cont, Count, Records, St}} when Chunks =/= [] ->
+        {ok, {cont, Count, _SkipLeft, Records, St}} when Chunks =/= [] ->
             Count = length(Records),
             stream_chunks(Chunks, St, Max, Skip, [Records | Acc]);
-        {ok, {cont, _Count, Records, St}} ->
+        {ok, {cont, _Count, _SkipLeft, Records, St}} ->
             {cont, lists:append(lists:reverse([Records | Acc])), St}
+    end.
+
+%% Like stream_chunks/5 but returns every message, in order.
+collect_msgs([Chunk | Chunks], Rest, Max, Skip, Acc) ->
+    {ok, Msg} = ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
+                                  Chunk, Rest, Max, Skip),
+    case Msg of
+        {trailers, _, _, _, _, _St} ->
+            lists:reverse([Msg | Acc]);
+        {max_reached, _, _, _, St} ->
+            collect_msgs([<<>> | Chunks], St, Max, Skip, [Msg | Acc]);
+        {cont, _, _, _, St} when Chunks =/= [] ->
+            collect_msgs(Chunks, St, Max, Skip, [Msg | Acc]);
+        {cont, _, _, _, _St} ->
+            lists:reverse([Msg | Acc])
     end.
 
 drain(St, Max, Acc) ->
     case ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                            <<>>, St, Max, 0) of
-        {ok, {trailers, Count, Records, Trailers, StN}} ->
+        {ok, {trailers, Count, _SkipLeft, Records, Trailers, StN}} ->
             Count = length(Records),
             {lists:reverse([Records | Acc]), Trailers, StN};
-        {ok, {max_reached, Max, Records, St1}} ->
+        {ok, {max_reached, Max, _SkipLeft, Records, St1}} ->
             drain(St1, Max, [Records | Acc]);
-        {ok, {cont, _Count, Records, St1}} ->
+        {ok, {cont, _Count, _SkipLeft, Records, St1}} ->
             drain(St1, Max, [Records | Acc])
     end.
 
