@@ -11,6 +11,41 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 5.1.1 and 5.2.0
+
+* New: streaming decode of large XML documents with `ews:stream_decode/7`.
+  A repeated child element (e.g. an unbounded sequence of `Item` elements
+  inside an `Items` container) is decoded record by record from a document
+  fed in chunks, without ever holding the whole document or the whole
+  decoded result in memory. Returns `{ok, ews_stream:ews_stream_msg()}` or
+  `{error, term()}`, where the message (`cont` | `max_reached` |
+  `trailers`) carries the decoded-record count and, at end of stream,
+  the decoded document around the streamed elements. See "Streaming
+  decode of large documents" under Interface below.
+* New: `ews_xml:decode/2` parses xml incrementally: it consumes as much as
+  possible of each chunk, keeps partial input and parser state between
+  calls, and emits completed target elements as xml terms.
+* New: `ews_serialize:compile_elem_plan/2` builds a compiled decode plan
+  for a single element; streaming decode uses it so each record is decoded
+  without any model (ETS) lookups.
+* Fix: `ews:decode_compiled/2` now decodes present-but-empty elements
+  (e.g. `<Note/>`) exactly like `ews:decode/2` does.
+
+## Changes between 5.0.0 and 5.1.0
+
+* New: precompiled encode/decode plans for fast batch processing.
+  `ews:compile_record_encoder/2` walks the model once and resolves every
+  model (ETS) lookup into a reusable plan tree — plain records (see
+  `src/ews_plan.hrl`), not closures, so a plan is human-inspectable.
+  `ews:encode_compiled/2` and `ews:decode_compiled/2` apply the plan; the
+  same plan drives both directions. Profiling batch encoding showed ~2/3
+  of the time spent in repeated model lookups, which the plan eliminates.
+  Constructs the compiler cannot specialise statically (type unions,
+  polymorphic subtypes/xsi:type, inline simple types) fall back to the
+  runtime encoder/decoder per node, so results are identical to
+  `ews:encode/2` / `ews:decode/2`. See "Precompiled encode/decode plans"
+  under Interface below.
+
 ## Changes between 4.4.0 and 5.0.0
 
 * `soap_timeout` has been replaced by `connect_timeout` and `recv_timeout`.
@@ -214,6 +249,152 @@ Returns and encoding of the specified service operation providing the given head
 `ews:decode_service_op_result(Model :: atom(), Service :: list(), Op :: list(), Body :: term(), Options :: map()) -> {ok, term()} | {error, term()}`
 
 Returns the Erlang representation of the provided result of calling the specified operation.
+
+### Precompiled encode/decode plans
+
+`ews:encode/2` and `ews:decode/2` repeat the same model (ETS) lookups for
+every record. When processing a large homogeneous batch — encoding or
+decoding many records of the same type — those lookups dominate. A plan
+resolves them once, up front:
+
+`ews:compile_record_encoder(Model :: atom(), Alias :: atom()) -> Plan`
+
+Builds a reusable plan for records tagged with `Alias` (the record name,
+as emitted in the generated .hrl). The plan is a tree of plain records
+(see `src/ews_plan.hrl`), so it can be inspected in the shell. Raises
+`error({not_in_model, Alias})` for an unknown alias.
+
+`ews:encode_compiled(Plan, Record :: record()) -> Xml :: binary()`
+
+Encodes one record with the plan. Same output as `ews:encode/2`.
+
+`ews:decode_compiled(Plan, Xml :: binary()) -> record()`
+
+Decodes an xml binary with the same plan. Same result as `ews:decode/2`.
+
+Example, with a model containing `-record(item_type, {id, name})`:
+
+    Plan = ews:compile_record_encoder(my_model, item_type),
+
+    %% Encode a large batch, one xml document per record:
+    Xmls = [ews:encode_compiled(Plan, Item) || Item <- Items],
+
+    %% The same plan decodes too:
+    #item_type{} = ews:decode_compiled(Plan, hd(Xmls)).
+
+Constructs that cannot be specialised statically (type unions,
+polymorphic subtypes/xsi:type, inline simple element types) fall back to
+the runtime encoder/decoder for that node, so compiled results are
+always identical to the uncompiled ones.
+
+### Streaming decode of large documents
+
+When a document is too large to decode in one go — typically a batch file
+where one container element holds an unbounded number of child elements —
+it can be decoded in a streaming fashion, feeding the raw XML in chunks
+and receiving the repeated child as records, a bounded batch at a time.
+Neither the whole document nor the whole decoded result is ever held in
+memory.
+
+Suppose a schema where the root element `Batch` contains an `Items`
+container with an unbounded sequence of `Item` elements, giving these
+generated records:
+
+    -record(item_type, {id, name, status, note}).
+    -record(items_type, {item :: [#item_type{}] | undefined}).
+
+`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, ews_stream:ews_stream_msg()} | {error, term()}`
+
+Decodes up to `Max` child records from `Chunk` plus any data buffered in
+`Rest`. The repeated child is identified by the container record (or its
+alias) and the record field index of the child, e.g. `#items_type{}` and
+`#items_type.item`. Always returns a 2-tuple; the message inside `ok`
+tells the caller what to do next (in the style of hackney's `h2_msg()`),
+and always carries the number of records decoded in the call:
+
+    -type ews_stream_msg() ::
+            {cont,        Count, SkipLeft, Records, State}
+          | {max_reached, Count, SkipLeft, Records, State}
+          | {trailers,    Count, SkipLeft, Records, Trailers, State}.
+
+* `cont` — the buffered input is exhausted; feed more data.
+* `max_reached` — `Max` records were decoded; call again with an empty
+  chunk to drain already-buffered data before reading more input. No
+  need to compare `Count` against `Max` yourself.
+* `trailers` — the stream has ended. `Trailers` is the decoded document
+  *around* the streamed elements: the whole document record with the
+  streamed field set to `[]`. Further calls repeat the trailers with
+  `Count = 0`.
+* `Count` is the number of elements consumed in the call, INCLUDING
+  skipped ones — summing `Count` over all calls gives the absolute
+  position in the stream, exactly the value to pass as `Skip` on a
+  restart. The decoded records are `Records` (`length(Records)` is the
+  decoded count). Skipped elements never appear in `Records` and do
+  not count towards `Max` — a call that only skips returns
+  `{cont, Count, SkipLeft, [], State}`, never `max_reached`.
+* `SkipLeft` is how many of the `Skip` elements remain to be skipped
+  after the call.
+* `Rest` is `<<>>` (or `undefined`) on the first call; on subsequent
+  calls pass the `State` from the previous message. It is an opaque
+  state that carries buffered input, parser state and progress.
+* `Skip` skips the first `Skip` child elements of the stream without
+  decoding them, which allows restarting an interrupted stream from the
+  top of the file. Suppose a run with `Max` 1000 died after 10000
+  processed elements (`ews_stream:seen(State)` at the last checkpoint,
+  or the number of records the caller had handled). Restart with
+  `Rest = <<>>` and `Skip = 10000` and feed chunks as usual: the
+  messages count `SkipLeft` down from 10000 to 0 over as many calls and
+  chunks as it takes (with `Records = []` on the way, `Count` showing
+  how many elements each call skipped),
+  and decoding then resumes at element 10001.
+* Errors come back as `{error, Reason}`, e.g.
+  `{error, {not_a_list, Qname}}` when the selected field is not a
+  repeated element, `{error, {not_in_model, Alias}}` for an unknown
+  container, `{error, {unmatched_close_tag, Name}}` for broken tag
+  nesting, or a decode error when an element does not match the schema.
+  A truncated document is not detectable by the parser (more input
+  might still arrive): the caller sees `cont` at end of input, as in
+  the example below.
+
+Namespace prefixes declared on ancestor elements (typically the document
+root) are resolved as usual. The child element must not nest inside
+itself, and a self-closing (`<Item/>`) child element is not emitted.
+Decoding uses a compiled plan, so no model lookups are made per record.
+
+Example, decoding a large file read in chunks:
+
+    process(File) ->
+        {ok, Fd} = file:open(File, [read, raw, binary, read_ahead]),
+        try stream(Fd, <<>>, <<>>)
+        after file:close(Fd)
+        end.
+
+    stream(Fd, Chunk, Rest) ->
+        case ews:stream_decode(my_model, #items_type{}, #items_type.item,
+                               Chunk, Rest, 500, 0) of
+            {ok, {trailers, _Count, _SkipLeft, Items, Batch, _Rest1}} ->
+                handle_items(Items),
+                %% Batch is the whole document with item = []
+                {ok, Batch};
+            {ok, {max_reached, _Count, _SkipLeft, Items, Rest1}} ->
+                handle_items(Items),
+                stream(Fd, <<>>, Rest1);
+            {ok, {cont, _Count, _SkipLeft, Items, Rest1}} ->
+                handle_items(Items),
+                case file:read(Fd, 65536) of
+                    {ok, Chunk1} -> stream(Fd, Chunk1, Rest1);
+                    eof -> {error, truncated_document}
+                end;
+            {error, Reason} ->
+                {error, Reason}
+        end.
+
+The underlying incremental xml parser can also be used on its own:
+`ews_xml:stream_new(TargetQname)` creates a parser state, and
+`ews_xml:decode(Chunk, State) -> {XmlTerms, State1}` consumes as much as
+possible of each chunk and returns the target elements completed so far
+as xml terms. `ews_xml:stream_done(State)` reports whether the document's
+root element has been closed.
 
 ### Environment
 
