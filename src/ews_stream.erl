@@ -62,13 +62,13 @@ document from the start.
                                    pos_integer()},
                      trailers := undefined | {done, tuple() | undefined},
                      seen := non_neg_integer()}.
--type msg() ::
+-type ews_stream_msg() ::
         {cont, Count :: non_neg_integer(), Records :: [tuple()], state()} |
         {max_reached, Count :: non_neg_integer(), Records :: [tuple()],
          state()} |
         {trailers, Count :: non_neg_integer(), Records :: [tuple()],
          Trailers :: tuple() | undefined, state()}.
--export_type([state/0, msg/0]).
+-export_type([state/0, ews_stream_msg/0]).
 
 -doc """
 Decode up to Max target elements from Chunk (+ previously
@@ -78,7 +78,7 @@ message. The first Skip target elements of the stream are skipped
 without being decoded, which allows restarting an interrupted stream
 from the top of the file.
 
-Returns `{ok, Msg}` (see the msg() type and the module doc) or
+Returns `{ok, Msg}` (see the ews_stream_msg() type and the module doc) or
 `{error, Reason}` - e.g. `{error, {not_a_list, Qname}}` if the
 selected field is not a repeated element (maxOccurs 1 in the schema,
 a non-list field in the record).
@@ -90,7 +90,7 @@ a non-list field in the record).
              Rest :: binary() | undefined | state(),
              Max :: pos_integer(),
              Skip :: non_neg_integer()) ->
-          {ok, msg()} | {error, term()}.
+          {ok, ews_stream_msg()} | {error, term()}.
 decode(ModelRef, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip)
   when Rest =:= undefined; is_binary(Rest) ->
     try init(ModelRef, ContainingRecord, RecordIdx) of

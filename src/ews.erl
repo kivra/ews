@@ -228,7 +228,7 @@ Count is the number of records decoded in this call.
                     Rest :: binary() | undefined | ews_stream:state(),
                     Max :: pos_integer(),
                     Skip :: non_neg_integer()) ->
-          {ok, ews_stream:msg()} | {error, term()}.
+          {ok, ews_stream:ews_stream_msg()} | {error, term()}.
 stream_decode(Model, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip) ->
     ews_stream:decode(Model, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip).
 

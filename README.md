@@ -17,7 +17,7 @@ ews is a library for interacting with SOAP web services. It includes functionali
   A repeated child element (e.g. an unbounded sequence of `Item` elements
   inside an `Items` container) is decoded record by record from a document
   fed in chunks, without ever holding the whole document or the whole
-  decoded result in memory. Returns `{ok, ews_stream:msg()}` or
+  decoded result in memory. Returns `{ok, ews_stream:ews_stream_msg()}` or
   `{error, term()}`, where the message (`cont` | `max_reached` |
   `trailers`) carries the decoded-record count and, at end of stream,
   the decoded document around the streamed elements. See "Streaming
@@ -303,7 +303,7 @@ generated records:
     -record(item_type, {id, name, status, note}).
     -record(items_type, {item :: [#item_type{}] | undefined}).
 
-`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, ews_stream:msg()} | {error, term()}`
+`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, ews_stream:ews_stream_msg()} | {error, term()}`
 
 Decodes up to `Max` child records from `Chunk` plus any data buffered in
 `Rest`. The repeated child is identified by the container record (or its
@@ -312,7 +312,7 @@ alias) and the record field index of the child, e.g. `#items_type{}` and
 tells the caller what to do next (in the style of hackney's `h2_msg()`),
 and always carries the number of records decoded in the call:
 
-    -type msg() :: {cont,        Count, Records, State}
+    -type ews_stream_msg() :: {cont,        Count, Records, State}
                  | {max_reached, Count, Records, State}
                  | {trailers,    Count, Records, Trailers, State}.
 
