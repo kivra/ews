@@ -204,14 +204,22 @@ fed in chunks, without holding the whole document in memory.
 ContainingRecord is a record (or its alias atom) for the type that holds
 the repeated child, RecordIdx the record field index of that child
 (e.g. `#my_container.my_child`). Rest is `<<>>` or `undefined` on the
-first call, thereafter the state from the previous call. At most
+first call, thereafter the state from the previous message. At most
 Max records are decoded per call; the first Skip elements of the
 stream are skipped without decoding (restart support).
-Returns `{ok, Records, State}` (feed more data, or an empty chunk to
-drain when exactly Max records were returned) or
-`{done, Records, State}` when the repeated sequence has ended.
-Raises `error({not_a_list, Qname})` if the selected field is not a
-repeated element (maxOccurs 1 in the schema).
+
+Returns `{ok, Msg}` or `{error, Reason}` (e.g.
+`{error, {not_a_list, Qname}}` if the selected field is not a repeated
+element). Msg is one of
+
+- `{cont, Count, Records, State}` - input exhausted, feed more data
+- `{max_reached, Count, Records, State}` - Max hit, drain with an
+  empty chunk before feeding more input
+- `{trailers, Count, Records, Trailers, State}` - stream ended;
+  Trailers is the decoded document around the streamed elements, with
+  the streamed field set to []
+
+Count is the number of records decoded in this call.
 """.
 -spec stream_decode(Model :: atom(),
                     ContainingRecord :: tuple() | atom(),
@@ -220,8 +228,7 @@ repeated element (maxOccurs 1 in the schema).
                     Rest :: binary() | undefined | ews_stream:state(),
                     Max :: pos_integer(),
                     Skip :: non_neg_integer()) ->
-          {ok, Records :: [tuple()], ews_stream:state()} |
-          {done, Records :: [tuple()], ews_stream:state()}.
+          {ok, ews_stream:msg()} | {error, term()}.
 stream_decode(Model, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip) ->
     ews_stream:decode(Model, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip).
 

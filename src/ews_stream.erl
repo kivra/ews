@@ -25,12 +25,27 @@ alias) plus the record field index of the repeated child, e.g.
 `Items` container element holds an unbounded sequence of `Item`
 elements.
 
+Every call returns `{ok, Msg}` or `{error, Reason}`, where Msg tells
+the caller what to do next without inspecting the records:
+
+- `{cont, Count, Records, State}` - the buffered input is exhausted;
+  feed more data.
+- `{max_reached, Count, Records, State}` - Max records were decoded;
+  call again with an empty chunk to drain buffered data before
+  feeding more input.
+- `{trailers, Count, Records, Trailers, State}` - the stream has
+  ended. Trailers is the decoded document *around* the streamed
+  elements: the whole document record with the streamed field set to
+  the empty list (or `undefined` if the root cannot be decoded).
+
+Count is always the number of records decoded in this call.
+
 The XML is parsed incrementally by `ews_xml:decode/2`, which returns
 completed target elements as xml terms as soon as their closing tags
-have been seen; each term is then validated against the model into
-its record. Namespace prefixes declared on ancestor elements
-(typically the document root) resolve naturally since the parser sees
-the whole document from the start.
+have been seen; each term is then decoded with a compiled plan.
+Namespace prefixes declared on ancestor elements (typically the
+document root) resolve naturally since the parser sees the whole
+document from the start.
 """.
 
 -export([decode/7, seen/1]).
@@ -42,23 +57,31 @@ the whole document from the start.
 -opaque state() :: #{xml := ews_xml:stream(),
                      pending := [ews_xml:xml_data()],
                      plan := #pdoc{},
+                     model := #model{},
+                     container := {atom(), {string(), string()},
+                                   pos_integer()},
+                     trailers := undefined | {done, tuple() | undefined},
                      seen := non_neg_integer()}.
--export_type([state/0]).
+-type msg() ::
+        {cont, Count :: non_neg_integer(), Records :: [tuple()], state()} |
+        {max_reached, Count :: non_neg_integer(), Records :: [tuple()],
+         state()} |
+        {trailers, Count :: non_neg_integer(), Records :: [tuple()],
+         Trailers :: tuple() | undefined, state()}.
+-export_type([state/0, msg/0]).
 
 -doc """
 Decode up to Max target elements from Chunk (+ previously
 buffered data). Rest is `<<>>` or `undefined` on the first call;
-on subsequent calls pass the state returned by the previous call.
-The first Skip target elements of the stream are skipped without
-being decoded, which allows restarting an interrupted stream from
-the top of the file. Returns
-`{ok, Records, State}` - feed more data (or an empty chunk if
-exactly Max records were returned, to drain buffered data),
-`{done, Records, State}` - no more target elements in the stream.
+on subsequent calls pass the state returned inside the previous
+message. The first Skip target elements of the stream are skipped
+without being decoded, which allows restarting an interrupted stream
+from the top of the file.
 
-Raises `error({not_a_list, Qname})` if the selected field is not a
-repeated element (maxOccurs 1 in the schema, a non-list field in the
-record) - streaming a single-occurrence element makes no sense.
+Returns `{ok, Msg}` (see the msg() type and the module doc) or
+`{error, Reason}` - e.g. `{error, {not_a_list, Qname}}` if the
+selected field is not a repeated element (maxOccurs 1 in the schema,
+a non-list field in the record).
 """.
 -spec decode(ModelRef :: atom(),
              ContainingRecord :: tuple() | atom(),
@@ -67,22 +90,32 @@ record) - streaming a single-occurrence element makes no sense.
              Rest :: binary() | undefined | state(),
              Max :: pos_integer(),
              Skip :: non_neg_integer()) ->
-          {ok, Records :: [tuple()], state()} |
-          {done, Records :: [tuple()], state()}.
+          {ok, msg()} | {error, term()}.
 decode(ModelRef, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip)
   when Rest =:= undefined; is_binary(Rest) ->
-    State = init(ModelRef, ContainingRecord, RecordIdx),
-    Chunk1 = case Rest of
-                 undefined -> Chunk;
-                 <<>> -> Chunk;
-                 _ -> <<Rest/binary, Chunk/binary>>
-             end,
-    decode(ModelRef, ContainingRecord, RecordIdx, Chunk1, State, Max, Skip);
+    try init(ModelRef, ContainingRecord, RecordIdx) of
+        State ->
+            Chunk1 = case Rest of
+                         undefined -> Chunk;
+                         <<>> -> Chunk;
+                         _ -> <<Rest/binary, Chunk/binary>>
+                     end,
+            decode(ModelRef, ContainingRecord, RecordIdx, Chunk1, State,
+                   Max, Skip)
+    catch
+        error:Reason ->
+            {error, Reason}
+    end;
 decode(_ModelRef, _ContainingRecord, _RecordIdx, Chunk,
        #{xml := _} = State, Max, Skip)
   when is_binary(Chunk), is_integer(Max), Max > 0,
        is_integer(Skip), Skip >= 0 ->
-    run(State, Chunk, Max, Skip).
+    try
+        run(State, Chunk, Max, Skip)
+    catch
+        error:Reason ->
+            {error, Reason}
+    end.
 
 -doc """
 Number of target elements consumed (skipped + decoded) since the
@@ -100,37 +133,52 @@ init(ModelRef, ContainingRecord, RecordIdx) ->
                 A when is_atom(A) -> A;
                 T when is_tuple(T) -> element(1, T)
             end,
-    #type{attrs = Attrs} = ews_model:get(Alias, Tbl),
-    Parts = ews_model:get_parts(Alias, Tbl),
-    %% Records for types with attributes have '__attrs' as their first
-    %% field, so the parts list is offset one extra step.
-    Offset = case Attrs of [] -> 1; [_|_] -> 2 end,
-    #elem{qname = Qname, meta = Meta} = Elem = lists:nth(RecordIdx - Offset,
-                                                         Parts),
-    %% Streaming only makes sense for a repeated element (a list field in
-    %% the record, maxOccurs > 1 in the schema).
-    case Meta of
-        #meta{max = Max} when Max =:= infinite;
-                              is_integer(Max) andalso Max > 1 ->
-            ok;
-        _ ->
-            error({not_a_list, Qname})
-    end,
-    %% Resolve all model lookups once; every emitted term is then decoded
-    %% with the compiled plan instead of the interpretive decoder.
-    Plan = ews_serialize:compile_elem_plan(Elem, Model),
-    #{xml => ews_xml:stream_new(Qname), pending => [],
-      plan => Plan, seen => 0}.
+    case ews_model:get(Alias, Tbl) of
+        false ->
+            error({not_in_model, Alias});
+        #type{qname = ContainerKey, attrs = Attrs} ->
+            Parts = ews_model:get_parts(Alias, Tbl),
+            %% Records for types with attributes have '__attrs' as their
+            %% first field, so the parts list is offset one extra step.
+            Offset = case Attrs of [] -> 1; [_|_] -> 2 end,
+            #elem{qname = Qname, meta = Meta} = Elem =
+                lists:nth(RecordIdx - Offset, Parts),
+            %% Streaming only makes sense for a repeated element (a list
+            %% field in the record, maxOccurs > 1 in the schema).
+            case Meta of
+                #meta{max = Max} when Max =:= infinite;
+                                      is_integer(Max) andalso Max > 1 ->
+                    ok;
+                _ ->
+                    error({not_a_list, Qname})
+            end,
+            %% Resolve all model lookups once; every emitted term is then
+            %% decoded with the compiled plan instead of the interpretive
+            %% decoder.
+            Plan = ews_serialize:compile_elem_plan(Elem, Model),
+            #{xml => ews_xml:stream_new(Qname), pending => [],
+              plan => Plan, model => Model,
+              container => {Alias, ContainerKey, RecordIdx},
+              trailers => undefined, seen => 0}
+    end.
 
+run(#{trailers := {done, Trailers}} = State, _Chunk, _Max, _Skip) ->
+    {ok, {trailers, 0, [], Trailers, State}};
 run(#{xml := Xml0, pending := Pending0, seen := Seen0,
       plan := Plan} = State, Chunk, Max, Skip) ->
     {Terms, Xml} = ews_xml:decode(Chunk, Xml0),
-    {Records, Pending, Seen} =
+    {Records, Count, Pending, Seen} =
         take(Pending0 ++ Terms, Seen0, Skip, Max, Plan, [], 0),
     NewState = State#{xml := Xml, pending := Pending, seen := Seen},
     case Pending =:= [] andalso ews_xml:stream_done(Xml) of
-        true -> {done, Records, NewState};
-        false -> {ok, Records, NewState}
+        true ->
+            Trailers = build_trailers(NewState),
+            FinalState = NewState#{trailers := {done, Trailers}},
+            {ok, {trailers, Count, Records, Trailers, FinalState}};
+        false when Count =:= Max ->
+            {ok, {max_reached, Count, Records, NewState}};
+        false ->
+            {ok, {cont, Count, Records, NewState}}
     end.
 
 %% Skip terms while Seen < Skip, then decode up to Max terms into
@@ -140,5 +188,72 @@ take([_Term | Terms], Seen, Skip, Max, Plan, Acc, N) when Seen < Skip ->
 take([Term | Terms], Seen, Skip, Max, Plan, Acc, N) when N < Max ->
     Record = ews_serialize:decode_compiled(Plan, [Term]),
     take(Terms, Seen + 1, Skip, Max, Plan, [Record | Acc], N + 1);
-take(Terms, Seen, _Skip, _Max, _Plan, Acc, _N) ->
-    {lists:reverse(Acc), Terms, Seen}.
+take(Terms, Seen, _Skip, _Max, _Plan, Acc, N) ->
+    {lists:reverse(Acc), N, Terms, Seen}.
+
+%% ----------------------------------------------------------------------------
+%% Trailers: the document around the streamed elements
+
+%% Decode the completed root element (the emitted target elements are
+%% not part of it) and set the streamed field of the container record
+%% to []. A container that lost all its children decodes to undefined,
+%% in which case a fresh container record is constructed in its place.
+%% Best effort: returns undefined if the root cannot be decoded.
+build_trailers(#{xml := Xml, model := #model{type_map = Tbl} = Model,
+                 container := Container}) ->
+    case ews_xml:stream_root(Xml) of
+        undefined ->
+            undefined;
+        {ok, {RootQ, _, _} = RootTerm} ->
+            case ews_model:get_elem(RootQ, Tbl) of
+                false ->
+                    undefined;
+                #elem{} = RootElem ->
+                    [Doc] = ews_serialize:decode([RootTerm], [RootElem],
+                                                 Model),
+                    fix_container(Doc, Container, Tbl)
+            end
+    end.
+
+%% Walk the decoded document and set the streamed field of the container
+%% record to [].
+fix_container(Term, {CAlias, _, Idx} = C, Tbl)
+  when is_tuple(Term), is_atom(element(1, Term)) ->
+    case element(1, Term) of
+        CAlias ->
+            setelement(Idx, Term, []);
+        Alias ->
+            case ews_model:get(Alias, Tbl) of
+                #type{attrs = Attrs} ->
+                    Parts = ews_model:get_parts(Alias, Tbl),
+                    Offset = case Attrs of [] -> 1; [_|_] -> 2 end,
+                    fix_fields(Term, Parts, Offset + 1, C, Tbl);
+                false ->
+                    Term
+            end
+    end;
+fix_container(List, C, Tbl) when is_list(List) ->
+    [fix_container(E, C, Tbl) || E <- List];
+fix_container(Term, _C, _Tbl) ->
+    Term.
+
+fix_fields(Term, [Part | Parts], FieldIx, {_, CKey, _} = C, Tbl) ->
+    Value0 = element(FieldIx, Term),
+    Value = case {Part, Value0} of
+                {#elem{type = CKey}, undefined} ->
+                    %% The container lost all its children to streaming
+                    %% and decoded to undefined: rebuild it empty.
+                    empty_container(C, Tbl);
+                _ ->
+                    fix_container(Value0, C, Tbl)
+            end,
+    fix_fields(setelement(FieldIx, Term, Value), Parts, FieldIx + 1, C, Tbl);
+fix_fields(Term, [], _FieldIx, _C, _Tbl) ->
+    Term.
+
+empty_container({CAlias, _, Idx}, Tbl) ->
+    #type{attrs = Attrs} = ews_model:get(CAlias, Tbl),
+    Parts = ews_model:get_parts(CAlias, Tbl),
+    Arity = 1 + (case Attrs of [] -> 0; [_|_] -> 1 end) + length(Parts),
+    Empty = setelement(1, erlang:make_tuple(Arity, undefined), CAlias),
+    setelement(Idx, Empty, []).

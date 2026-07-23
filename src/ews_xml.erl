@@ -24,6 +24,7 @@
          decode/2,
          stream_new/1,
          stream_done/1,
+         stream_root/1,
          compare/2,
          get_all_nss/1
         ]).
@@ -85,6 +86,9 @@ naturally. Completed target elements are emitted instead of being
 accumulated into their parent, which keeps memory bounded when
 streaming a large document.
 
+Raises `error({unmatched_close_tag, Name})` on broken nesting (a
+closing tag with no matching open tag).
+
 Limitations: the target element must not nest inside itself, and a
 self-closing (`<Target/>`) target element is not emitted.
 """.
@@ -107,6 +111,21 @@ no more target elements can follow.
 -spec stream_done(State :: stream()) -> boolean().
 stream_done(#stream{done = Done}) ->
     Done.
+
+-doc """
+The completed root element of a finished stream, as an xml term. The
+emitted target elements are not part of it (their container has kept
+only its other children). Returns `undefined` while the document is
+still open.
+""".
+-spec stream_root(State :: stream()) -> {ok, xml_data()} | undefined.
+stream_root(#stream{done = true, stack = Stack}) ->
+    case [E || {_, _, _} = E <- Stack] of
+        [Root | _] -> {ok, Root};
+        [] -> undefined
+    end;
+stream_root(#stream{}) ->
+    undefined.
 
 get_all_nss(Data) when is_tuple(Data) andalso size(Data) == 3 ->
     do_get_all_nss([Data], #{?XML_NS => false});
@@ -369,17 +388,24 @@ parse_xml([], Stack, _) ->
 parse_stream([{[$/ | Tag], _, _} | Rest], Stack, Nss, Target, Emitted,
              Done) ->
     Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
-    {Element, NewStack} = find_start(Stack, Key),
     NewNss = lists:keydelete(Tag, 1, Nss),
-    NowDone = Done orelse
-        lists:all(fun({txt, _}) -> true; (_) -> false end, NewStack),
-    case Element of
-        {Target, _, _} ->
-            parse_stream(Rest, NewStack, NewNss, Target, [Element | Emitted],
-                         NowDone);
-        _ ->
-            parse_stream(Rest, [Element | NewStack], NewNss, Target, Emitted,
-                         NowDone)
+    case find_start(Stack, Key) of
+        {{_, _, _} = Element, NewStack} ->
+            NowDone = Done orelse
+                lists:all(fun({txt, _}) -> true; (_) -> false end, NewStack),
+            case Element of
+                {Target, _, _} ->
+                    parse_stream(Rest, NewStack, NewNss, Target,
+                                 [Element | Emitted], NowDone);
+                _ ->
+                    parse_stream(Rest, [Element | NewStack], NewNss, Target,
+                                 Emitted, NowDone)
+            end;
+        {_, _} ->
+            %% A closing tag with no matching open tag: unlike the
+            %% lenient whole-document parse_xml, streaming reports
+            %% broken nesting instead of silently corrupting the stack.
+            error({unmatched_close_tag, Key})
     end;
 parse_stream([{txt, _} = Txt | Rest], Stack, Nss, Target, Emitted, Done) ->
     parse_stream(Rest, [Txt | Stack], Nss, Target, Emitted, Done);

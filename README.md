@@ -17,8 +17,11 @@ ews is a library for interacting with SOAP web services. It includes functionali
   A repeated child element (e.g. an unbounded sequence of `Item` elements
   inside an `Items` container) is decoded record by record from a document
   fed in chunks, without ever holding the whole document or the whole
-  decoded result in memory. See "Streaming decode of large documents"
-  under Interface below.
+  decoded result in memory. Returns `{ok, ews_stream:msg()}` or
+  `{error, term()}`, where the message (`cont` | `max_reached` |
+  `trailers`) carries the decoded-record count and, at end of stream,
+  the decoded document around the streamed elements. See "Streaming
+  decode of large documents" under Interface below.
 * New: `ews_xml:decode/2` parses xml incrementally: it consumes as much as
   possible of each chunk, keeps partial input and parser state between
   calls, and emits completed target elements as xml terms.
@@ -300,32 +303,47 @@ generated records:
     -record(item_type, {id, name, status, note}).
     -record(items_type, {item :: [#item_type{}] | undefined}).
 
-`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, [record()], Rest} | {done, [record()], Rest}`
+`ews:stream_decode(Model :: atom(), ContainingRecord :: tuple() | atom(), RecordIdx :: integer(), Chunk :: binary(), Rest, Max :: integer(), Skip :: integer()) -> {ok, ews_stream:msg()} | {error, term()}`
 
 Decodes up to `Max` child records from `Chunk` plus any data buffered in
 `Rest`. The repeated child is identified by the container record (or its
 alias) and the record field index of the child, e.g. `#items_type{}` and
-`#items_type.item`.
+`#items_type.item`. Always returns a 2-tuple; the message inside `ok`
+tells the caller what to do next (in the style of hackney's `h2_msg()`),
+and always carries the number of records decoded in the call:
 
+    -type msg() :: {cont,        Count, Records, State}
+                 | {max_reached, Count, Records, State}
+                 | {trailers,    Count, Records, Trailers, State}.
+
+* `cont` — the buffered input is exhausted; feed more data.
+* `max_reached` — `Max` records were decoded; call again with an empty
+  chunk to drain already-buffered data before reading more input. No
+  need to compare `Count` against `Max` yourself.
+* `trailers` — the stream has ended. `Trailers` is the decoded document
+  *around* the streamed elements: the whole document record with the
+  streamed field set to `[]`. Further calls repeat the trailers with
+  `Count = 0`.
 * `Rest` is `<<>>` (or `undefined`) on the first call; on subsequent
-  calls pass the value returned by the previous call. It is an opaque
+  calls pass the `State` from the previous message. It is an opaque
   state that carries buffered input, parser state and progress.
-* `{ok, Records, Rest1}` means more input may follow. If exactly `Max`
-  records were returned, call again with an empty chunk to drain
-  already-buffered data before reading more input.
-* `{done, Records, Rest1}` means the container's sequence has ended.
 * `Skip` skips the first `Skip` child elements of the stream without
-  decoding them. Together with `ews_stream:seen(Rest1)` — the number of
+  decoding them. Together with `ews_stream:seen(State)` — the number of
   child elements consumed so far — this allows restarting an interrupted
   stream from the top of the file and resuming at the same point.
+* Errors come back as `{error, Reason}`, e.g.
+  `{error, {not_a_list, Qname}}` when the selected field is not a
+  repeated element, `{error, {not_in_model, Alias}}` for an unknown
+  container, `{error, {unmatched_close_tag, Name}}` for broken tag
+  nesting, or a decode error when an element does not match the schema.
+  A truncated document is not detectable by the parser (more input
+  might still arrive): the caller sees `cont` at end of input, as in
+  the example below.
 
 Namespace prefixes declared on ancestor elements (typically the document
 root) are resolved as usual. The child element must not nest inside
 itself, and a self-closing (`<Item/>`) child element is not emitted.
 Decoding uses a compiled plan, so no model lookups are made per record.
-The selected field must be a repeated element (maxOccurs > 1 in the
-schema, a list field in the record); otherwise
-`error({not_a_list, Qname})` is raised.
 
 Example, decoding a large file read in chunks:
 
@@ -338,19 +356,21 @@ Example, decoding a large file read in chunks:
     stream(Fd, Chunk, Rest) ->
         case ews:stream_decode(my_model, #items_type{}, #items_type.item,
                                Chunk, Rest, 500, 0) of
-            {done, Items, _Rest1} ->
-                handle_items(Items);
-            {ok, Items, Rest1} when length(Items) =:= 500 ->
-                %% Possibly more complete items in the buffer: drain
-                %% before reading more input.
+            {ok, {trailers, _Count, Items, Batch, _Rest1}} ->
+                handle_items(Items),
+                %% Batch is the whole document with item = []
+                {ok, Batch};
+            {ok, {max_reached, _Count, Items, Rest1}} ->
                 handle_items(Items),
                 stream(Fd, <<>>, Rest1);
-            {ok, Items, Rest1} ->
+            {ok, {cont, _Count, Items, Rest1}} ->
                 handle_items(Items),
                 case file:read(Fd, 65536) of
                     {ok, Chunk1} -> stream(Fd, Chunk1, Rest1);
                     eof -> {error, truncated_document}
-                end
+                end;
+            {error, Reason} ->
+                {error, Reason}
         end.
 
 The underlying incremental xml parser can also be used on its own:
