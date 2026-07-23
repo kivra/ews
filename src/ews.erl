@@ -220,10 +220,14 @@ element). Msg is one of
   ended; Trailers is the decoded document around the streamed
   elements, with the streamed field set to []
 
-Count is the number of records decoded in this call; skipped elements
-are not included and do not count towards Max. SkipLeft is how many
-of the Skip elements remain to be skipped, so a multi-call restart
-can be followed as it fast-forwards (see ews_stream for details).
+Count is the number of elements consumed in this call, including
+skipped ones - the sum of Counts over all calls is the absolute
+stream position, i.e. the value to pass as Skip on a restart. The
+decoded records are Records (`length(Records)` = decoded count);
+skipped elements never appear in Records and do not count towards
+Max. SkipLeft is how many of the Skip elements remain to be skipped,
+so a multi-call restart can be followed as it fast-forwards (see
+ews_stream for details).
 """.
 -spec stream_decode(Model :: atom(),
                     ContainingRecord :: tuple() | atom(),

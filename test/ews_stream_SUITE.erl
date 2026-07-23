@@ -132,12 +132,15 @@ skip_progress(_Config) ->
     Skip = 25,
     Xml = doc(N),
     Msgs = collect_msgs(chunk(Xml, 256), <<>>, 7, Skip, []),
-    %% Calls that still have skipping left decoded nothing.
+    %% Calls that still have skipping left decoded nothing, but their
+    %% Count reports how many elements they skipped.
     [begin
-         ?assertEqual(0, element(2, M)),
          ?assertEqual([], element(4, M)),
          ?assertNotEqual(max_reached, element(1, M))
      end || M <- Msgs, element(3, M) > 0],
+    %% Count includes skipped elements: the counts sum to the absolute
+    %% stream position - the Skip value for a restart.
+    ?assertEqual(N, lists:sum([element(2, M) || M <- Msgs])),
     %% SkipLeft counts down monotonically from Skip to 0.
     SkipLefts = [element(3, M) || M <- Msgs],
     ?assertEqual(SkipLefts, lists:reverse(lists:sort(SkipLefts))),
@@ -283,7 +286,7 @@ stream_chunks([Chunk | Chunks], Rest, Max, Skip, Acc) ->
     case ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                            Chunk, Rest, Max, Skip) of
         {ok, {trailers, Count, _SkipLeft, Records, Trailers, St}} ->
-            Count = length(Records),
+            true = Count >= length(Records),
             {done, lists:append(lists:reverse([Records | Acc])), Trailers,
              St};
         {ok, {max_reached, Max, _SkipLeft, Records, St}} ->
@@ -291,7 +294,7 @@ stream_chunks([Chunk | Chunks], Rest, Max, Skip, Acc) ->
             Max = length(Records),
             stream_chunks([<<>> | Chunks], St, Max, Skip, [Records | Acc]);
         {ok, {cont, Count, _SkipLeft, Records, St}} when Chunks =/= [] ->
-            Count = length(Records),
+            true = Count >= length(Records),
             stream_chunks(Chunks, St, Max, Skip, [Records | Acc]);
         {ok, {cont, _Count, _SkipLeft, Records, St}} ->
             {cont, lists:append(lists:reverse([Records | Acc])), St}
@@ -316,7 +319,7 @@ drain(St, Max, Acc) ->
     case ews:stream_decode(?MODEL, items_type, ?ITEM_FIELD_IX,
                            <<>>, St, Max, 0) of
         {ok, {trailers, Count, _SkipLeft, Records, Trailers, StN}} ->
-            Count = length(Records),
+            true = Count >= length(Records),
             {lists:reverse([Records | Acc]), Trailers, StN};
         {ok, {max_reached, Max, _SkipLeft, Records, St1}} ->
             drain(St1, Max, [Records | Acc]);

@@ -325,10 +325,13 @@ and always carries the number of records decoded in the call:
   *around* the streamed elements: the whole document record with the
   streamed field set to `[]`. Further calls repeat the trailers with
   `Count = 0`.
-* `Count` is the number of records decoded in the call. Skipped
-  elements are NOT included in `Count`, do not appear in `Records` and
-  do not count towards `Max` — a call that only skips returns
-  `{cont, 0, SkipLeft, [], State}`, never `max_reached`.
+* `Count` is the number of elements consumed in the call, INCLUDING
+  skipped ones — summing `Count` over all calls gives the absolute
+  position in the stream, exactly the value to pass as `Skip` on a
+  restart. The decoded records are `Records` (`length(Records)` is the
+  decoded count). Skipped elements never appear in `Records` and do
+  not count towards `Max` — a call that only skips returns
+  `{cont, Count, SkipLeft, [], State}`, never `max_reached`.
 * `SkipLeft` is how many of the `Skip` elements remain to be skipped
   after the call.
 * `Rest` is `<<>>` (or `undefined`) on the first call; on subsequent
@@ -341,7 +344,8 @@ and always carries the number of records decoded in the call:
   or the number of records the caller had handled). Restart with
   `Rest = <<>>` and `Skip = 10000` and feed chunks as usual: the
   messages count `SkipLeft` down from 10000 to 0 over as many calls and
-  chunks as it takes (with `Count = 0` and `Records = []` on the way),
+  chunks as it takes (with `Records = []` on the way, `Count` showing
+  how many elements each call skipped),
   and decoding then resumes at element 10001.
 * Errors come back as `{error, Reason}`, e.g.
   `{error, {not_a_list, Qname}}` when the selected field is not a

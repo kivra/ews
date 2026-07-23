@@ -39,18 +39,23 @@ the caller what to do next without inspecting the records:
   field set to the empty list (or `undefined` if the root cannot be
   decoded).
 
-Count is always the number of records decoded in this call. Skipped
-elements are NOT included in Count, do not appear in Records and do
-not count towards Max - a call that only skips returns
-`{cont, 0, SkipLeft, [], State}`, never max_reached.
+Count is the number of elements consumed in this call, INCLUDING
+skipped ones, so summing Count over all calls gives the absolute
+position in the stream - exactly the value to pass as Skip when
+restarting. The decoded records of the call are Records (so
+`length(Records)` is the decoded count; the difference is what was
+skipped). Skipped elements never appear in Records and do not count
+towards Max - a call that only skips returns
+`{cont, Count, SkipLeft, [], State}`, never max_reached.
 
 SkipLeft is how many of the Skip elements remain to be skipped after
 this call, so a restart that spans several calls and chunks can be
 followed as it fast-forwards: suppose a run with Max 1000 died after
 10000 processed elements. Restart from the top of the file with
 Skip = 10000 and feed chunks as usual; the messages count SkipLeft
-down from 10000 to 0 (with Count = 0 and Records = [] on the way),
-and decoding then resumes at element 10001.
+down from 10000 to 0 (with Records = [] on the way, Count showing
+how many elements each call skipped), and decoding then resumes at
+element 10001.
 
 The XML is parsed incrementally by `ews_xml:decode/2`, which returns
 completed target elements as xml terms as soon as their closing tags
@@ -182,16 +187,19 @@ run(#{trailers := {done, Trailers}, seen := Seen} = State,
 run(#{xml := Xml0, pending := Pending0, seen := Seen0,
       plan := Plan} = State, Chunk, Max, Skip) ->
     {Terms, Xml} = ews_xml:decode(Chunk, Xml0),
-    {Records, Count, Pending, Seen} =
+    {Records, Decoded, Pending, Seen} =
         take(Pending0 ++ Terms, Seen0, Skip, Max, Plan, [], 0),
     NewState = State#{xml := Xml, pending := Pending, seen := Seen},
+    %% Count includes skipped elements: the sum of Counts over all
+    %% calls is the absolute position in the stream.
+    Count = Seen - Seen0,
     SkipLeft = skip_left(Skip, Seen),
     case Pending =:= [] andalso ews_xml:stream_done(Xml) of
         true ->
             Trailers = build_trailers(NewState),
             FinalState = NewState#{trailers := {done, Trailers}},
             {ok, {trailers, Count, SkipLeft, Records, Trailers, FinalState}};
-        false when Count =:= Max ->
+        false when Decoded =:= Max ->
             {ok, {max_reached, Count, SkipLeft, Records, NewState}};
         false ->
             {ok, {cont, Count, SkipLeft, Records, NewState}}
