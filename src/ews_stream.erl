@@ -111,7 +111,7 @@ a non-list field in the record).
              Skip :: non_neg_integer()) ->
           {ok, ews_stream_msg()} | {error, term()}.
 decode(ModelRef, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip)
-  when Rest =:= undefined; is_binary(Rest) ->
+  when Rest =:= undefined orelse is_binary(Rest) ->
     try init(ModelRef, ContainingRecord, RecordIdx) of
         State ->
             Chunk1 = case Rest of
@@ -127,8 +127,9 @@ decode(ModelRef, ContainingRecord, RecordIdx, Chunk, Rest, Max, Skip)
     end;
 decode(_ModelRef, _ContainingRecord, _RecordIdx, Chunk,
        #{xml := _} = State, Max, Skip)
-  when is_binary(Chunk), is_integer(Max), Max > 0,
-       is_integer(Skip), Skip >= 0 ->
+  when is_binary(Chunk) andalso
+       is_integer(Max) andalso Max > 0 andalso
+       is_integer(Skip) andalso Skip >= 0 ->
     try
         run(State, Chunk, Max, Skip)
     catch
@@ -165,8 +166,8 @@ init(ModelRef, ContainingRecord, RecordIdx) ->
             %% Streaming only makes sense for a repeated element (a list
             %% field in the record, maxOccurs > 1 in the schema).
             case Meta of
-                #meta{max = Max} when Max =:= infinite;
-                                      is_integer(Max) andalso Max > 1 ->
+                #meta{max = Max} when Max =:= infinite orelse
+                                      (is_integer(Max) andalso Max > 1) ->
                     ok;
                 _ ->
                     error({not_a_list, Qname})
@@ -245,7 +246,7 @@ build_trailers(#{xml := Xml, model := #model{type_map = Tbl} = Model,
 %% Walk the decoded document and set the streamed field of the container
 %% record to [].
 fix_container(Term, {CAlias, _, Idx} = C, Tbl)
-  when is_tuple(Term), is_atom(element(1, Term)) ->
+  when is_tuple(Term) andalso is_atom(element(1, Term)) ->
     case element(1, Term) of
         CAlias ->
             setelement(Idx, Term, []);

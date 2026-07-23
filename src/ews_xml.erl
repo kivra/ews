@@ -410,7 +410,8 @@ parse_stream([{[$/ | Tag], _, _} | Rest], Stack, Nss, Target, Emitted,
 parse_stream([{txt, _} = Txt | Rest], Stack, Nss, Target, Emitted, Done) ->
     parse_stream(Rest, [Txt | Stack], Nss, Target, Emitted, Done);
 parse_stream([{Ignore, _, _} | Rest], Stack, Nss, Target, Emitted, Done)
-  when Ignore == "!--"; Ignore == "?xml"; Ignore == "?Xml"; Ignore == "?XML" ->
+  when Ignore == "!--" orelse Ignore == "?xml" orelse
+       Ignore == "?Xml" orelse Ignore == "?XML" ->
     parse_stream(Rest, Stack, Nss, Target, Emitted, Done);
 parse_stream([{Tag, Attrs, _} | Rest], Stack, Nss, Target, Emitted, Done) ->
     Key = case split_qname(Tag) of {_, N} -> N; N -> N end,
