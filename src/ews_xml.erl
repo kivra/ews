@@ -345,10 +345,38 @@ split_qname(QName) ->
             clean_name(Name)
     end.
 
+%% Strip trailing $/, then trailing $\n, then spaces from both ends.
+%% Same semantics as the old string:strip/strip/strip chain, but that
+%% chain rebuilt the whole list once per strip (five traversals with
+%% allocation) and dominated decode profiles — ~25% of a whole
+%% streaming avisering import was spent in string:strip_right/2 from
+%% here. Almost every name is already clean, so first check for work
+%% with a single allocation-free scan and only then rebuild.
 clean_name(Name) ->
-    N1 = string:strip(Name, right, $/),
-    N2 = string:strip(N1, right, $\n),
-    string:strip(N2).
+    case needs_clean(Name) of
+        false -> Name;
+        true -> do_clean_name(Name)
+    end.
+
+%% Work to do only when there is a leading space or the last char is
+%% one of the stripped ones.
+needs_clean([$\s | _]) -> true;
+needs_clean([C]) -> C =:= $/ orelse C =:= $\n orelse C =:= $\s;
+needs_clean([_ | T]) -> needs_clean(T);
+needs_clean([]) -> false.
+
+do_clean_name(Name) ->
+    Rev = drop_spaces(drop_newlines(drop_slashes(lists:reverse(Name)))),
+    drop_spaces(lists:reverse(Rev)).
+
+drop_slashes([$/ | T]) -> drop_slashes(T);
+drop_slashes(L) -> L.
+
+drop_newlines([$\n | T]) -> drop_newlines(T);
+drop_newlines(L) -> L.
+
+drop_spaces([$\s | T]) -> drop_spaces(T);
+drop_spaces(L) -> L.
 
 clean_attr(Att) -> clean_attr(Att, []).
 clean_attr([$\" | Rest], Acc) ->
@@ -625,6 +653,26 @@ split_on_space_test() ->
         binary_to_list(
           <<"<res />"/utf8>>),
     ?assertMatch(["res"], split_on_space(TestTag)).
+
+%% clean_name must behave exactly like the old implementation:
+%%   string:strip(string:strip(string:strip(N, right, $/), right, $\n))
+%% i.e. trailing slashes, then trailing newlines, then spaces from
+%% both ends — in that order.
+clean_name_test() ->
+    Old = fun(N) ->
+                  N1 = string:strip(N, right, $/),
+                  N2 = string:strip(N1, right, $\n),
+                  string:strip(N2)
+          end,
+    Cases = [ "Name", "", " ", "/", "\n", "Name/", "Name\n", "Name ",
+              " Name", " Name ", "Name/\n ", "Name \n/", "Name//\n\n  ",
+              %% order sensitivity: a slash *before* stripped chars stays,
+              %% one after them is only reachable in strip order /,\n,sp
+              "Name/ ", "Name /", "Name\n/", "a/\n/", "  a  ",
+              "with space/", "in/side", "in side" ],
+    [ ?assertEqual(Old(C), clean_name(C)) || C <- Cases ],
+    %% the common already-clean case returns the input untouched
+    ?assertEqual("AviseringPost", clean_name("AviseringPost")).
 
 to_utf8_string_test() ->
     ?assertMatch(["Ã¶",":","Ã¶"], to_utf8_string({"ö","ö"})),
