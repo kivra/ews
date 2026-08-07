@@ -2,7 +2,7 @@ name: Automatic testing
 on: [push]
 concurrency:
   group: ${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 env:
   OTP_VERSION: "29.0.3"
   REBAR3_VERSION: "3.27.0"
