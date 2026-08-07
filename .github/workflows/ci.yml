@@ -94,7 +94,14 @@ jobs:
           path: |
             _build/*/*/*
             ebin
-          key: workspace-${{ github.ref }}
+          key: workspace-${{ github.run_id }}
+      # A restored cache can still hold a module that has since been renamed or
+      # deleted -- rebar3 copies test sources into _build and never removes the
+      # orphans, and CT then tries to compile a suite that no longer exists.
+      # Deps stay cached; recompiling ews itself takes seconds.
+      - name: Drop this app's previous build output
+        run: rm -rf _build/*/lib/ews
+
       - name: Compile
         run: rebar3 as test compile
 
@@ -115,7 +122,7 @@ jobs:
           path: |
             _build/*/*/*
             ebin
-          key: workspace-${{ github.ref }}
+          key: workspace-${{ github.run_id }}
       - name: Run xref
         run: rebar3 xref
 
@@ -136,7 +143,7 @@ jobs:
           path: |
             _build/*/*/*
             ebin
-          key: workspace-${{ github.ref }}
+          key: workspace-${{ github.run_id }}
       - name: Run CT tests
         run: rebar3 ct
 
@@ -157,7 +164,7 @@ jobs:
           path: |
            _build/*/*/*
             ebin
-          key: workspace-${{ github.ref }}
+          key: workspace-${{ github.run_id }}
       - name: Run EUnit tests
         run: rebar3 eunit
 
@@ -178,8 +185,8 @@ jobs:
           path: |
             _build/*/*/*
             ebin
-          key: workspace-dialyzer-${{ github.ref }}
+          key: workspace-dialyzer-${{ github.run_id }}
           restore-keys:
-            workspace-${{ github.ref }}
+            workspace-${{ github.run_id }}
       - name: Run Dialyzer
         run: rebar3 dialyzer
