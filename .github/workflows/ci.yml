@@ -162,7 +162,7 @@ jobs:
         id: cached-workspace
         with:
           path: |
-           _build/*/*/*
+            _build/*/*/*
             ebin
           key: workspace-${{ github.run_id }}
       - name: Run EUnit tests
