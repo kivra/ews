@@ -100,7 +100,8 @@ all_types(Schemas) ->
 
 get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace,
+                                   form_default(TopSchema)),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}},
@@ -113,7 +114,8 @@ get_all_schemas(Schema) ->
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace),
+    ExpandedSchema = find_includes(TopSchema, Namespace,
+                                   form_default(TopSchema)),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}, BaseDir},
@@ -126,26 +128,44 @@ get_all_schemas(Schema, BaseDir) ->
 
 %% Keep the schema element itself, not just its content: parse_types/1 reads
 %% targetNamespace and elementFormDefault off it.
-find_includes(#xmlElement{content=Content} = Schema, Ns) ->
-    Schema#xmlElement{content=find_includes(Content, Ns)};
-find_includes([#xmlText{} = Txt | T], Ns) ->
-    [Txt | find_includes(T, Ns)];
+find_includes(#xmlElement{content=Content} = Schema, Ns, Form) ->
+    Schema#xmlElement{content=find_includes(Content, Ns, Form)};
+find_includes([#xmlText{} = Txt | T], Ns, Form) ->
+    [Txt | find_includes(T, Ns, Form)];
 find_includes([#xmlElement{
                   expanded_name =
                       {'http://www.w3.org/2001/XMLSchema',
-                       include}} = IncElem | T], Ns) ->
+                       include}} = IncElem | T], Ns, Form) ->
     Url = wh:get_attribute(IncElem, schemaLocation),
     %%logger:notice("Url: ~tp~n", [Url]),
     #schema{types = Include} = import_schema(Url, Ns),
     #xmlElement{content=Content} = Include,
-    Content ++ find_includes(T, Ns);
-find_includes([#xmlElement{content=Content} = Elem | T], Ns) ->
-    [Elem#xmlElement{content=find_includes(Content, Ns)} |
-     find_includes(T, Ns)];
-find_includes([#xmlComment{} = Comment | T], Ns) ->
-    [Comment | find_includes(T, Ns)];
-find_includes([], _) ->
+    warn_on_form_clash(Url, Include, Form),
+    Content ++ find_includes(T, Ns, Form);
+find_includes([#xmlElement{content=Content} = Elem | T], Ns, Form) ->
+    [Elem#xmlElement{content=find_includes(Content, Ns, Form)} |
+     find_includes(T, Ns, Form)];
+find_includes([#xmlComment{} = Comment | T], Ns, Form) ->
+    [Comment | find_includes(T, Ns, Form)];
+find_includes([], _, _) ->
     [].
+
+form_default(Schema) ->
+    form(wh:get_attribute(Schema, elementFormDefault), unqualified).
+
+%% Splicing the included content in loses the document boundary, so its
+%% declarations are parsed under the including schema's elementFormDefault.
+%% When the two disagree, that silently gives the included schema's local
+%% elements the wrong form on the wire -- say so rather than let it pass.
+warn_on_form_clash(Url, Included, Form) ->
+    case form_default(Included) of
+        Form ->
+            ok;
+        Other ->
+            logger:warning("included schema ~ts declares elementFormDefault "
+                           "~p but is parsed as ~p: its local elements will "
+                           "get the wrong form~n", [Url, Other, Form])
+    end.
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
     case find_imports(Schema) of
@@ -305,11 +325,12 @@ escape_slash([C | Rest]) -> [C | escape_slash(Rest)].
 
 %% TODO: Handle includes
 %%
-%% NOTE: an <include>d schema has been spliced into this one by find_includes/2
+%% NOTE: an <include>d schema has been spliced into this one by find_includes/3
 %% before we get here, so its declarations are parsed under the *including*
 %% schema's elementFormDefault. That is wrong if the two documents disagree on
-%% it -- rare, since an include shares the targetNamespace -- and would need
-%% find_includes to keep the boundary to fix.
+%% it -- rare, since an include shares the targetNamespace, and warned about by
+%% warn_on_form_clash/3 -- and would need find_includes to keep the boundary
+%% to fix.
 parse_types(Schema) ->
     Ctx = #sctx{ns = wh:get_attribute(Schema, targetNamespace),
                 form_default = form(wh:get_attribute(Schema,
@@ -877,7 +898,7 @@ process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
     case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
         {AccWithSubTypes, [], [], AttrAcc} ->
             MaybeBaseOrEnum =
-                case {to_base(type_qname(Bs, local_name(Qname))),
+                case {to_base(type_qname(Bs, ns_of(Qname))),
                       lists:keyfind(Bs, 1, Ts)} of
                     {false, false} -> undefined;
                     {false, {_Qtype, BOrE}} -> BOrE;
@@ -978,6 +999,9 @@ type_name(Qname, Ns, root) ->
 
 local_name({_Ns, N}) -> N;
 local_name(N) -> N.
+
+ns_of({Ns, _N}) -> Ns;
+ns_of(_) -> undefined.
 
 %% A type reference: already namespaced when it was written with a prefix,
 %% otherwise it names a builtin or a type in the referring schema.

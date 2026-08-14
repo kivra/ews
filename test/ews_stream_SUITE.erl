@@ -27,6 +27,7 @@
         , not_a_list_field/1
         , broken_xml/1
         , xml_stream_api/1
+        , xml_stream_target_form/1
         ]).
 
 -define(MODEL, stream_batch).
@@ -48,6 +49,7 @@ all() ->
     , not_a_list_field
     , broken_xml
     , xml_stream_api
+    , xml_stream_target_form
     ].
 
 init_per_suite(Config) ->
@@ -273,6 +275,25 @@ xml_stream_api(_Config) ->
                               ews_xml:stream_new(Target)),
     ?assertNot(ews_xml:stream_done(S4)),
     ?assertEqual(undefined, ews_xml:stream_root(S4)),
+    ok.
+
+%% The target qname comes from the model, so it is bare for an element its
+%% schema declares unqualified. A document that qualifies such an element
+%% anyway must still stream, rather than silently yielding nothing -- the same
+%% tolerance the non-streaming decode has.
+xml_stream_target_form(_Config) ->
+    Qualified = <<"<Batch xmlns:i=\"" ?ITEM_NS "\">"
+                  "<i:Item>1</i:Item><i:Item>2</i:Item></Batch>">>,
+    Bare = <<"<Batch><Item>1</Item><Item>2</Item></Batch>">>,
+    %% Bare target, qualified document.
+    {BareTargetTerms, _} = ews_xml:decode(Qualified, ews_xml:stream_new("Item")),
+    ?assertEqual(2, length(BareTargetTerms)),
+    %% Qualified target, bare document.
+    {QTargetTerms, _} =
+        ews_xml:decode(Bare, ews_xml:stream_new({?ITEM_NS, "Item"})),
+    ?assertEqual(2, length(QTargetTerms)),
+    %% A genuinely different element is still not a target.
+    {[], _} = ews_xml:decode(Bare, ews_xml:stream_new("Other")),
     ok.
 
 %%% Helpers --------------------------------------------------------------

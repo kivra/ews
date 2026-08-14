@@ -88,7 +88,7 @@ model_unqualified_locals_are_bare(_Config) ->
     %% Same story for the response wrapper's single local element.
     #type{elems = RespElems} =
         ews_svc:get_type(?MODEL, {?UNQ_NS, "testOpResponse"}),
-    ?assertEqual(["return"], qnames(RespElems)),
+    ?assertEqual(["return", "item"], qnames(RespElems)),
     ok.
 
 %% The imported schema sets elementFormDefault="qualified", so its locals
@@ -137,34 +137,36 @@ serialize_form_unqualified_override(_Config) ->
 
 %%% Decoding -------------------------------------------------------------
 
-%% A server response puts `return` on the wire unqualified. This already
-%% works, despite the model holding {?UNQ_NS, "return"}: the first clauses of
-%% ews_serialize:match_children_elems/4 match a bare child name against a
-%% model #elem{qname = {_, Name}}, i.e. child matching ignores the namespace
-%% when the wire tag carries none. So the bug is one-directional -- it bites
-%% on serialization only -- and this case must keep passing after a fix.
+%% The straightforward direction: the model holds bare qnames for these
+%% locals and the server sends them bare.
 decode_unqualified_local(_Config) ->
     Response =
         envelope(<<"<ns:testOpResponse xmlns:ns=\"" ?UNQ_NS "\">"
                    "<return>hello</return>"
+                   "<item>a</item><item>b</item>"
                    "</ns:testOpResponse>">>),
-    ?assertEqual({ok, [{test_op_response, <<"hello">>}]}, decode_out(Response)),
+    ?assertEqual({ok, [{test_op_response, <<"hello">>, [<<"a">>, <<"b">>]}]},
+                 decode_out(Response)),
     ok.
 
-%% The mirror image: a server that qualifies `return' even though its own
+%% The mirror image: a server that qualifies these locals even though its own
 %% schema says not to is still decoded, the same way ews has always accepted a
-%% bare tag for an element the model has qualified.
+%% bare tag for an element the model has qualified. `item' is maxOccurs=
+%% unbounded, so a single qualified occurrence must still come back as a list
+%% -- the cardinality is a property of the model, not of how the tag was
+%% written.
 decode_qualified_local(_Config) ->
     Response =
         envelope(<<"<ns:testOpResponse xmlns:ns=\"" ?UNQ_NS "\">"
                    "<ns:return>hello</ns:return>"
+                   "<ns:item>a</ns:item>"
                    "</ns:testOpResponse>">>),
-    ?assertEqual({ok, [{test_op_response, <<"hello">>}]}, decode_out(Response)),
+    ?assertEqual({ok, [{test_op_response, <<"hello">>, [<<"a">>]}]},
+                 decode_out(Response)),
     ok.
 
-%% Symmetry guard. This passes today because ews encodes and decodes with
-%% the same (wrong) qnames; it must keep passing after a fix, i.e. a fix to
-%% the serializer that forgets the decoder would break here.
+%% Symmetry guard: whatever the serializer writes, the decoder reads back.
+%% A change to one that forgets the other breaks here.
 roundtrip_request(_Config) ->
     Request = ews_svc:serialize(?MODEL, ?SVC, "TestOp", [], [test_op_record()]),
     ?assertEqual({ok, {?SVC, "TestOp", [], [test_op_record()]}},

@@ -426,7 +426,8 @@ encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
                 #enum{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
                 _ ->
-                    error({"expected single value: ", element(2, Qname), Terms})
+                    error({"expected single value: ", local_name(Qname),
+                           Terms})
             end
     end;
 encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
@@ -599,11 +600,26 @@ encode_single_enum(Term, Values, #base{erl_type=ErlType}) ->
 
 %% ---------------------------------------------------------------------------
 
+%% An element that is not namespace-qualified has a bare name.
+local_name({_Ns, N}) -> N;
+local_name(N) -> N.
+
 validate_xml(undefined, #elem{meta=#meta{min=0, max=Max}}, _)
   when Max > 1 ->
     [];
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
+%% A qualified tag for an element the model has unqualified. ews has always
+%% accepted the converse -- a bare tag where the model says qualified, see the
+%% #elem{qname={_,Name}} clauses below -- so accept this one too, by rewriting
+%% the tag to the name the model knows. Everything downstream then sees an
+%% exact match and keeps its cardinality and type handling.
+validate_xml({{_, Name}, As, Cs}, #elem{qname=Name}=ME, Tbl)
+  when is_list(Name) ->
+    validate_xml({Name, As, Cs}, ME, Tbl);
+validate_xml([{{_, Name}, _, _}|_]=Es, #elem{qname=Name}=ME, Tbl)
+  when is_list(Name) ->
+    validate_xml([ {Name, As, Cs} || {_, As, Cs} <- Es ], ME, Tbl);
 validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
   when is_list(Types) ->
     TestType = fun (Type, undefined) ->
@@ -629,15 +645,6 @@ validate_xml({Name, As, Cs}, #elem{qname={_,Name},type={_,_}=TypeKey}, Tbl) ->
             Type = ews_model:get(TypeKey, Tbl),
             validate_xml({Name, As, Cs}, Type, Tbl)
     end;
-validate_xml({{_, Name}, As, Cs}, #elem{qname=Name, type={_,_}=TypeKey}, Tbl)
-  when is_list(Name) ->
-    case has_inherited_type(As, Tbl, TypeKey) of
-        #type{} = Type ->
-            validate_xml({Name, As, Cs}, Type, Tbl);
-        false ->
-            Type = ews_model:get(TypeKey, Tbl),
-            validate_xml({Name, As, Cs}, Type, Tbl)
-    end;
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type={_,_}=TypeKey}, Tbl) ->
     case has_inherited_type(As, Tbl, TypeKey) of
         #type{} = Type ->
@@ -653,9 +660,6 @@ validate_xml([{Qname, _, _}|_]=Es, #elem{qname=Qname,
     NewME = ME#elem{meta=Meta#meta{max=1}},
     [validate_xml(E, NewME, Tbl) || E <- Es];
 validate_xml({Name, As, Cs}, #elem{qname={_,Name},type=Type}, Tbl) ->
-    validate_xml({Name, As, Cs}, Type, Tbl);
-validate_xml({{_, Name}, As, Cs}, #elem{qname=Name, type=Type}, Tbl)
-  when is_list(Name) ->
     validate_xml({Name, As, Cs}, Type, Tbl);
 validate_xml({Qname, As, Cs}, #elem{qname=Qname,type=Type}, Tbl) ->
     validate_xml({Qname, As, Cs}, Type, Tbl);
