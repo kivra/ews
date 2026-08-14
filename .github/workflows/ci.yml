@@ -99,7 +99,7 @@ jobs:
       # deleted -- rebar3 copies test sources into _build and never removes the
       # orphans, and CT then tries to compile a suite that no longer exists.
       # Deps stay cached; recompiling ews itself takes seconds.
-      - name: Drop this app's previous build output
+      - name: Drop ews's previous build output
         run: rm -rf _build/*/lib/ews
 
       - name: Compile
