@@ -37,7 +37,11 @@
 
 %% XSD parsing
 -record(schema, {namespace, url, types}).
--record(element, {name, type, default, fixed, nillable=false,
+%% `name' is the qname the element has on the wire: {Namespace, Name} when it
+%% is namespace-qualified, a bare Name when it is not (see element_qname/3 in
+%% ews_xsd). `ns' is the targetNamespace of the schema that declared it, which
+%% is where an unqualified element's *type* still lives.
+-record(element, {name, ns, type, default, fixed, nillable=false,
                   min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions, unionmembers}).
 -record(simple_content, {name, order, restrictions, attrs=[]}).

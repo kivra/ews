@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture for elementFormDefault handling.
+
+  Two inline schemas, deliberately differing in element form:
+
+  * http://example.com/form/unqualified
+      No elementFormDefault attribute at all, which per the XSD spec means
+      elementFormDefault="unqualified". Its *global* elements (testOp,
+      testOpResponse) are still qualified by the target namespace; its
+      *local* elements (arg0, arg1, return) must appear unqualified on the
+      wire. arg2 carries form="qualified" and overrides the schema default.
+
+  * http://example.com/form/qualified
+      elementFormDefault="qualified". Its locals (Person/Id, Person/Name,
+      qualifiedOp/field0) stay qualified. field1 carries form="unqualified"
+      and overrides the schema default in the other direction.
+
+  testOp mixes both: arg1 is an unqualified local element whose type comes
+  from the qualified schema, so arg1 itself is unprefixed while its Id/Name
+  children are prefixed.
+-->
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                  xmlns:s="http://www.w3.org/2001/XMLSchema"
+                  xmlns:tns="http://example.com/form/service"
+                  xmlns:u="http://example.com/form/unqualified"
+                  xmlns:q="http://example.com/form/qualified"
+                  targetNamespace="http://example.com/form/service">
+  <wsdl:types>
+    <s:schema targetNamespace="http://example.com/form/unqualified">
+      <s:import namespace="http://example.com/form/qualified" />
+      <s:element name="testOp">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="arg0"
+                       type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="arg1"
+                       type="q:Person" />
+            <s:element minOccurs="0" maxOccurs="1" name="arg2"
+                       form="qualified" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="testOpResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="return"
+                       type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+    </s:schema>
+    <s:schema elementFormDefault="qualified"
+              targetNamespace="http://example.com/form/qualified">
+      <s:element name="qualifiedOp">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="field0"
+                       type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="field1"
+                       form="unqualified" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="qualifiedOpResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="result"
+                       type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="Person">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="1" name="Id" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+    </s:schema>
+  </wsdl:types>
+
+  <wsdl:message name="TestOpSoapIn">
+    <wsdl:part name="parameters" element="u:testOp" />
+  </wsdl:message>
+  <wsdl:message name="TestOpSoapOut">
+    <wsdl:part name="parameters" element="u:testOpResponse" />
+  </wsdl:message>
+  <wsdl:message name="QualifiedOpSoapIn">
+    <wsdl:part name="parameters" element="q:qualifiedOp" />
+  </wsdl:message>
+  <wsdl:message name="QualifiedOpSoapOut">
+    <wsdl:part name="parameters" element="q:qualifiedOpResponse" />
+  </wsdl:message>
+
+  <wsdl:portType name="FormServiceSoap">
+    <wsdl:operation name="TestOp">
+      <wsdl:input message="tns:TestOpSoapIn" />
+      <wsdl:output message="tns:TestOpSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="QualifiedOp">
+      <wsdl:input message="tns:QualifiedOpSoapIn" />
+      <wsdl:output message="tns:QualifiedOpSoapOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+
+  <wsdl:binding name="FormServiceSoap" type="tns:FormServiceSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="TestOp">
+      <soap:operation soapAction="http://example.com/form/service/TestOp"
+                      style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="QualifiedOp">
+      <soap:operation soapAction="http://example.com/form/service/QualifiedOp"
+                      style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+
+  <wsdl:service name="FormService">
+    <wsdl:port name="FormServiceSoap" binding="tns:FormServiceSoap">
+      <soap:address location="http://example.com/form/service" />
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

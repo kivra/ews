@@ -35,7 +35,6 @@
 -export([split_schemas/1]).
 
 -export([ process/2
-        , propagate_namespaces/1
         , import_schema/2
         , parse_types/1
         , to_base/1
@@ -43,6 +42,11 @@
 
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
+
+%% The parse-time context of one schema document: the targetNamespace that all
+%% its declarations belong to, and the elementFormDefault that decides whether
+%% its *local* element declarations are namespace-qualified on the wire.
+-record(sctx, {ns, form_default = unqualified}).
 
 -define(HTTP_OPTS, [ %% {connect_options,
                      %%  [ {connect_timeout, timer:seconds(400)}
@@ -67,7 +71,7 @@ parse_schema(Schemas0, Model) when is_atom(Model) ->
     PrSchemas = [ S#schema{url=Url,
                            types=parse_types(Types)} ||
                     {_, Url, #schema{types=Types} = S} <- Schemas ],
-    NewTypes = process(propagate_namespaces(PrSchemas), Model),
+    NewTypes = process(all_types(PrSchemas), Model),
     NewTypes.
 -spec parse_schema(list(any()), atom(), file:name_all()) -> #model{}.
 parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
@@ -76,8 +80,20 @@ parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
     PrSchemas = [ S#schema{url=Url,
                            types=parse_types(Types)} ||
                     {_, Url, #schema{types=Types} = S, _} <- Schemas ],
-    NewTypes = process(propagate_namespaces(PrSchemas), Model),
+    NewTypes = process(all_types(PrSchemas), Model),
     NewTypes.
+
+%% Every schema's declarations, in one list. The qnames were settled while
+%% parsing, so from here on nothing needs to know which schema a type came
+%% from.
+%%
+%% The order is not arbitrary: process/2 hands the types to ews_alias in this
+%% order, and the first type to claim a record name keeps it. This reproduces
+%% the order the namespace-propagation pass used to leave behind -- it flipped
+%% the accumulator once per schema -- so that record names stay put.
+all_types(Schemas) ->
+    lists:foldl(fun(#schema{types=Ts}, Acc) -> lists:reverse(Acc) ++ Ts end,
+                [], Schemas).
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions
@@ -108,8 +124,10 @@ get_all_schemas([], _)->
 get_all_schemas(Schema, BaseDir) ->
     get_all_schemas([Schema], BaseDir).
 
-find_includes(#xmlElement{content=Content}, Ns) ->
-    #xmlElement{content=find_includes(Content, Ns)};
+%% Keep the schema element itself, not just its content: parse_types/1 reads
+%% targetNamespace and elementFormDefault off it.
+find_includes(#xmlElement{content=Content} = Schema, Ns) ->
+    Schema#xmlElement{content=find_includes(Content, Ns)};
 find_includes([#xmlText{} = Txt | T], Ns) ->
     [Txt | find_includes(T, Ns)];
 find_includes([#xmlElement{
@@ -286,44 +304,68 @@ escape_slash([C | Rest]) -> [C | escape_slash(Rest)].
 %% Parse schema functions
 
 %% TODO: Handle includes
+%%
+%% NOTE: an <include>d schema has been spliced into this one by find_includes/2
+%% before we get here, so its declarations are parsed under the *including*
+%% schema's elementFormDefault. That is wrong if the two documents disagree on
+%% it -- rare, since an include shares the targetNamespace -- and would need
+%% find_includes to keep the boundary to fix.
 parse_types(Schema) ->
+    Ctx = #sctx{ns = wh:get_attribute(Schema, targetNamespace),
+                form_default = form(wh:get_attribute(Schema,
+                                                     elementFormDefault),
+                                    unqualified)},
     Elements = wh:get_all_child_elements(Schema),
-    Types = [ parse_type(E) || E = #xmlElement{} <- Elements ],
+    %% Direct children of <schema> are global declarations; everything the
+    %% recursion below reaches is local.
+    Types = [ parse_type(E, Ctx, global) || E = #xmlElement{} <- Elements ],
     [ T || T <- Types, T /= import, T /= include ].
+
+%% Both elementFormDefault and a per-element form attribute default to
+%% "unqualified" per the XSD spec.
+form(undefined, Default) -> Default;
+form("qualified", _) -> qualified;
+form("unqualified", _) -> unqualified;
+form(Other, Default) ->
+    logger:warning("ignoring unknown element form: ~tp~n", [Other]),
+    Default.
 
 %% FIXME: Must handle import/any/anyAttribute/group/attributeGroup/notation/
 %%                    appinfo/documentation/field/key/keyref/selector/unique
-parse_type(undefined) ->
+parse_type(Type, Ctx) ->
+    parse_type(Type, Ctx, local).
+
+parse_type(undefined, _Ctx, _Scope) ->
     undefined;
-parse_type(#xmlElement{} = Type) ->
+parse_type(#xmlElement{} = Type, Ctx, Scope) ->
     case wh:get_simple_name(Type) of
         "element" ->
-            parse_element(Type);
+            parse_element(Type, Ctx, Scope);
         "simpleType" ->
-            parse_simple_type(Type);
+            parse_simple_type(Type, Ctx);
         "complexType" ->
-            parse_complex_type(Type);
+            parse_complex_type(Type, Ctx);
         "attribute" ->
-            parse_attribute(Type);
+            parse_attribute(Type, Ctx);
         "annotation" ->
             parse_annotation(Type);
         "restriction" ->
             parse_restriction(Type);
         "complexContent" ->
-            parse_complex_content(Type);
-        %% This is handled by parse_complex_type/1
+            parse_complex_content(Type, Ctx);
+        %% This is handled by parse_complex_type/2
         %% "simpleContent" ->
-        %%     parse_simple_content(Type);
+        %%     parse_simple_content(Type, Ctx);
         "sequence" ->
-            parse_sequence(Type);
+            parse_sequence(Type, Ctx);
         "all" ->
-            parse_all(Type);
+            parse_all(Type, Ctx);
         "choice" ->
-            parse_choice(Type);
+            parse_choice(Type, Ctx);
         "extension" ->
-            parse_extension(Type);
+            parse_extension(Type, Ctx);
         "list" ->
-            parse_list(Type);
+            parse_list(Type, Ctx);
         "import" ->
             import;
         "any" ->
@@ -331,7 +373,7 @@ parse_type(#xmlElement{} = Type) ->
         "anyAttribute" ->
             anyAttribute;
         "group" ->
-            parse_group(Type);
+            parse_group(Type, Ctx);
         "attributeGroup" ->
             attributeGroup;
         "notation" ->
@@ -342,50 +384,73 @@ parse_type(#xmlElement{} = Type) ->
             {error, {unknown_type, Other}}
     end.
 
-%% FIXME: Must handle 'ref' attributes
-parse_element(Element) ->
+parse_element(Element, Ctx, Scope) ->
     Ref = wh:get_attribute(Element, ref),
-    maybe_ref(Ref, Element).
+    maybe_ref(Ref, Element, Ctx, Scope).
 
-maybe_ref(undefined, Element) ->
-    Name = wh:get_attribute(Element, name),
+maybe_ref(undefined, Element, #sctx{ns=Ns} = Ctx, Scope) ->
     Type = wh:get_attribute(Element, type),
     Default = wh:get_attribute(Element, default),
     Fixed = wh:get_attribute(Element, fixed),
     Nillable = wh:get_attribute(Element, nillable),
     MinOccurs = to_integer(wh:get_attribute(Element, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
-    Children = [ parse_type(C) || C <- wh:get_all_child_elements(Element) ],
-    #element{name=Name, type=Type, default=Default,
-             fixed=Fixed, nillable=Nillable,
+    Children = [ parse_type(C, Ctx) ||
+                   C <- wh:get_all_child_elements(Element) ],
+    #element{name=element_qname(Element, Ctx, Scope), ns=Ns, type=Type,
+             default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=Children};
-maybe_ref(Qname, Element) ->
+maybe_ref(Ref, Element, #sctx{ns=Ns}, _Scope) ->
     Default = wh:get_attribute(Element, default),
     Fixed = wh:get_attribute(Element, fixed),
     Nillable = wh:get_attribute(Element, nillable),
     MinOccurs = to_integer(wh:get_attribute(Element, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
-    #element{name=Qname, type=#reference{name=Qname},
+    %% A ref always resolves to a global declaration, which is qualified by
+    %% the namespace it was declared in -- form does not apply.
+    Qname = qname(Ref, Ns),
+    #element{name=Qname, ns=Ns, type=#reference{name=Qname},
              default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=[]}.
 
-parse_complex_type(ComplexType) ->
-    Name = wh:get_attribute(ComplexType, name),
+%% A global element declaration -- a direct child of <schema> -- is always
+%% qualified by the target namespace. A local one is qualified only when its
+%% effective form says so: its own form attribute if it has one, otherwise the
+%% schema's elementFormDefault. An unqualified element gets a bare name, which
+%% is how ews_xml spells a tag with no namespace.
+element_qname(Element, #sctx{ns=Ns}, global) ->
+    qname(wh:get_attribute(Element, name), Ns);
+element_qname(Element, #sctx{ns=Ns, form_default=Default}, local) ->
+    Name = wh:get_attribute(Element, name),
+    case form(wh:get_attribute(Element, form), Default) of
+        qualified -> qname(Name, Ns);
+        unqualified -> to_string(Name)
+    end.
+
+%% The qname of a named type, group or element declaration. Anonymous
+%% declarations -- an inline complexType, say -- have no name of their own;
+%% process/9 names them after the element they sit in.
+decl_qname(undefined, _Ctx) -> undefined;
+decl_qname(Name, #sctx{ns=Ns}) -> qname(Name, Ns).
+
+parse_complex_type(ComplexType, Ctx) ->
+    Name = decl_qname(wh:get_attribute(ComplexType, name), Ctx),
     %% logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
     Children = wh:get_all_child_elements(ComplexType),
     %%logger:notice("Children: ~tp~n", [Children]),
-    Restriction = parse_type(wh:find_element(ComplexType, "restriction")),
-    Extension = parse_type(wh:find_element(ComplexType, "extension")),
+    Restriction = parse_type(wh:find_element(ComplexType, "restriction"), Ctx),
+    Extension = parse_type(wh:find_element(ComplexType, "extension"), Ctx),
     case Children of
         [#xmlElement{expanded_name =
                          {'http://www.w3.org/2001/XMLSchema',
                           simpleContent}} = SimpleContent] ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
-                                                       "restriction")),
-            ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension")),
+                                                       "restriction"), Ctx),
+            ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension"),
+                                     Ctx),
             %% TODO: handle extenstions without this ugly hack
             %% This is converted to a simple_type since we don't want to emit
             %% a record for a simpleContent.
@@ -410,7 +475,7 @@ parse_complex_type(ComplexType) ->
                                    }
             end;
         _ ->
-            ChildTypes = [ parse_type(C) || C <- Children ],
+            ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
             Parts = flatten_children(ChildTypes),
             {Extends, ExtendParts} = extract_extension(Extension),
             #complex_type{name=Name,
@@ -429,8 +494,8 @@ extract_extension(#extension{base=Base, parts=ExtParts}) ->
     Parts = flatten_children(ExtParts),
     {Base, Parts}.
 
-parse_simple_type(Simple) ->
-    Name = wh:get_attribute(Simple, name),
+parse_simple_type(Simple, Ctx) ->
+    Name = decl_qname(wh:get_attribute(Simple, name), Ctx),
     {Order, NewSimple} = list_or_union(Simple),
     case Order of
         union ->
@@ -477,25 +542,26 @@ parse_union_members([Member | T], #xmlNamespace{nodes = Nodes} = Ns, Union) ->
 parse_union_members([], _, _) ->
     [].
 
-parse_group(Group) ->
+parse_group(Group, Ctx) ->
     Ref = wh:get_attribute(Group, ref),
-    maybe_group_ref(Ref, Group).
+    maybe_group_ref(Ref, Group, Ctx).
 
-maybe_group_ref(undefined, Group) ->
-    Name = wh:get_attribute(Group, name),
+maybe_group_ref(undefined, Group, Ctx) ->
+    Name = decl_qname(wh:get_attribute(Group, name), Ctx),
     Children = wh:get_all_child_elements(Group),
-    ChildTypes = [ parse_type(C) || C <- Children ],
+    ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
     Parts = flatten_children(ChildTypes),
     #group{name=Name, parts=Parts};
-maybe_group_ref(Reference, Group) ->
+maybe_group_ref(Reference0, Group, #sctx{ns=Ns}) ->
+    Reference = qname(Reference0, Ns),
     MinOccurs = to_integer(wh:get_attribute(Group, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(Group, maxOccurs)),
     #group_ref{ref=Reference,
                min_occurs=MinOccurs, max_occurs=MaxOccurs}.
 
-parse_attribute(Attribute) ->
+parse_attribute(Attribute, #sctx{ns=Ns}) ->
     Name = wh:get_attribute(Attribute, name),
-    Type = wh:get_attribute(Attribute, type),
+    Type = type_qname(wh:get_attribute(Attribute, type), Ns),
     Use = wh:get_attribute(Attribute, use),
     Default = wh:get_attribute(Attribute, default),
     Fixed = wh:get_attribute(Attribute, fixed),
@@ -521,40 +587,42 @@ is_enumeration([]) ->
 is_enumeration(Values) ->
     lists:any(fun({enumeration, _}) -> true; (_) -> false end, Values).
 
-parse_complex_content(ComplexContent) ->
+parse_complex_content(ComplexContent, Ctx) ->
     case wh:get_all_child_elements(ComplexContent) of
         [Child] ->
-            parse_type(Child);
+            parse_type(Child, Ctx);
         Children ->
-            [ parse_type(C) || C <- Children ]
+            [ parse_type(C, Ctx) || C <- Children ]
     end.
 
-parse_sequence(Sequence) ->
+parse_sequence(Sequence, Ctx) ->
     MinOccurs = to_integer(wh:get_attribute(Sequence, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(Sequence, maxOccurs)),
-    Parts = [ parse_type(C) || C <- wh:get_all_child_elements(Sequence) ],
+    Parts = [ parse_type(C, Ctx) ||
+                C <- wh:get_all_child_elements(Sequence) ],
     #sequence{min_occurs=MinOccurs, max_occurs=MaxOccurs, parts=Parts}.
 
-parse_choice(Choice) ->
+parse_choice(Choice, Ctx) ->
     MinOccurs = to_integer(wh:get_attribute(Choice, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(Choice, maxOccurs)),
-    Parts = [ parse_type(C) || C <- wh:get_all_child_elements(Choice) ],
+    Parts = [ parse_type(C, Ctx) || C <- wh:get_all_child_elements(Choice) ],
     #choice{min_occurs=MinOccurs, max_occurs=MaxOccurs, parts=Parts}.
 
-parse_all(All) ->
+parse_all(All, Ctx) ->
     MinOccurs = to_integer(wh:get_attribute(All, minOccurs)),
     MaxOccurs = to_integer(wh:get_attribute(All, maxOccurs)),
-    Parts = [ parse_type(C) || C <- wh:get_all_child_elements(All) ],
+    Parts = [ parse_type(C, Ctx) || C <- wh:get_all_child_elements(All) ],
     #all{min_occurs=MinOccurs, max_occurs=MaxOccurs, parts=Parts}.
 
-parse_extension(Extension) ->
+parse_extension(Extension, Ctx) ->
     BaseType = wh:get_attribute(Extension, base),
-    Children = [ parse_type(C) || C <- wh:get_all_child_elements(Extension) ],
+    Children = [ parse_type(C, Ctx) ||
+                   C <- wh:get_all_child_elements(Extension) ],
     #extension{base=BaseType, parts=Children}.
 
-parse_list(List) ->
+parse_list(List, Ctx) ->
     Type = wh:get_attribute(List, itemType),
-    Parts = [ parse_type(P) || P <- wh:get_all_child_elements(List) ],
+    Parts = [ parse_type(P, Ctx) || P <- wh:get_all_child_elements(List) ],
     {list, Type, Parts}.
 
 parse_annotation(Annotation) ->
@@ -665,53 +733,9 @@ parse_restriction_property(Restriction) ->
 %% ----------------------------------------------------------------------------
 %% Type aggregation functions
 
-propagate_namespaces(Schemas) ->
-    lists:foldl(fun(S, Res) -> insert_nss(S, Res) end, [], Schemas).
-
-insert_nss(#schema{namespace=Ns, types=Ts}, Res) ->
-    insert_nss(Ts, Ns, Res).
-
-insert_nss([E = #element{name=N, parts=[]} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [E#element{name=qname(N, Ns)}|Res]);
-insert_nss([E = #element{name=N, parts=Ps} | Ts], Ns, Res) ->
-    NewParts = case Ps of
-                   [#simple_type{} = St] ->
-                       [St#simple_type{name=qname(N, Ns)}];
-                   [#complex_type{parts=CtPs} = Ct] ->
-                       [Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
-                   [Doc, #complex_type{parts=CtPs} = Ct] ->
-                       [Doc, Ct#complex_type{parts=insert_nss(CtPs, Ns, [])}];
-                   [Doc, #simple_type{} = St] ->
-                       [Doc, St#simple_type{name=qname(N, Ns)}];
-                   [{doc, Doc}] ->
-                       [{doc, Doc}]
-               end,
-    insert_nss(Ts, Ns, [E#element{name=qname(N, Ns), parts=NewParts}|Res]);
-insert_nss([A = #attribute{type=T} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [A#attribute{type=attr_qname(T, Ns)}|Res]);
-insert_nss([St = #simple_type{name=N} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [St#simple_type{name=qname(N, Ns)}|Res]);
-insert_nss([St = #simple_content{name=N,attrs=Attrs} | Ts], Ns, Res) ->
-    NewAttrs = insert_nss(Attrs, Ns, []),
-    %% logger:notice("insert_nss NewAttrs: ~tp~n", [NewAttrs]),
-    NewRes = [St#simple_content{name=qname(N, Ns), attrs=NewAttrs}|Res],
-    insert_nss(Ts, Ns, NewRes);
-insert_nss([Ct = #complex_type{name=N, parts=Ps} | Ts], Ns, Res) ->
-    NewPs = insert_nss(Ps, Ns, []),
-    NewRes = [Ct#complex_type{name=qname(N, Ns), parts=NewPs}|Res],
-    insert_nss(Ts, Ns, NewRes);
-insert_nss([Gr = #group{name=N, parts=Ps} | Ts], Ns, Res) ->
-    NewPs = insert_nss(Ps, Ns, []),
-    NewRes = [Gr#group{name=qname(N, Ns), parts=NewPs}|Res],
-    insert_nss(Ts, Ns, NewRes);
-insert_nss([Grr = #group_ref{ref=N} | Ts], Ns, Res) ->
-    insert_nss(Ts, Ns, [Grr#group_ref{ref=qname(N, Ns)} | Res]);
-insert_nss([_E | Ts], Ns, Res) ->
-    %% logger:warning("warning: unhandled ~tp~n", [E]),
-    insert_nss(Ts, Ns, Res);
-insert_nss([], _, Res) ->
-    lists:reverse(Res).
-
+%% A name that already carries a namespace -- a prefixed attribute value that
+%% wh:get_attribute has resolved -- keeps it. A bare one belongs to the schema
+%% being parsed.
 qname({Ns, N}, _) -> {to_string(Ns), to_string(N)};
 qname(N, Ns) -> {to_string(Ns), to_string(N)}.
 
@@ -739,13 +763,14 @@ process(Types, Model) ->
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
-process([#element{name=Qname, type=undefined, parts=Ps} = E | Rest], Retry, Ts,
+process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
+        Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
                       abstract=Abstract} ->
-            TypeName = type_name(Qname, Parent),
+            TypeName = type_name(Qname, Ns, Parent),
             Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
             ews_model:put_elem(Elem, Parent, TypeMap),
             {AccWithSubTypes, SubElems, Retry2, AttrAcc1} =
@@ -781,12 +806,12 @@ process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
         TypeMap, Model, Parent, AttrAcc) ->
     process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
             Model, Parent, AttrAcc);
-process([#element{name=Name, type=#reference{name=RName}, parts=[]} = E | Rest],
+process([#element{ns=Ns, type=#reference{name=RName}, parts=[]} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     %%logger:notice("Element with ref: ~tp~n", [E]),
-    Qname = type_qname(RName, Name),
+    Qname = type_qname(RName, Ns),
     %% this is a reference, replace with definition and try again
     case ews_model:get_elem(Qname, TypeMap) of
         false ->
@@ -803,10 +828,10 @@ process([#element{name=Name, type=#reference{name=RName}, parts=[]} = E | Rest],
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#element{name=Qname, type=T, parts=[]} = E | Rest], Retry, Ts,
+process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
-    Qtype = type_qname(T, Qname),
+    Qtype = type_qname(T, Ns),
     case to_base(Qtype) of
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
@@ -852,7 +877,7 @@ process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
     case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
         {AccWithSubTypes, [], [], AttrAcc} ->
             MaybeBaseOrEnum =
-                case {to_base(type_qname(Bs, Qname)),
+                case {to_base(type_qname(Bs, local_name(Qname))),
                       lists:keyfind(Bs, 1, Ts)} of
                     {false, false} -> undefined;
                     {false, {_Qtype, BOrE}} -> BOrE;
@@ -942,22 +967,25 @@ maybe_override(undefined, undefined) -> 1;
 maybe_override(undefined, N) -> N;
 maybe_override(N, _) -> N.
 
-type_name({Ns, N}, {_, Parent}) ->
-    {Ns, Parent++"@"++N};
-type_name({Ns, N}, root) ->
-    {Ns, N}.
+%% The name for the anonymous type of an element declaration. It is derived
+%% from the element's own name, which may be unqualified -- but a type always
+%% lives in the namespace of the schema that declared it, so that is what we
+%% qualify it with here.
+type_name(Qname, Ns, {_, Parent}) ->
+    {Ns, Parent++"@"++local_name(Qname)};
+type_name(Qname, Ns, root) ->
+    {Ns, local_name(Qname)}.
 
+local_name({_Ns, N}) -> N;
+local_name(N) -> N.
+
+%% A type reference: already namespaced when it was written with a prefix,
+%% otherwise it names a builtin or a type in the referring schema.
 type_qname({_,_} = Qname, _) ->
     Qname;
-type_qname(Name, {Ns, _}) ->
-    case is_builtin(Name) of
-        true -> {"no_ns", Name};
-        false -> {Ns, Name}
-    end.
-
-attr_qname({_,_} = Qname, _) ->
-    Qname;
-attr_qname(Name, Ns) ->
+type_qname(undefined, _) ->
+    undefined;
+type_qname(Name, Ns) ->
     case is_builtin(Name) of
         true -> {"no_ns", Name};
         false -> {Ns, Name}
@@ -1155,15 +1183,40 @@ no_ns(N) -> N.
 
 -include_lib("eunit/include/eunit.hrl").
 
-insert_nss_doc_simpletype_test() ->
-    SimpleType =
-        #simple_type{ name = undefined
-                    , order = undefined
-                    , restrictions =
-                          #restriction{base_type = "string"
-                                      , values = [{max_length, 2000}]}},
-    DocAnnotation = {doc, <<"fake docs, please ignore">>},
-    TestElem = #element{name="fake", parts=[DocAnnotation, SimpleType]},
-    ?assertMatch([#element{}], insert_nss([TestElem], "https://example.com", [])).
+%% A schema with one global element wrapping four local ones: a plain local,
+%% one forced qualified, one forced unqualified, and one with an annotation and
+%% an inline simpleType (a shape that used to trip up namespace propagation).
+form_schema(ElementFormDefault) ->
+    "<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\""
+        " targetNamespace=\"urn:t\"" ++ ElementFormDefault ++ ">"
+        "<xsd:element name=\"top\"><xsd:complexType><xsd:sequence>"
+        "<xsd:element name=\"plain\" type=\"xsd:string\"/>"
+        "<xsd:element name=\"q\" form=\"qualified\" type=\"xsd:string\"/>"
+        "<xsd:element name=\"u\" form=\"unqualified\" type=\"xsd:string\"/>"
+        "<xsd:element name=\"doc\">"
+        "<xsd:annotation><xsd:documentation>d</xsd:documentation>"
+        "</xsd:annotation>"
+        "<xsd:simpleType><xsd:restriction base=\"xsd:string\"/></xsd:simpleType>"
+        "</xsd:element>"
+        "</xsd:sequence></xsd:complexType></xsd:element></xsd:schema>".
+
+parse_form_schema(ElementFormDefault) ->
+    {Schema, []} = xmerl_scan:string(form_schema(ElementFormDefault),
+                                     [{space, normalize},
+                                      {namespace_conformant, true}]),
+    [#element{name = TopName, parts = [#complex_type{parts = Locals}]}] =
+        parse_types(Schema),
+    {TopName, [ N || #element{name = N} <- Locals ]}.
+
+%% No elementFormDefault means "unqualified", so only the element that asks
+%% for it is qualified. The global wrapper is qualified either way.
+element_form_default_unqualified_test() ->
+    ?assertEqual({{"urn:t", "top"}, ["plain", {"urn:t", "q"}, "u", "doc"]},
+                 parse_form_schema("")).
+
+element_form_default_qualified_test() ->
+    ?assertEqual({{"urn:t", "top"},
+                  [{"urn:t", "plain"}, {"urn:t", "q"}, "u", {"urn:t", "doc"}]},
+                 parse_form_schema(" elementFormDefault=\"qualified\"")).
 
 -endif.
