@@ -29,6 +29,11 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
+%% A qname is {Namespace, Name}, or a bare Name for an element that is not
+%% namespace-qualified.
+-define(IS_QNAME(K), (is_list(K) orelse
+                      (is_tuple(K) andalso tuple_size(K) == 2))).
+
 %% ---
 %% TODO: Also put elements in and give them properties that are easy to inspect
 %% ---
@@ -65,7 +70,7 @@ get(Key, Table) when is_atom(Key) ->
 
 get_elem(#elem{qname=Key}, Table) ->
     get_elem(Key, Table);
-get_elem({_,_} = Key, Table) ->
+get_elem(Key, Table) when ?IS_QNAME(Key) ->
     case ets:match(Table, {{Key, root}, '$1'}) of
         [] ->
             false;
@@ -75,7 +80,7 @@ get_elem({_,_} = Key, Table) ->
 
 get_elem(#elem{qname=Key}, Parent, Table) ->
     get_elem(Key, Parent, Table);
-get_elem({_,_} = Key, Parent, Table) ->
+get_elem(Key, Parent, Table) when ?IS_QNAME(Key) ->
     case ets:match(Table, {{Key, Parent}, '$1'}) of
         [] ->
             false;

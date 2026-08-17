@@ -41,6 +41,9 @@ start_link() ->
 %% >-----------------------------------------------------------------------< %%
 
 create({_, N}) ->
+    to_underscore(N);
+%% An element that is not namespace-qualified has a bare name.
+create(N) when is_list(N) ->
     to_underscore(N).
 
 create_unique({Ns, N}, Model) when is_atom(Model) ->

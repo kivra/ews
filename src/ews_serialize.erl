@@ -426,7 +426,8 @@ encode_term([_|_]=Terms, #elem{qname=Qname, meta=M, type=Type}=E, Tbl) ->
                 #enum{list=true} ->
                     {Qname, [], encode_term(Terms, Type, Tbl)};
                 _ ->
-                    error({"expected single value: ", element(2, Qname), Terms})
+                    error({"expected single value: ", local_name(Qname),
+                           Terms})
             end
     end;
 encode_term(Term, #elem{type=Types}=E, Tbl) when is_list(Types) ->
@@ -599,11 +600,26 @@ encode_single_enum(Term, Values, #base{erl_type=ErlType}) ->
 
 %% ---------------------------------------------------------------------------
 
+%% An element that is not namespace-qualified has a bare name.
+local_name({_Ns, N}) -> N;
+local_name(N) -> N.
+
 validate_xml(undefined, #elem{meta=#meta{min=0, max=Max}}, _)
   when Max > 1 ->
     [];
 validate_xml(undefined, #elem{meta=#meta{min=0}}, _) ->
     undefined;
+%% A qualified tag for an element the model has unqualified. ews has always
+%% accepted the converse -- a bare tag where the model says qualified, see the
+%% #elem{qname={_,Name}} clauses below -- so accept this one too, by rewriting
+%% the tag to the name the model knows. Everything downstream then sees an
+%% exact match and keeps its cardinality and type handling.
+validate_xml({{_, Name}, As, Cs}, #elem{qname=Name}=ME, Tbl)
+  when is_list(Name) ->
+    validate_xml({Name, As, Cs}, ME, Tbl);
+validate_xml([{{_, Name}, _, _}|_]=Es, #elem{qname=Name}=ME, Tbl)
+  when is_list(Name) ->
+    validate_xml([ {Name, As, Cs} || {_, As, Cs} <- Es ], ME, Tbl);
 validate_xml({Qname, _, _}=E, #elem{qname=Qname,type=Types}=ME, Tbl)
   when is_list(Types) ->
     TestType = fun (Type, undefined) ->
@@ -768,11 +784,19 @@ validate_xml({_Qname, _, [{txt, Txt}]}, #enum{values=Vs}, _) ->
 %% TODO: Fix Max > 1 terms are bunched into a list
 %% TODO: Just start by matching pairs together, maybe not even check meta now,
 %%       but after all terms that conform to the same Qname have been bunched
+%% Each shape comes in three: the wire tag carries no namespace while the
+%% model qname does, the two match exactly, or the wire tag is qualified while
+%% the model qname is bare. Only the middle one is strictly right; the other
+%% two let a server that disagrees with its own schema about element form
+%% still be decoded.
 match_children_elems([{Name,_,_}=C1, {Name,_,_}=C2|Cs],
                      [#elem{qname={_,Name}}=E|Es], Acc, Res) ->
     match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
 match_children_elems([{Qname,_,_}=C1, {Qname,_,_}=C2|Cs],
                      [#elem{qname=Qname}=E|Es], Acc, Res) ->
+    match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
+match_children_elems([{{_,Name},_,_}=C1, {{_,Name},_,_}=C2|Cs],
+                     [#elem{qname=Name}=E|Es], Acc, Res) when is_list(Name) ->
     match_children_elems([C2|Cs], [E|Es], [C1|Acc], Res);
 match_children_elems([{Name,_,_}=C1|Cs],
                      [#elem{qname={_,Name}}=E|Es], [], Res) ->
@@ -780,11 +804,18 @@ match_children_elems([{Name,_,_}=C1|Cs],
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], [], Res) ->
     match_children_elems(Cs, Es, [], [{C1,E}|Res]);
+match_children_elems([{{_,Name},_,_}=C1|Cs],
+                     [#elem{qname=Name}=E|Es], [], Res) when is_list(Name) ->
+    match_children_elems(Cs, Es, [], [{C1,E}|Res]);
 match_children_elems([{Name,_,_}=C1|Cs],
                      [#elem{qname={_,Name}}=E|Es], [{Name,_,_}|_]=Acc, Res) ->
     match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], [{Qname,_,_}|_]=Acc, Res) ->
+    match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
+match_children_elems([{{_,Name},_,_}=C1|Cs],
+                     [#elem{qname=Name}=E|Es], [{{_,Name},_,_}|_]=Acc, Res)
+  when is_list(Name) ->
     match_children_elems(Cs, Es, [], [{lists:reverse([C1|Acc]),E}|Res]);
 match_children_elems([{Name,_,_}=C1|Cs],
                      [#elem{qname={_,Name}}=E|Es], Acc, Res) ->
@@ -792,10 +823,16 @@ match_children_elems([{Name,_,_}=C1|Cs],
 match_children_elems([{Qname,_,_}=C1|Cs],
                      [#elem{qname=Qname}=E|Es], Acc, Res) ->
     match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
+match_children_elems([{{_,Name},_,_}=C1|Cs],
+                     [#elem{qname=Name}=E|Es], Acc, Res) when is_list(Name) ->
+    match_children_elems([C1|Cs], Es, [], [{lists:reverse(Acc),E}|Res]);
 match_children_elems([{_,_,_}=C|Cs],
                      [#elem{meta=#meta{min=0}}=E|Es], Acc, Res) ->
     match_children_elems([C|Cs], Es, Acc, [{undefined,E}|Res]);
 match_children_elems([{Qname,_,_}|_], [#elem{qname={_,N}}|_], _, _) ->
+    error({"expected "++N, Qname});
+match_children_elems([{Qname,_,_}|_], [#elem{qname=N}|_], _, _)
+  when is_list(N) ->
     error({"expected "++N, Qname});
 match_children_elems([], [], [], Res) ->
     lists:reverse(Res);

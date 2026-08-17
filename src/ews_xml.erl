@@ -421,11 +421,11 @@ parse_stream([{[$/ | Tag], _, _} | Rest], Stack, Nss, Target, Emitted,
         {{_, _, _} = Element, NewStack} ->
             NowDone = Done orelse
                 lists:all(fun({txt, _}) -> true; (_) -> false end, NewStack),
-            case Element of
-                {Target, _, _} ->
+            case is_target(Element, Target) of
+                true ->
                     parse_stream(Rest, NewStack, NewNss, Target,
                                  [Element | Emitted], NowDone);
-                _ ->
+                false ->
                     parse_stream(Rest, [Element | NewStack], NewNss, Target,
                                  Emitted, NowDone)
             end;
@@ -448,6 +448,21 @@ parse_stream([{Tag, Attrs, _} | Rest], Stack, Nss, Target, Emitted, Done) ->
                  NewNss, Target, Emitted, Done);
 parse_stream([], Stack, Nss, _Target, Emitted, Done) ->
     {lists:reverse(Emitted), Stack, Nss, Done}.
+
+%% The target is a qname from the model, which is bare for an element its
+%% schema declares unqualified. A server that qualifies such an element
+%% anyway -- by declaring a default xmlns, say -- would otherwise stream as
+%% zero elements with no error at all, so the local names are compared when
+%% either side carries no namespace. This mirrors the tolerance the
+%% non-streaming decode in ews_serialize has always had.
+is_target({Target, _, _}, Target) ->
+    true;
+is_target({{_, Name}, _, _}, Name) when is_list(Name) ->
+    true;
+is_target({Name, _, _}, {_, Name}) when is_list(Name) ->
+    true;
+is_target(_, _) ->
+    false.
 
 %% Split Buf into a region that the tokenizer can consume completely and
 %% the remaining bytes. The region always ends at a real tag-closing '>'
