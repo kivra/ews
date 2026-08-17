@@ -16,9 +16,10 @@
 %%%     with form="qualified" / form="unqualified".
 %%%
 %%% ews models an unqualified tag as a plain string qname and a qualified one
-%%% as a {Namespace, Name} tuple (see the qname() type in ews_xml), so the
+%%% as a {Namespace, Name} tuple (see the qname() type in ews_xml), so most
 %%% assertions below are made on the decoded qnames of a serialized envelope
-%%% rather than on generated namespace prefixes.
+%%% rather than on generated namespace prefixes. The serialize_xml_* cases
+%%% additionally pin the whole envelope, bytes and prefixes included.
 %%%
 %%% Half of these cases cover the form rules themselves; the rest are guards,
 %%% against qualifying too little (serialize_form_qualified_override,
@@ -41,6 +42,8 @@
         , serialize_form_qualified_override/1
         , serialize_qualified_schema/1
         , serialize_form_unqualified_override/1
+        , serialize_xml_unqualified_schema/1
+        , serialize_xml_qualified_schema/1
         , decode_unqualified_local/1
         , decode_qualified_local/1
         , roundtrip_request/1
@@ -60,6 +63,8 @@ all() ->
     , serialize_form_qualified_override
     , serialize_qualified_schema
     , serialize_form_unqualified_override
+    , serialize_xml_unqualified_schema
+    , serialize_xml_qualified_schema
     , decode_unqualified_local
     , decode_qualified_local
     , roundtrip_request
@@ -133,6 +138,48 @@ serialize_qualified_schema(_Config) ->
 serialize_form_unqualified_override(_Config) ->
     {_, _, Children} = serialize_qualified_op(),
     ?assertMatch({_, _, [{txt, <<"b">>}]}, lists:keyfind("field1", 1, Children)),
+    ok.
+
+%% The two cases above assert on decoded qnames, which is what the form rules
+%% are about. These two pin the literal bytes instead, so the diff on a
+%% regression shows the envelope that would go on the wire. The generated
+%% prefixes (p1, p2, ...) are ews's own allocation rather than part of the
+%% contract -- what the schema decides is which tags carry a namespace at all
+%% -- so a change in how they are handed out is expected to fail here and be
+%% re-read, not silently accepted.
+serialize_xml_unqualified_schema(_Config) ->
+    ?assertEqual(<<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                   "<p3:Envelope xmlns:p1=\"" ?Q_NS "\""
+                   " xmlns:p2=\"" ?UNQ_NS "\""
+                   " xmlns:p3=\"" ?SOAPNS "\">"
+                   "<p3:Body>"
+                   "<p2:testOp>"
+                   "<arg0>165560000000</arg0>"
+                   "<arg1>"
+                   "<p1:Id>191212121212</p1:Id>"
+                   "<p1:Name>Tolvan Tolvansson</p1:Name>"
+                   "</arg1>"
+                   "<p2:arg2>Ownership</p2:arg2>"
+                   "</p2:testOp>"
+                   "</p3:Body></p3:Envelope>">>,
+                 iolist_to_binary(
+                   ews_svc:serialize(?MODEL, ?SVC, "TestOp", [],
+                                     [test_op_record()]))),
+    ok.
+
+serialize_xml_qualified_schema(_Config) ->
+    ?assertEqual(<<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                   "<p2:Envelope xmlns:p1=\"" ?Q_NS "\""
+                   " xmlns:p2=\"" ?SOAPNS "\">"
+                   "<p2:Body>"
+                   "<p1:qualifiedOp>"
+                   "<p1:field0>a</p1:field0>"
+                   "<field1>b</field1>"
+                   "</p1:qualifiedOp>"
+                   "</p2:Body></p2:Envelope>">>,
+                 iolist_to_binary(
+                   ews_svc:serialize(?MODEL, ?SVC, "QualifiedOp", [],
+                                     [{qualified_op, <<"a">>, <<"b">>}]))),
     ok.
 
 %%% Decoding -------------------------------------------------------------
