@@ -48,7 +48,7 @@
 -record(attribute, {name, base, type, use, default, fixed}).
 -record(complex_type, {name, extends, abstract, restrictions, parts, doc,
                        attrs=[]}).
--record(group, {name, parts}).
+-record(group, {name, parts, doc}).
 -record(group_ref, {ref, min_occurs, max_occurs}).
 -record(reference, {name}).
 

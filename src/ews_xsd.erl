@@ -581,8 +581,9 @@ maybe_group_ref(undefined, Group, Ctx) ->
     Name = decl_qname(wh:get_attribute(Group, name), Ctx),
     Children = wh:get_all_child_elements(Group),
     ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
-    Parts = flatten_children(ChildTypes),
-    #group{name=Name, parts=Parts};
+    {Doc, GroupParts} = split_doc(ChildTypes),
+    Parts = flatten_children(GroupParts),
+    #group{name=Name, parts=Parts, doc=Doc};
 maybe_group_ref(Reference0, Group, #sctx{ns=Ns}) ->
     Reference = qname(Reference0, Ns),
     MinOccurs = to_integer(wh:get_attribute(Group, minOccurs)),
@@ -702,17 +703,25 @@ flatten_children(Types) ->
 flatten_children(Types, PropUndefined) when is_list(Types) ->
     [ flatten_children(T, PropUndefined) || T <- Types ];
 flatten_children(#sequence{min_occurs=0, parts=Parts}, _PropUndefined) ->
-    [ flatten_children(T, true) || T <- Parts ];
+    flatten_container(Parts, true);
 flatten_children(#sequence{min_occurs=_, parts=Parts}, PropUndefined) ->
-    [ flatten_children(T, PropUndefined) || T <- Parts ];
+    flatten_container(Parts, PropUndefined);
 flatten_children(#choice{min_occurs=_, parts=Parts}, _PropUndefined) ->
-    [ flatten_children(T, true) || T <- Parts ];
+    flatten_container(Parts, true);
 flatten_children(#all{min_occurs=_, parts=Parts}, PropUndefined) ->
-    [ flatten_children(T, PropUndefined) || T <- Parts ];
+    flatten_container(Parts, PropUndefined);
 flatten_children(#element{} = E, true) ->
     E#element{min_occurs=0};
 flatten_children(Any, _PropUndefined) ->
     Any.
+
+%% A sequence, choice or all can carry an annotation of its own, and
+%% dissolving the container leaves nowhere to put it -- so, as for a group, it
+%% goes to the elements the container contributes.
+flatten_container(Parts0, PropUndefined) ->
+    {Doc, Parts} = split_doc(Parts0),
+    Flat = lists:flatten([ flatten_children(P, PropUndefined) || P <- Parts ]),
+    propagate_doc(Flat, Doc).
 
 print_all_schema_stats(Schemas) ->
     [ print_schema_stats(S) || {_, _, S} <- Schemas ].
@@ -979,9 +988,9 @@ process([#group_ref{ref=Ref, min_occurs=Min, max_occurs=Max} = Grr | Rest],
         false ->
             process(Rest, [Grr | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc);
-        #group{parts=Ps} ->
+        #group{parts=Ps, doc=Doc} ->
             %% Turn a group into a sequence
-            NewPs = propagate_meta(Ps, Min, Max),
+            NewPs = propagate_doc(propagate_meta(Ps, Min, Max), Doc),
             process(NewPs ++ Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
@@ -1002,8 +1011,23 @@ propagate_meta([#group_ref{min_occurs=Min, max_occurs=Max} = Grr | T],
     [Grr#group_ref{min_occurs=maybe_override(RefMin, Min),
                    max_occurs=maybe_override(RefMax, Max)} |
      propagate_meta(T, RefMin, RefMax)];
+propagate_meta([Part | T], RefMin, RefMax) ->
+    %% Anything else a group can hold is left alone rather than crashing the
+    %% whole model: process/9 below reports what it cannot use.
+    [Part | propagate_meta(T, RefMin, RefMax)];
 propagate_meta([], _, _) ->
     [].
+
+%% A group is dissolved into the type that references it, so there is no
+%% record for it to document. Its text goes to the elements it contributes,
+%% except where an element documents itself, which is more specific.
+propagate_doc(Parts, undefined) ->
+    Parts;
+propagate_doc(Parts, Doc) ->
+    [ case P of
+          #element{doc = undefined} -> P#element{doc = Doc};
+          _ -> P
+      end || P <- Parts ].
 
 maybe_override(undefined, undefined) -> 1;
 maybe_override(undefined, N) -> N;

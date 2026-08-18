@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture for XSD <annotation> handling. Documentation is legal on almost
+  every component, and the ones below are the places it turns up in real
+  schemas:
+
+  * on the schema itself, documenting the document rather than any
+    declaration in it, so there is nowhere to put it and it is dropped
+  * on a named complexType, which does have a record to sit on
+  * on an element declaration, which has a field
+  * on a named group, and on the sequence inside one. Neither survives as
+    anything of its own, so the text goes to the elements they contribute
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:d="http://example.com/documented"
+           targetNamespace="http://example.com/documented"
+           elementFormDefault="qualified">
+  <xs:annotation>
+    <xs:documentation>Version 1.0</xs:documentation>
+  </xs:annotation>
+
+  <xs:group name="OnTheGroup">
+    <xs:annotation>
+      <xs:documentation>What the group is for.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="inherits" type="xs:string"/>
+      <xs:element name="overrides" type="xs:string">
+        <xs:annotation>
+          <xs:documentation>What this element is for.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:group>
+
+  <xs:group name="OnTheSequence">
+    <xs:sequence>
+      <xs:annotation>
+        <xs:documentation>What the sequence is for.</xs:documentation>
+      </xs:annotation>
+      <xs:element name="from_sequence" type="xs:string"/>
+    </xs:sequence>
+  </xs:group>
+
+  <xs:element name="Documented" type="d:Documented"/>
+  <xs:complexType name="Documented">
+    <xs:annotation>
+      <xs:documentation>What the type is for.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:group ref="d:OnTheGroup"/>
+      <xs:group ref="d:OnTheSequence"/>
+      <xs:element name="plain" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

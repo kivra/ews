@@ -25,6 +25,7 @@
         , unnamed_type_w_attrs/1
         , encode_decode_plain_xsd/1
         , record_to_map_xsd_with_attrs/1
+        , documentation_from_xsd/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -50,6 +51,7 @@ groups() ->
     , {xsds,
        [ encode_decode_plain_xsd
        , record_to_map_xsd_with_attrs
+       , documentation_from_xsd
        ]}
     ].
 
@@ -95,6 +97,7 @@ init_per_group(teleadr, Config) ->
 init_per_group(xsds, Config) ->
     application:ensure_all_started(ews),
     ok = ews:add_xsd_to_model(xsd_test, test_wsdl_file("importee.xsd")),
+    ok = ews:add_xsd_to_model(documented, test_wsdl_file("documented.xsd")),
     Config.
 
 end_per_group(google_v201306_campaignService, _Config) ->
@@ -106,6 +109,7 @@ end_per_group(mm_service, _Config) ->
 end_per_group(teleadr, _Config) ->
     ews:remove_model(tiny);
 end_per_group(xsds, _Config) ->
+    ews:remove_model(documented),
     ews:remove_model(xsd_test).
 
 google_v201306_ensure_record(Config) ->
@@ -405,6 +409,23 @@ encode_decode_plain_xsd(_Config) ->
 %% Uses real XSD types from xmldsig-core-schema.xsd (loaded via importee.xsd):
 %%   - signature_value_type: simpleContent + attrs (#sc{} in elems)
 %%   - signatures: complexType + attrs (#elem{} in elems)
+%% <documentation> reaches the model from every place a schema can put it.
+%% A group and a sequence are both dissolved into the type that references
+%% them, so their text goes to the elements they contributed, while an element
+%% that documents itself keeps its own. The schema's own annotation documents
+%% the document and is dropped.
+documentation_from_xsd(_Config) ->
+    Ns = "http://example.com/documented",
+    #type{doc = TypeDoc, elems = Elems} =
+        ews_svc:get_type(documented, {Ns, "Documented"}),
+    ?assertEqual(<<"What the type is for.">>, TypeDoc),
+    ?assertEqual([{{Ns, "inherits"}, <<"What the group is for.">>},
+                  {{Ns, "overrides"}, <<"What this element is for.">>},
+                  {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
+                  {{Ns, "plain"}, undefined}],
+                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
+    ok.
+
 record_to_map_xsd_with_attrs(_Config) ->
     %% Model loaded by init_per_group(xsds, ...)
 
