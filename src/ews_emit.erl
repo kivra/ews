@@ -23,6 +23,9 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
+%% Where comment lines wrap. The indented ones wrap earlier, by their indent.
+-define(DOC_WIDTH, 76).
+
 model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),
     logger:notice("emitting ~p records unresolved: ~p resolved: ~p~n",
@@ -52,18 +55,20 @@ qname_comment({Ns, Name}) ->
 qname_comment(Name) ->
     io_lib:format("%% ~p~n", [Name]).
 
-output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved) ->
-    Line0 = qname_comment(Qname),
+output_type(#type{qname=Qname, alias=Alias, doc=Doc, attrs=[]}, Tbl, ModelRef,
+            Unresolved) ->
+    Line0 = [qname_comment(Qname), doc_comment(Doc, 0)],
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
     [Line0, Line1, string:join(PartRows, JoinStr), "}).\n"];
-output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
-            Unresolved) ->
+output_type(#type{qname=Qname, alias=Alias, doc=Doc, attrs=Attrs}, Tbl,
+            ModelRef, Unresolved) ->
     %% logger:notice("Tp: ~tp~n", [Tp]),
-    Line0 = [qname_comment(Qname), "%% @doc Possible keys for '__attrs'\n"],
+    Line0 = [qname_comment(Qname), doc_comment(Doc, 0),
+             "%% @doc Possible keys for '__attrs'\n"],
     AttrDocs = [ ["%% ", tick_word(no_ns(A)), " :: ", no_ns(T), "\n"] ||
                    #attribute{name=A,type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
@@ -88,14 +93,15 @@ output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
     [Line0, AttrDocs, Line1, string:join([AttrStr | PartRows],
                                          JoinStr), "}).\n"].
 
-output_part(#elem{qname=Qname, type=T, meta=M}, Indent, Tbl,
+output_part(#elem{qname=Qname, type=T, meta=M, doc=Doc}, Indent, Tbl,
             ModelRef, Unresolved) ->
     A = ews_alias:create(Qname),
     #meta{min=Min} = M,
     Base = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(Base),
     Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved),
-    check_min(check_nillable([Base, Ts], M), Min);
+    [field_doc(Doc, Indent),
+     check_min(check_nillable([Base, Ts], M), Min)];
 output_part(#sc{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
     A = ews_alias:create(Qname),
@@ -170,6 +176,46 @@ record_spec(T, Unresolved) ->
         true ->
             ["'#", utf8_atom_to_list(T), "'()"]
     end.
+
+%% The <documentation> the declaration carried in the XSD, as comment lines.
+%% It is free text: long, sometimes many paragraphs, sometimes not ASCII. So it
+%% is re-wrapped, and every line gets its own %% -- a comment runs to the end
+%% of a line, so an embedded newline would comment out the code after it.
+doc_comment(undefined, _Indent) ->
+    [];
+doc_comment(Doc, Indent) ->
+    Pad = lists:duplicate(Indent, $ ),
+    [ [Pad, "%% ", Line, $\n] || Line <- wrap_doc(Doc, ?DOC_WIDTH - Indent) ].
+
+%% A field's documentation sits above the field, at the field's own indent.
+%% The first line needs no padding: it lands where the field would have.
+field_doc(undefined, _Indent) ->
+    [];
+field_doc(Doc, Indent) ->
+    Pad = lists:duplicate(Indent, $ ),
+    [ ["%% ", Line, $\n, Pad] || Line <- wrap_doc(Doc, ?DOC_WIDTH - Indent) ].
+
+%% Greedy wrap on whitespace. Words longer than the width get a line of their
+%% own rather than being broken: a URL stays copyable.
+wrap_doc(Doc, Width) ->
+    Words = string:lexemes(unicode:characters_to_list(Doc), " \t\r\n"),
+    [ utf8(L) || L <- wrap_words(Words, max(Width, 20), [], []) ].
+
+wrap_words([W | Ws], Width, [], Lines) ->
+    wrap_words(Ws, Width, W, Lines);
+wrap_words([W | Ws], Width, Line, Lines) ->
+    case string:length(Line) + 1 + string:length(W) =< Width of
+        true -> wrap_words(Ws, Width, Line ++ [$\s | W], Lines);
+        false -> wrap_words(Ws, Width, W, [Line | Lines])
+    end;
+wrap_words([], _Width, [], Lines) ->
+    lists:reverse(Lines);
+wrap_words([], _Width, Line, Lines) ->
+    lists:reverse([Line | Lines]).
+
+%% The file is written unencoded, so text has to reach it as utf8 bytes.
+utf8(Chars) ->
+    binary_to_list(unicode:characters_to_binary(Chars, unicode, utf8)).
 
 tick_word(Word) when is_atom(Word) ->
     do_tick_word(utf8_atom_to_list(Word));

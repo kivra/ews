@@ -15,7 +15,8 @@
 -export([empty_table/1,
          simple_graph/1,
          simple_circular_graph/1,
-         circular_graph/1
+         circular_graph/1,
+         documented_graph/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -25,7 +26,8 @@ groups() ->
       [empty_table,
        simple_graph,
        simple_circular_graph,
-       circular_graph
+       circular_graph,
+       documented_graph
       ]}].
 
 all() ->
@@ -128,6 +130,37 @@ circular_graph(_Config) ->
            "%% {\"ns\", \"t2\"}\n"
            "-record(t2, {t2e1 :: #t1{} | undefined}).\n\n">>,
     true = B1 == Bin orelse B2 == Bin orelse Bin,
+    ok.
+
+%% <documentation> from the XSD becomes comments: on the record for the type's
+%% own annotation, and above the field for the element's. It is free text, so
+%% it wraps, and the wrapped lines line up under the field they document.
+documented_graph(_Config) ->
+    Table = ets:new(type_table, []),
+    ets:insert(Table, {{"ns", "t1"},
+                       #type{qname={"ns", "t1"},
+                             alias = t1,
+                             doc = <<"What the type is for.">>,
+                             elems =
+                                 [#elem{qname = {"ns", "e1"},
+                                        type = int_type(),
+                                        doc = <<"Why this field exists, at "
+                                                "enough length that it has to "
+                                                "wrap onto a second line.">>,
+                                        meta = meta(undefined, 0, 1)},
+                                  #elem{qname = {"ns", "e2"},
+                                        type = string_type(),
+                                        meta = meta(undefined, 1, 1)}]}}),
+    Model = #model{type_map=Table},
+    Filename = file_in_test_priv_dir,
+    ews_emit:model_to_file(Model, Filename, test),
+    {ok, Bin} = file:read_file(Filename),
+    <<"%% {\"ns\", \"t1\"}\n"
+      "%% What the type is for.\n"
+      "-record(t1, {%% Why this field exists, at enough length that it has to wrap\n"
+      "             %% onto a second line.\n"
+      "             e1 :: integer() | undefined,\n"
+      "             e2 :: binary() | string()}).\n\n">> = Bin,
     ok.
 
 int_type() ->

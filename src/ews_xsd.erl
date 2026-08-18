@@ -340,7 +340,13 @@ parse_types(Schema) ->
     %% Direct children of <schema> are global declarations; everything the
     %% recursion below reaches is local.
     Types = [ parse_type(E, Ctx, global) || E = #xmlElement{} <- Elements ],
-    [ T || T <- Types, T /= import, T /= include ].
+    %% A top-level <annotation> documents the schema document itself rather
+    %% than any declaration in it, and there is nowhere to put that once every
+    %% schema's types are emitted into one file, so it goes no further.
+    [ T || T <- Types, T /= import, T /= include, not is_doc(T) ].
+
+is_doc({doc, _}) -> true;
+is_doc(_) -> false.
 
 %% Both elementFormDefault and a per-element form attribute default to
 %% "unqualified" per the XSD spec.
@@ -418,11 +424,12 @@ maybe_ref(undefined, Element, #sctx{ns=Ns} = Ctx, Scope) ->
     MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
     Children = [ parse_type(C, Ctx) ||
                    C <- wh:get_all_child_elements(Element) ],
+    {Doc, Parts} = split_doc(Children),
     #element{name=element_qname(Element, Ctx, Scope), ns=Ns, type=Type,
-             default=Default, fixed=Fixed, nillable=Nillable,
+             doc=Doc, default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
-             parts=Children};
-maybe_ref(Ref, Element, #sctx{ns=Ns}, _Scope) ->
+             parts=Parts};
+maybe_ref(Ref, Element, #sctx{ns=Ns} = Ctx, _Scope) ->
     Default = wh:get_attribute(Element, default),
     Fixed = wh:get_attribute(Element, fixed),
     Nillable = wh:get_attribute(Element, nillable),
@@ -431,7 +438,9 @@ maybe_ref(Ref, Element, #sctx{ns=Ns}, _Scope) ->
     %% A ref always resolves to a global declaration, which is qualified by
     %% the namespace it was declared in -- form does not apply.
     Qname = qname(Ref, Ns),
-    #element{name=Qname, ns=Ns, type=#reference{name=Qname},
+    {Doc, _} = split_doc([ parse_type(C, Ctx) ||
+                             C <- wh:get_all_child_elements(Element) ]),
+    #element{name=Qname, ns=Ns, type=#reference{name=Qname}, doc=Doc,
              default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=[]}.
@@ -497,11 +506,12 @@ parse_complex_type(ComplexType, Ctx) ->
             end;
         _ ->
             ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
-            Parts = flatten_children(ChildTypes),
+            {Doc, TypeParts} = split_doc(ChildTypes),
+            Parts = flatten_children(TypeParts),
             {Extends, ExtendParts} = extract_extension(Extension),
             #complex_type{name=Name,
                           extends=Extends, abstract=Abstract,
-                          restrictions=Restriction,
+                          restrictions=Restriction, doc=Doc,
                           parts=Parts++ExtendParts}
     end.
 
@@ -649,6 +659,16 @@ parse_list(List, Ctx) ->
 parse_annotation(Annotation) ->
     {doc, wh:get_docs(Annotation)}.
 
+%% An <annotation> is not a part of the type it sits in, it is documentation
+%% for it, so it travels in its own field. Leaving it among the parts is how it
+%% used to end up in process/9's "unhandled" catch-all.
+split_doc(Children) ->
+    case lists:keytake(doc, 1, Children) of
+        {value, {doc, <<>>}, Rest} -> {undefined, Rest};
+        {value, {doc, Doc}, Rest} -> {Doc, Rest};
+        false -> {undefined, Children}
+    end.
+
 %% ----------------------------------------------------------------------------
 %% Utility functions
 
@@ -784,15 +804,16 @@ process(Types, Model) ->
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
-process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
+process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps,
+                  doc=Doc} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
-                      abstract=Abstract} ->
+                      abstract=Abstract, doc=CtDoc} ->
             TypeName = type_name(Qname, Ns, Parent),
-            Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
+            Elem = #elem{qname=Qname, type=TypeName, meta=Meta, doc=Doc},
             ews_model:put_elem(Elem, Parent, TypeMap),
             {AccWithSubTypes, SubElems, Retry2, AttrAcc1} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
@@ -802,7 +823,7 @@ process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
                 [] ->
                     Type = #type{qname=TypeName, extends=Ext,
                                  abstract=Abstract, elems=SubElems,
-                                 attrs=AttrAcc1},
+                                 doc=CtDoc, attrs=AttrAcc1},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
                             [Elem | ElemAcc],
@@ -818,16 +839,13 @@ process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type, Ts),
-            Elem = #elem{qname=Qname, type=Base, meta=Meta},
+            Elem = #elem{qname=Qname, type=Base, meta=Meta, doc=Doc},
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
-        TypeMap, Model, Parent, AttrAcc) ->
-    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
-            Model, Parent, AttrAcc);
-process([#element{ns=Ns, type=#reference{name=RName}, parts=[]} = E | Rest],
+process([#element{ns=Ns, type=#reference{name=RName}, parts=[],
+                  doc=Doc} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
@@ -840,16 +858,17 @@ process([#element{ns=Ns, type=#reference{name=RName}, parts=[]} = E | Rest],
                     Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
             %% Override with meta from element with reference
-            Elem = E1#elem{meta = Meta},
+            Elem = E1#elem{meta = Meta, doc = doc_or(Doc, E1#elem.doc)},
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = _} = E1 ->
             %% Override with meta from element with reference
-            Elem = E1#elem{meta = Meta},
+            Elem = E1#elem{meta = Meta, doc = doc_or(Doc, E1#elem.doc)},
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
+process([#element{name=Qname, ns=Ns, type=T, parts=[], doc=Doc} = E | Rest],
+        Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     Qtype = type_qname(T, Ns),
@@ -857,18 +876,19 @@ process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
-                    Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
+                    Elem = #elem{qname=Qname, type=Qtype, meta=Meta, doc=Doc},
                     ews_model:put_elem(Elem, Parent, TypeMap),
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc);
                 {Qtype, BaseOrEnum} ->
-                    Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
+                    Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta,
+                                 doc=Doc},
                     ews_model:put_elem(Elem, Parent, TypeMap),
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc)
             end;
         #base{} = Base ->
-            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            Elem = #elem{qname=Qname, type=Base, meta=Meta, doc=Doc} ,
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
@@ -876,12 +896,13 @@ process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
 process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
         Parent, AttrAcc) ->
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
-process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
+process([#complex_type{name=Qname, extends=Ext, parts=Ps, doc=Doc} = CT | Rest],
+        Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
     %% We don't want to pass in Retry in processing of parts
     case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
         {AccWithSubTypes, SubElems, [], AttrAcc} ->
-            Type = #type{qname=Qname, extends=Ext, elems=SubElems,
+            Type = #type{qname=Qname, extends=Ext, elems=SubElems, doc=Doc,
                          attrs=AttrAcc},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
@@ -1121,6 +1142,11 @@ parse_meta(#element{default=D, fixed=F, nillable=N,
 def_one(undefined) -> 1;
 def_one(Any) -> Any.
 
+%% A declaration that references another one documents itself if it says
+%% anything; otherwise it inherits what the referenced declaration says.
+doc_or(undefined, Doc) -> Doc;
+doc_or(Doc, _) -> Doc.
+
 %% TODO: Handle more refined basic spec types (i.e. non_neg_integer() etc)
 to_base({"http://www.w3.org/2001/XMLSchema", "boolean"} = Qn) ->
     #base{xsd_type=Qn, erl_type=boolean};
@@ -1223,6 +1249,38 @@ form_schema(ElementFormDefault) ->
         "<xsd:simpleType><xsd:restriction base=\"xsd:string\"/></xsd:simpleType>"
         "</xsd:element>"
         "</xsd:sequence></xsd:complexType></xsd:element></xsd:schema>".
+
+%% A schema whose annotations sit in the three places that matter: on the
+%% schema itself, on a named complexType, and on a local element.
+doc_schema() ->
+    "<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\""
+        " targetNamespace=\"urn:t\">"
+        "<xsd:annotation><xsd:documentation>Version 2.0</xsd:documentation>"
+        "</xsd:annotation>"
+        "<xsd:complexType name=\"T\">"
+        "<xsd:annotation><xsd:documentation>What T is for.</xsd:documentation>"
+        "</xsd:annotation>"
+        "<xsd:sequence>"
+        "<xsd:element name=\"a\" type=\"xsd:string\">"
+        "<xsd:annotation><xsd:documentation>What a is for.</xsd:documentation>"
+        "</xsd:annotation>"
+        "</xsd:element>"
+        "<xsd:element name=\"b\" type=\"xsd:string\"/>"
+        "</xsd:sequence></xsd:complexType></xsd:schema>".
+
+%% The schema's own annotation documents the document, not a declaration, so
+%% it is dropped rather than left to look like a type. The other two are kept
+%% on the declaration they belong to, and out of its parts.
+annotation_test() ->
+    {Schema, []} = xmerl_scan:string(doc_schema(),
+                                     [{space, normalize},
+                                      {namespace_conformant, true}]),
+    [#complex_type{doc = TypeDoc, parts = Parts}] = parse_types(Schema),
+    ?assertEqual(<<"What T is for.">>, TypeDoc),
+    %% Bare names: the fixture declares no elementFormDefault.
+    ?assertEqual([{"a", <<"What a is for.">>}, {"b", undefined}],
+                 [ {N, D} || #element{name = N, doc = D} <- Parts ]),
+    ?assertEqual([[], []], [ P || #element{parts = P} <- Parts ]).
 
 parse_form_schema(ElementFormDefault) ->
     {Schema, []} = xmerl_scan:string(form_schema(ElementFormDefault),

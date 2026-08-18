@@ -132,7 +132,9 @@ get_subs(Key, Table) ->
     Children ++ lists:append(LowerDescendants).
 
 get_from_alias(Alias, Tbl) ->
-    case ets:match(Tbl, {'_', {type, '$0', Alias, '_', '_', '_', '_'}}) of
+    %% Record syntax rather than a literal tuple, so that adding a field to
+    %% #type{} does not silently stop this from matching anything.
+    case ets:match(Tbl, {'_', #type{qname = '$0', alias = Alias, _ = '_'}}) of
         [] ->
             false;
         [[Key]] ->

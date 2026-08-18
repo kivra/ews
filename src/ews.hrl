@@ -41,12 +41,13 @@
 %% is namespace-qualified, a bare Name when it is not (see element_qname/3 in
 %% ews_xsd). `ns' is the targetNamespace of the schema that declared it, which
 %% is where an unqualified element's *type* still lives.
--record(element, {name, ns, type, default, fixed, nillable=false,
+-record(element, {name, ns, type, doc, default, fixed, nillable=false,
                   min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions, unionmembers}).
 -record(simple_content, {name, order, restrictions, attrs=[]}).
 -record(attribute, {name, base, type, use, default, fixed}).
--record(complex_type, {name, extends, abstract, restrictions, parts, attrs=[]}).
+-record(complex_type, {name, extends, abstract, restrictions, parts, doc,
+                       attrs=[]}).
 -record(group, {name, parts}).
 -record(group_ref, {ref, min_occurs, max_occurs}).
 -record(reference, {name}).
@@ -59,8 +60,10 @@
 -record(enumeration, {base_type, values}).
 
 %% Simplified XSD
--record(elem, {qname, type, meta, attrs=[]}).
--record(type, {qname, alias, elems, extends, abstract, attrs=[]}).
+%% `doc' on both is the text of the declaration's own <annotation>, carried
+%% through so ews_emit can comment the generated records with it.
+-record(elem, {qname, type, meta, doc, attrs=[]}).
+-record(type, {qname, alias, elems, extends, abstract, doc, attrs=[]}).
 -record(base, {xsd_type, erl_type, restrictions, list=false, union=false}).
 -record(enum, {type, values, list=false, union=false}).
 -record(meta, {nillable=false, default, fixed, max, min}).
