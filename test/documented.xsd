@@ -10,6 +10,12 @@
   * on an element declaration, which has a field
   * on a named group, and on the sequence inside one. Neither survives as
     anything of its own, so the text goes to the elements they contribute
+  * on a named simpleType, which becomes a field's type rather than a record,
+    so a field typed by it says what the type says
+
+  Where more than one applies, the most specific wins: what the element says
+  itself, else what the group or sequence around it says, else what its type
+  says.
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:d="http://example.com/documented"
@@ -42,6 +48,15 @@
     </xs:sequence>
   </xs:group>
 
+  <xs:simpleType name="Coded">
+    <xs:annotation>
+      <xs:documentation>What the simple type is for.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="3"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <xs:element name="Documented" type="d:Documented"/>
   <xs:complexType name="Documented">
     <xs:annotation>
@@ -51,6 +66,12 @@
       <xs:group ref="d:OnTheGroup"/>
       <xs:group ref="d:OnTheSequence"/>
       <xs:element name="plain" type="xs:string"/>
+      <xs:element name="from_type" type="d:Coded"/>
+      <xs:element name="beats_its_type" type="d:Coded">
+        <xs:annotation>
+          <xs:documentation>What this element is for.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
     </xs:sequence>
   </xs:complexType>
 </xs:schema>

@@ -43,7 +43,7 @@
 %% is where an unqualified element's *type* still lives.
 -record(element, {name, ns, type, doc, default, fixed, nillable=false,
                   min_occurs=1, max_occurs=1, parts, attrs=[]}).
--record(simple_type, {name, order, restrictions, unionmembers}).
+-record(simple_type, {name, order, restrictions, unionmembers, doc}).
 -record(simple_content, {name, order, restrictions, attrs=[]}).
 -record(attribute, {name, base, type, use, default, fixed}).
 -record(complex_type, {name, extends, abstract, restrictions, parts, doc,
@@ -64,8 +64,10 @@
 %% through so ews_emit can comment the generated records with it.
 -record(elem, {qname, type, meta, doc, attrs=[]}).
 -record(type, {qname, alias, elems, extends, abstract, doc, attrs=[]}).
--record(base, {xsd_type, erl_type, restrictions, list=false, union=false}).
--record(enum, {type, values, list=false, union=false}).
+%% `doc' is what the simple type's own <annotation> said, so that a field
+%% typed by it can be commented even when the element says nothing itself.
+-record(base, {xsd_type, erl_type, restrictions, list=false, union=false, doc}).
+-record(enum, {type, values, list=false, union=false, doc}).
 -record(meta, {nillable=false, default, fixed, max, min}).
 -record(sc, {qname, type, meta, attrs=[]}).
 

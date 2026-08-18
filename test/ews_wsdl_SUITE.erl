@@ -409,11 +409,13 @@ encode_decode_plain_xsd(_Config) ->
 %% Uses real XSD types from xmldsig-core-schema.xsd (loaded via importee.xsd):
 %%   - signature_value_type: simpleContent + attrs (#sc{} in elems)
 %%   - signatures: complexType + attrs (#elem{} in elems)
-%% <documentation> reaches the model from every place a schema can put it.
-%% A group and a sequence are both dissolved into the type that references
-%% them, so their text goes to the elements they contributed, while an element
-%% that documents itself keeps its own. The schema's own annotation documents
-%% the document and is dropped.
+%% <documentation> reaches the model from every place a schema can put it. A
+%% group or a sequence is dissolved into the type that references it and a
+%% simpleType becomes a field's type, so none of the three has a record of its
+%% own and their text goes to the fields instead. Where several apply the most
+%% specific wins: the element itself, else the group or sequence around it,
+%% else its type. The schema's own annotation documents the document, and is
+%% dropped.
 documentation_from_xsd(_Config) ->
     Ns = "http://example.com/documented",
     #type{doc = TypeDoc, elems = Elems} =
@@ -422,7 +424,9 @@ documentation_from_xsd(_Config) ->
     ?assertEqual([{{Ns, "inherits"}, <<"What the group is for.">>},
                   {{Ns, "overrides"}, <<"What this element is for.">>},
                   {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
-                  {{Ns, "plain"}, undefined}],
+                  {{Ns, "plain"}, undefined},
+                  {{Ns, "from_type"}, <<"What the simple type is for.">>},
+                  {{Ns, "beats_its_type"}, <<"What this element is for.">>}],
                  [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
     ok.
 

@@ -527,16 +527,31 @@ extract_extension(#extension{base=Base, parts=ExtParts}) ->
 
 parse_simple_type(Simple, Ctx) ->
     Name = decl_qname(wh:get_attribute(Simple, name), Ctx),
+    Doc = own_doc(Simple),
     {Order, NewSimple} = list_or_union(Simple),
     case Order of
         union ->
-            #simple_type{name=Name, order=Order,
+            #simple_type{name=Name, order=Order, doc=Doc,
                          unionmembers = NewSimple};
         Other when Other == list orelse Other == undefined ->
             Restriction = wh:find_element(NewSimple, "restriction"),
             CompiledRestriction = parse_restriction(Restriction),
-            #simple_type{name=Name, order=Order,
+            #simple_type{name=Name, order=Order, doc=Doc,
                          restrictions=CompiledRestriction}
+    end.
+
+%% The declaration's own <annotation>, as opposed to one on anything nested
+%% inside it -- wh:get_docs/1 searches descendants, so it is given the
+%% annotation element rather than the declaration.
+own_doc(Element) ->
+    case wh:get_child(Element, "annotation") of
+        undefined ->
+            undefined;
+        Annotation ->
+            case wh:get_docs(Annotation) of
+                <<>> -> undefined;
+                Doc -> Doc
+            end
     end.
 
 list_or_union(Simple) ->
@@ -848,7 +863,8 @@ process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps,
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type, Ts),
-            Elem = #elem{qname=Qname, type=Base, meta=Meta, doc=Doc},
+            Elem = #elem{qname=Qname, type=Base, meta=Meta,
+                         doc=doc_or(Doc, simple_doc(Base))},
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
@@ -890,8 +906,10 @@ process([#element{name=Qname, ns=Ns, type=T, parts=[], doc=Doc} = E | Rest],
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc);
                 {Qtype, BaseOrEnum} ->
+                    %% A field typed by a documented simple type says what the
+                    %% type says, unless the element says something itself.
                     Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta,
-                                 doc=Doc},
+                                 doc=doc_or(Doc, simple_doc(BaseOrEnum))},
                     ews_model:put_elem(Elem, Parent, TypeMap),
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc)
@@ -1119,7 +1137,7 @@ process_all_simple([_ | Rest]) ->
 process_all_simple([]) -> [].
 
 %% This process can't handle unions correctly
-do_process_simple(#simple_type{restrictions=Rs, order=Order}) ->
+do_process_simple(#simple_type{restrictions=Rs, order=Order, doc=Doc}) ->
     %% logger:notice("St: ~tp~n", [St]),
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
@@ -1127,16 +1145,18 @@ do_process_simple(#simple_type{restrictions=Rs, order=Order}) ->
         #enumeration{base_type=_Base, values=Values} = Enum ->
             Vs = [ {ews_alias:create({ok, Str}), Str} ||
                    {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion,
+                  doc=Doc};
         #restriction{base_type=_Base, values=Rvals} = Restriction ->
             BaseRec = to_base(Restriction),
-            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
+                         doc=Doc}
     end.
 
 %% This process can handle unions by finding them in the all processed
 %% simple types handles above by process_all_simple
 process_simple(#simple_type{restrictions=Rs, order=Order,
-                            unionmembers=Members}, Ts) ->
+                            unionmembers=Members, doc=Doc}, Ts) ->
     %% logger:notice("St: ~tp~n", [St]),
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
@@ -1144,10 +1164,12 @@ process_simple(#simple_type{restrictions=Rs, order=Order,
         {#enumeration{base_type=_Base, values=Values} = Enum, false} ->
             Vs = [ {ews_alias:create({ok, Str}), Str} ||
                    {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion,
+                  doc=Doc};
         {#restriction{base_type=_Base, values=Rvals} = Restriction, false} ->
             BaseRec = to_base(Restriction),
-            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion};
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
+                         doc=Doc};
         {undefined, true} ->
             %% FIXME: get all the base types and restrictions for this union
             First = hd(Members),
@@ -1155,7 +1177,8 @@ process_simple(#simple_type{restrictions=Rs, order=Order,
                 undefined ->
                     error({non_existent_simple_type, First, Ts});
                 #base{} = BaseRec->
-                    BaseRec#base{list=IsList, union=IsUnion}
+                    BaseRec#base{list=IsList, union=IsUnion,
+                                 doc=doc_or(Doc, BaseRec#base.doc)}
             end
     end.
 
@@ -1170,6 +1193,10 @@ def_one(Any) -> Any.
 %% anything; otherwise it inherits what the referenced declaration says.
 doc_or(undefined, Doc) -> Doc;
 doc_or(Doc, _) -> Doc.
+
+simple_doc(#base{doc=Doc}) -> Doc;
+simple_doc(#enum{doc=Doc}) -> Doc;
+simple_doc(_) -> undefined.
 
 %% TODO: Handle more refined basic spec types (i.e. non_neg_integer() etc)
 to_base({"http://www.w3.org/2001/XMLSchema", "boolean"} = Qn) ->

@@ -35,8 +35,10 @@ ews is a library for interacting with SOAP web services. It includes functionali
   ```
 
   A group, sequence, choice or all is dissolved into the type that references
-  it and so has no record of its own; its text goes to the elements it
-  contributes, except where an element documents itself. A schema's own
+  it, and a named simpleType becomes a field's type; none of them has a record
+  of its own, so their text goes to the fields instead. Where more than one
+  applies the most specific wins: what the element says itself, else what the
+  group or sequence around it says, else what its type says. A schema's own
   top-level annotation documents the document rather than any declaration in
   it, and is dropped.
 * New: the emitted file is headed by a comment saying it is generated. There
