@@ -23,7 +23,8 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
-%% Where comment lines wrap. The indented ones wrap earlier, by their indent.
+%% The column comment lines are wrapped to keep within, prefix and indent
+%% included.
 -define(DOC_WIDTH, 76).
 
 model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
@@ -196,7 +197,7 @@ doc_comment(undefined, _Indent) ->
     [];
 doc_comment(Doc, Indent) ->
     Pad = lists:duplicate(Indent, $ ),
-    [ [Pad, "%% ", Line, $\n] || Line <- wrap_doc(Doc, ?DOC_WIDTH - Indent) ].
+    [ [Pad, "%% ", Line, $\n] || Line <- wrap_doc(Doc, text_width(Indent)) ].
 
 %% A field's documentation sits above the field, at the field's own indent.
 %% The first line needs no padding: it lands where the field would have.
@@ -204,7 +205,11 @@ field_doc(undefined, _Indent) ->
     [];
 field_doc(Doc, Indent) ->
     Pad = lists:duplicate(Indent, $ ),
-    [ ["%% ", Line, $\n, Pad] || Line <- wrap_doc(Doc, ?DOC_WIDTH - Indent) ].
+    [ ["%% ", Line, $\n, Pad] || Line <- wrap_doc(Doc, text_width(Indent)) ].
+
+%% What is left for the text once the indent and the "%% " are paid for.
+text_width(Indent) ->
+    ?DOC_WIDTH - Indent - 3.
 
 %% Greedy wrap on whitespace. Words longer than the width get a line of their
 %% own rather than being broken: a URL stays copyable.

@@ -16,6 +16,10 @@
   Where more than one applies, the most specific wins: what the element says
   itself, else what the group or sequence around it says, else what its type
   says.
+
+  Deduped also declares the same element in two branches of a choice, one of
+  them documented. Only one field can be emitted for it, so the text must not
+  make the two look like different elements.
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:d="http://example.com/documented"
@@ -56,6 +60,22 @@
       <xs:maxLength value="3"/>
     </xs:restriction>
   </xs:simpleType>
+
+  <xs:element name="Deduped" type="d:Deduped"/>
+  <xs:complexType name="Deduped">
+    <xs:choice>
+      <xs:sequence>
+        <xs:annotation>
+          <xs:documentation>What the branch is for.</xs:documentation>
+        </xs:annotation>
+        <xs:element name="shared" type="xs:string"/>
+      </xs:sequence>
+      <xs:sequence>
+        <xs:element name="shared" type="xs:string"/>
+        <xs:element name="only_here" type="xs:string"/>
+      </xs:sequence>
+    </xs:choice>
+  </xs:complexType>
 
   <xs:element name="Documented" type="d:Documented"/>
   <xs:complexType name="Documented">

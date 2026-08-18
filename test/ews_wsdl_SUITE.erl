@@ -26,6 +26,7 @@
         , encode_decode_plain_xsd/1
         , record_to_map_xsd_with_attrs/1
         , documentation_from_xsd/1
+        , documentation_does_not_duplicate_fields/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -52,6 +53,7 @@ groups() ->
        [ encode_decode_plain_xsd
        , record_to_map_xsd_with_attrs
        , documentation_from_xsd
+       , documentation_does_not_duplicate_fields
        ]}
     ].
 
@@ -409,27 +411,6 @@ encode_decode_plain_xsd(_Config) ->
 %% Uses real XSD types from xmldsig-core-schema.xsd (loaded via importee.xsd):
 %%   - signature_value_type: simpleContent + attrs (#sc{} in elems)
 %%   - signatures: complexType + attrs (#elem{} in elems)
-%% <documentation> reaches the model from every place a schema can put it. A
-%% group or a sequence is dissolved into the type that references it and a
-%% simpleType becomes a field's type, so none of the three has a record of its
-%% own and their text goes to the fields instead. Where several apply the most
-%% specific wins: the element itself, else the group or sequence around it,
-%% else its type. The schema's own annotation documents the document, and is
-%% dropped.
-documentation_from_xsd(_Config) ->
-    Ns = "http://example.com/documented",
-    #type{doc = TypeDoc, elems = Elems} =
-        ews_svc:get_type(documented, {Ns, "Documented"}),
-    ?assertEqual(<<"What the type is for.">>, TypeDoc),
-    ?assertEqual([{{Ns, "inherits"}, <<"What the group is for.">>},
-                  {{Ns, "overrides"}, <<"What this element is for.">>},
-                  {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
-                  {{Ns, "plain"}, undefined},
-                  {{Ns, "from_type"}, <<"What the simple type is for.">>},
-                  {{Ns, "beats_its_type"}, <<"What this element is for.">>}],
-                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
-    ok.
-
 record_to_map_xsd_with_attrs(_Config) ->
     %% Model loaded by init_per_group(xsds, ...)
 
@@ -455,6 +436,39 @@ record_to_map_xsd_with_attrs(_Config) ->
     ?assertMatch(#{'__attrs' := #{}}, SigsMap),
     %% signature child is undefined so should be omitted from map
     ?assertEqual(false, maps:is_key(signature, SigsMap)),
+    ok.
+
+%% <documentation> reaches the model from every place a schema can put it. A
+%% group or a sequence is dissolved into the type that references it and a
+%% simpleType becomes a field's type, so none of the three has a record of its
+%% own and their text goes to the fields instead. Where several apply the most
+%% specific wins: the element itself, else the group or sequence around it,
+%% else its type. The schema's own annotation documents the document, and is
+%% dropped.
+documentation_from_xsd(_Config) ->
+    Ns = "http://example.com/documented",
+    #type{doc = TypeDoc, elems = Elems} =
+        ews_svc:get_type(documented, {Ns, "Documented"}),
+    ?assertEqual(<<"What the type is for.">>, TypeDoc),
+    ?assertEqual([{{Ns, "inherits"}, <<"What the group is for.">>},
+                  {{Ns, "overrides"}, <<"What this element is for.">>},
+                  {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
+                  {{Ns, "plain"}, undefined},
+                  {{Ns, "from_type"}, <<"What the simple type is for.">>},
+                  {{Ns, "beats_its_type"}, <<"What this element is for.">>}],
+                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
+    ok.
+
+%% Two branches of a choice declaring the same element still make one field.
+%% Documentation is not part of what makes an element the same element, so a
+%% documented branch must not double the field -- the generated header would
+%% not compile.
+documentation_does_not_duplicate_fields(_Config) ->
+    Ns = "http://example.com/documented",
+    #type{elems = Elems} = ews_svc:get_type(documented, {Ns, "Deduped"}),
+    ?assertEqual([{{Ns, "shared"}, <<"What the branch is for.">>},
+                  {{Ns, "only_here"}, undefined}],
+                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
     ok.
 
 tempfile() ->

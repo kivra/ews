@@ -469,14 +469,19 @@ parse_complex_type(ComplexType, Ctx) ->
     Name = decl_qname(wh:get_attribute(ComplexType, name), Ctx),
     %% logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
+    OwnDoc = own_doc(ComplexType),
     Children = wh:get_all_child_elements(ComplexType),
     %%logger:notice("Children: ~tp~n", [Children]),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction"), Ctx),
     Extension = parse_type(wh:find_element(ComplexType, "extension"), Ctx),
-    case Children of
-        [#xmlElement{expanded_name =
-                         {'http://www.w3.org/2001/XMLSchema',
-                          simpleContent}} = SimpleContent] ->
+    %% The simpleContent is looked for among the children rather than being
+    %% required to be the only one: an <annotation> is allowed beside it, and
+    %% requiring it alone meant a documented type took the branch below, where
+    %% simpleContent is not understood, and lost its value field.
+    case [ C || C = #xmlElement{expanded_name =
+                                    {'http://www.w3.org/2001/XMLSchema',
+                                     simpleContent}} <- Children ] of
+        [SimpleContent] ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction"), Ctx),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension"),
@@ -495,23 +500,29 @@ parse_complex_type(ComplexType, Ctx) ->
             case [ EP || #attribute{} = EP <- ExtensionParts ] of
                 [] ->
                     #simple_type{name=Name,
-                                 restrictions=RestrictionFinal
+                                 restrictions=RestrictionFinal,
+                                 doc=OwnDoc
                                 };
                 [#attribute{} | _] = Attributes ->
                     %% logger:notice("SimpleContentAttrs: ~tp~n", [Attributes]),
                     #simple_content{name=Name,
                                     restrictions=RestrictionFinal,
+                                    doc=OwnDoc,
                                     attrs=Attributes
                                    }
             end;
-        _ ->
+        [] ->
             ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
-            {Doc, TypeParts} = split_doc(ChildTypes),
+            %% Flattened first: a <complexContent> with more than one child
+            %% comes back as a list, and an <annotation> under it or under the
+            %% <extension> would otherwise stay buried in the parts.
+            {NestedDoc, TypeParts} = split_doc(lists:flatten(ChildTypes)),
             Parts = flatten_children(TypeParts),
             {Extends, ExtendParts} = extract_extension(Extension),
             #complex_type{name=Name,
                           extends=Extends, abstract=Abstract,
-                          restrictions=Restriction, doc=Doc,
+                          restrictions=Restriction,
+                          doc=doc_or(OwnDoc, NestedDoc),
                           parts=Parts++ExtendParts}
     end.
 
@@ -703,17 +714,7 @@ flatten_children(Types) ->
     %% after this do some uniqueness.
     %%
     Children = lists:flatten([ flatten_children(T, false) || T <- Types ]),
-    UniqueChildren = lists:foldl(
-        fun (Child, Acc) ->
-            case lists:member(Child, Acc) of
-                false -> Acc ++ [Child];
-                true -> Acc
-            end
-        end,
-        [],
-        Children
-    ),
-    UniqueChildren.
+    lists:foldl(fun add_unique/2, [], Children).
 
 flatten_children(Types, PropUndefined) when is_list(Types) ->
     [ flatten_children(T, PropUndefined) || T <- Types ];
@@ -729,6 +730,30 @@ flatten_children(#element{} = E, true) ->
     E#element{min_occurs=0};
 flatten_children(Any, _PropUndefined) ->
     Any.
+
+%% Two branches of a choice can declare the same element, and only one field
+%% can be emitted for it. Documentation is not part of what makes an element
+%% the same element, so it must not split a duplicate in two -- that put the
+%% same field in a record twice, and the generated file would not compile. The
+%% copy that is kept inherits the text if it had none of its own.
+add_unique(Child, Acc) ->
+    case lists:splitwith(fun (Seen) -> not same_part(Seen, Child) end, Acc) of
+        {_, []} ->
+            Acc ++ [Child];
+        {Before, [Seen | After]} ->
+            Before ++ [fill_doc(Seen, Child) | After]
+    end.
+
+same_part(A, B) ->
+    without_doc(A) =:= without_doc(B).
+
+without_doc(#element{} = E) -> E#element{doc = undefined};
+without_doc(Part) -> Part.
+
+fill_doc(#element{doc = undefined} = Seen, #element{doc = Doc}) ->
+    Seen#element{doc = Doc};
+fill_doc(Seen, _) ->
+    Seen.
 
 %% A sequence, choice or all can carry an annotation of its own, and
 %% dissolving the container leaves nowhere to put it -- so, as for a group, it
@@ -938,7 +963,8 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps, doc=Doc} = CT | Rest],
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
+process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps,
+                         doc=Doc} = CT
         | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
     #restriction{base_type = Bs} = Restrictions,
@@ -966,6 +992,7 @@ process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
                     %% logger:notice("AttrAcc ~tp~n", [AttrAcc]),
                     Type = #type{qname=Qname,
                                  elems=[SC],
+                                 doc=Doc,
                                  attrs=AttrAcc},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,

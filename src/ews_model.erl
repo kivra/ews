@@ -323,6 +323,14 @@ merge_sc(E1, E2) ->
 
 combine_types(T, T) ->
     T;
+%% Documentation is not part of what a type *is*: two models declaring the same
+%% element, with the simple type documented in one of them, still agree on the
+%% type. Treating them as different would turn one field into a spurious union
+%% and send encode and decode down the multi-type path.
+combine_types(#base{} = T1, #base{} = T2) ->
+    same_but_for_doc(T1, T2, T1#base{doc = undefined}, T2#base{doc = undefined});
+combine_types(#enum{} = T1, #enum{} = T2) ->
+    same_but_for_doc(T1, T2, T1#enum{doc = undefined}, T2#enum{doc = undefined});
 combine_types(T1, T2) when is_list(T1), is_list(T2) ->
     T1 ++ (T2 -- T1);
 combine_types(T1, T2) when is_list(T1) ->
@@ -330,6 +338,12 @@ combine_types(T1, T2) when is_list(T1) ->
 combine_types(T1, T2) when is_list(T2) ->
     combine_types([T1], T2);
 combine_types(T1, T2) ->
+    [T1, T2].
+
+%% Keeps the first type, and with it whichever text was there to keep.
+same_but_for_doc(T1, _T2, Stripped, Stripped) ->
+    T1;
+same_but_for_doc(T1, T2, _, _) ->
     [T1, T2].
 
 combine_meta(

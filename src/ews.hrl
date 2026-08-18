@@ -44,7 +44,7 @@
 -record(element, {name, ns, type, doc, default, fixed, nillable=false,
                   min_occurs=1, max_occurs=1, parts, attrs=[]}).
 -record(simple_type, {name, order, restrictions, unionmembers, doc}).
--record(simple_content, {name, order, restrictions, attrs=[]}).
+-record(simple_content, {name, order, restrictions, doc, attrs=[]}).
 -record(attribute, {name, base, type, use, default, fixed}).
 -record(complex_type, {name, extends, abstract, restrictions, parts, doc,
                        attrs=[]}).
