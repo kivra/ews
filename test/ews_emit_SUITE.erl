@@ -68,7 +68,8 @@ simple_graph(_Config) ->
     Filename = file_in_test_priv_dir,
     ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
-    <<"-record(t1, {e1 :: integer() | undefined,\n"
+    <<"%% {\"ns\", \"t1\"}\n"
+      "-record(t1, {e1 :: integer() | undefined,\n"
       "             e2 :: binary() | string() | nil | undefined}).\n\n">> =
         Bin,
     ok.
@@ -87,7 +88,8 @@ simple_circular_graph(_Config) ->
     Filename = file_in_test_priv_dir,
     ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
-    <<"-record(t1, {e1 :: #t1{} | undefined}).\n\n">> =
+    <<"%% {\"ns\", \"t1\"}\n"
+      "-record(t1, {e1 :: #t1{} | undefined}).\n\n">> =
         Bin,
     ok.
 
@@ -113,11 +115,17 @@ circular_graph(_Config) ->
     Filename = file_in_test_priv_dir,
     ews_emit:model_to_file(Model, Filename, test),
     {ok, Bin} = file:read_file(Filename),
-    B1 = <<"-type '#t1'() :: tuple().  %% Needed due to circular type definition\n\n"
+    B1 = <<"%% {\"ns\", \"t1\"}\n"
+           "-type '#t1'() :: tuple().  %% Needed due to circular type definition\n\n"
+           "%% {\"ns\", \"t2\"}\n"
            "-record(t2, {t2e1 :: '#t1'() | undefined}).\n\n"
+           "%% {\"ns\", \"t1\"}\n"
            "-record(t1, {t1e1 :: #t2{} | undefined}).\n\n">>,
-    B2 = <<"-type '#t2'() :: tuple().  %% Needed due to circular type definition\n\n"
+    B2 = <<"%% {\"ns\", \"t2\"}\n"
+           "-type '#t2'() :: tuple().  %% Needed due to circular type definition\n\n"
+           "%% {\"ns\", \"t1\"}\n"
            "-record(t1, {t1e1 :: '#t2'() | undefined}).\n\n"
+           "%% {\"ns\", \"t2\"}\n"
            "-record(t2, {t2e1 :: #t1{} | undefined}).\n\n">>,
     true = B1 == Bin orelse B2 == Bin orelse Bin,
     ok.

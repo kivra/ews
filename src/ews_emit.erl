@@ -38,21 +38,32 @@ model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     [ok = file:write(Fd, [T, $\n]) || T <- ResolvedTypes],
     file:close(Fd).
 
-output_typedef(#type{alias=Alias}) ->
-    ["-type '#", utf8_atom_to_list(Alias), "'() :: tuple().  "
+output_typedef(#type{qname=Qname, alias=Alias}) ->
+    [qname_comment(Qname),
+     "-type '#", utf8_atom_to_list(Alias), "'() :: tuple().  "
      "%% Needed due to circular type definition\n"].
 
+%% The qname the record was generated from, so a reader can find the type or
+%% element it stands for in the XSDs. It is the key the model is stored under
+%% too, so it can be pasted straight into ews_svc:get_type/2. Anonymous types
+%% are named Parent@Child after the element they were declared in.
+qname_comment({Ns, Name}) ->
+    io_lib:format("%% {~p, ~p}~n", [Ns, Name]);
+qname_comment(Name) ->
+    io_lib:format("%% ~p~n", [Name]).
+
 output_type(#type{qname=Qname, alias=Alias, attrs=[]}, Tbl, ModelRef, Unresolved) ->
+    Line0 = qname_comment(Qname),
     Line1 = ["-record(", tick_word(Alias), ", {"],
     Indent = iolist_size(Line1),
     PartRows = [output_part(P, Indent, Tbl, ModelRef, Unresolved) ||
                    P <- ews_model:get_parts(Qname, Tbl)],
     JoinStr = ",\n"++lists:duplicate(Indent, $ ),
-    [Line1, string:join(PartRows, JoinStr), "}).\n"];
+    [Line0, Line1, string:join(PartRows, JoinStr), "}).\n"];
 output_type(#type{qname=Qname, alias=Alias, attrs=Attrs}, Tbl, ModelRef,
             Unresolved) ->
     %% logger:notice("Tp: ~tp~n", [Tp]),
-    Line0 = "%% @doc Possible keys for '__attrs'\n",
+    Line0 = [qname_comment(Qname), "%% @doc Possible keys for '__attrs'\n"],
     AttrDocs = [ ["%% ", tick_word(no_ns(A)), " :: ", no_ns(T), "\n"] ||
                    #attribute{name=A,type=T} <- Attrs ],
     Line1 = ["-record(", tick_word(Alias), ", {"],
