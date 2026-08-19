@@ -112,7 +112,7 @@ output_part(#elem{qname=Qname, type=T, meta=M, doc=Doc}, Indent, Tbl,
     Base = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(Base),
     Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved),
-    [field_doc(Doc, Indent),
+    [field_doc(Doc, value_docs(T), Indent),
      check_min(check_nillable([Base, Ts], M), Min)];
 output_part(#sc{qname=Qname, type=T, meta=M}, Indent, Tbl,
             ModelRef, Unresolved) ->
@@ -121,7 +121,8 @@ output_part(#sc{qname=Qname, type=T, meta=M}, Indent, Tbl,
     Base = [tick_word(A), " :: "],
     SpecIndent = Indent + iolist_size(Base),
     Ts = output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved),
-    check_min(check_nillable([Base, Ts], M), Min).
+    [field_doc(undefined, value_docs(T), Indent),
+     check_min(check_nillable([Base, Ts], M), Min)].
 
 output_types(T, M, SpecIndent, Tbl, ModelRef, Unresolved)
   when not is_list(T) ->
@@ -199,13 +200,34 @@ doc_comment(Doc, Indent) ->
     Pad = lists:duplicate(Indent, $ ),
     [ [Pad, "%% ", Line, $\n] || Line <- wrap_doc(Doc, text_width(Indent)) ].
 
-%% A field's documentation sits above the field, at the field's own indent.
-%% The first line needs no padding: it lands where the field would have.
-field_doc(undefined, _Indent) ->
+%% A field's documentation sits above the field, at the field's own indent:
+%% what the schema said about the element, and then what it said about the
+%% individual values, if its type is an enumeration. The first line needs no
+%% padding, since it lands where the field would have.
+field_doc(undefined, [], _Indent) ->
     [];
-field_doc(Doc, Indent) ->
+field_doc(Doc, ValueDocs, Indent) ->
+    Width = text_width(Indent),
     Pad = lists:duplicate(Indent, $ ),
-    [ ["%% ", Line, $\n, Pad] || Line <- wrap_doc(Doc, text_width(Indent)) ].
+    Lines = doc_lines(Doc, Width) ++
+        lists:append([ value_doc_lines(V, D, Width) || {V, D} <- ValueDocs ]),
+    [ ["%% ", Line, $\n, Pad] || Line <- Lines ].
+
+doc_lines(undefined, _Width) -> [];
+doc_lines(Doc, Width) -> wrap_doc(Doc, Width).
+
+%% What one value of an enumeration means. The continuation lines are indented
+%% under it, so a value that needs several lines cannot be read as several
+%% values.
+value_doc_lines(Value, Doc, Width) ->
+    case wrap_doc([Value, ": ", Doc], Width - 2) of
+        [] -> [];
+        [First | Rest] -> [First | [ "  " ++ Line || Line <- Rest ]]
+    end.
+
+%% The documented values of an element's type, when it has any.
+value_docs(#enum{value_docs = ValueDocs}) -> ValueDocs;
+value_docs(_) -> [].
 
 %% What is left for the text once the indent and the "%% " are paid for.
 text_width(Indent) ->
@@ -214,7 +236,8 @@ text_width(Indent) ->
 %% Greedy wrap on whitespace. Words longer than the width get a line of their
 %% own rather than being broken: a URL stays copyable.
 wrap_doc(Doc, Width) ->
-    Words = string:lexemes(unicode:characters_to_list(Doc), " \t\r\n"),
+    Words = string:lexemes(unicode:characters_to_list(
+                             unicode:characters_to_binary(Doc)), " \t\r\n"),
     [ utf8(L) || L <- wrap_words(Words, max(Width, 20), [], []) ].
 
 wrap_words([W | Ws], Width, [], Lines) ->

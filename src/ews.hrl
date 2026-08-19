@@ -67,7 +67,9 @@
 %% `doc' is what the simple type's own <annotation> said, so that a field
 %% typed by it can be commented even when the element says nothing itself.
 -record(base, {xsd_type, erl_type, restrictions, list=false, union=false, doc}).
--record(enum, {type, values, list=false, union=false, doc}).
+%% `value_docs' is [{Value, Doc}] for the values the schema documented, kept
+%% apart from `values' so that encoding and decoding are untouched by it.
+-record(enum, {type, values, list=false, union=false, doc, value_docs=[]}).
 -record(meta, {nillable=false, default, fixed, max, min}).
 -record(sc, {qname, type, meta, attrs=[]}).
 

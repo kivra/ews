@@ -455,8 +455,15 @@ documentation_from_xsd(_Config) ->
                   {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
                   {{Ns, "plain"}, undefined},
                   {{Ns, "from_type"}, <<"What the simple type is for.">>},
+                  {{Ns, "status"}, undefined},
                   {{Ns, "beats_its_type"}, <<"What this element is for.">>}],
                  [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
+    %% An enumeration value is nothing on its own in the generated file, so
+    %% what it means is kept beside the values themselves, for the fields
+    %% typed by it to list. Values the schema said nothing about are absent.
+    [#elem{type = #enum{value_docs = ValueDocs}}] =
+        [ E || #elem{qname = {_, "status"}} = E <- Elems ],
+    ?assertEqual([{"open", <<"What open means.">>}], ValueDocs),
     ok.
 
 %% Two branches of a choice declaring the same element still make one field.

@@ -41,6 +41,22 @@ ews is a library for interacting with SOAP web services. It includes functionali
   group or sequence around it says, else what its type says. A schema's own
   top-level annotation documents the document rather than any declaration in
   it, and is dropped.
+
+  An enumeration value is not a thing of its own in the generated file either,
+  so what the schema says about one is listed under every field of that type,
+  indented under the value so a description running to several lines cannot be
+  read as several values:
+
+  ```erlang
+  %% matter_status: The status of the matter.
+  %% senderinitiative: This means that the sender has taken an initiative
+  %%   in a matter.
+  %% closed: The matter is finished, will (probably) not generate any new
+  %%   events.
+  matter_status :: senderinitiative
+                 | recipientinitiative
+                 | closed | undefined
+  ```
 * New: the emitted file is headed by a comment saying it is generated. There
   is deliberately no timestamp or version in it: regenerating an unchanged
   model has to produce an unchanged file, so that a build which checks whether

@@ -643,7 +643,7 @@ parse_restriction(#xmlElement{name = Name, expanded_name = Qname} = Restriction)
 is_enumeration([]) ->
     false;
 is_enumeration(Values) ->
-    lists:any(fun({enumeration, _}) -> true; (_) -> false end, Values).
+    lists:any(fun({enumeration, _, _}) -> true; (_) -> false end, Values).
 
 parse_complex_content(ComplexContent, Ctx) ->
     case wh:get_all_child_elements(ComplexContent) of
@@ -813,7 +813,8 @@ parse_restriction_property(Restriction) ->
         "maxLength" ->
             {max_length, to_integer(Value)};
         "enumeration" ->
-            {enumeration, Value};
+            %% A value can say what it means, and that is worth keeping.
+            {enumeration, Value, own_doc(Restriction)};
         "whiteSpace" ->
             {whitespace, Value};
         "pattern" ->
@@ -1170,10 +1171,9 @@ do_process_simple(#simple_type{restrictions=Rs, order=Order, doc=Doc}) ->
     IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
         #enumeration{base_type=_Base, values=Values} = Enum ->
-            Vs = [ {ews_alias:create({ok, Str}), Str} ||
-                   {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion,
-                  doc=Doc};
+            #enum{type=to_base(Enum), values=enum_values(Values),
+                  value_docs=enum_value_docs(Values),
+                  list=IsList, union=IsUnion, doc=Doc};
         #restriction{base_type=_Base, values=Rvals} = Restriction ->
             BaseRec = to_base(Restriction),
             BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
@@ -1189,10 +1189,9 @@ process_simple(#simple_type{restrictions=Rs, order=Order,
     IsUnion = case Order of union -> true; _ -> false end,
     case {Rs, IsUnion} of
         {#enumeration{base_type=_Base, values=Values} = Enum, false} ->
-            Vs = [ {ews_alias:create({ok, Str}), Str} ||
-                   {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion,
-                  doc=Doc};
+            #enum{type=to_base(Enum), values=enum_values(Values),
+                  value_docs=enum_value_docs(Values),
+                  list=IsList, union=IsUnion, doc=Doc};
         {#restriction{base_type=_Base, values=Rvals} = Restriction, false} ->
             BaseRec = to_base(Restriction),
             BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
@@ -1220,6 +1219,12 @@ def_one(Any) -> Any.
 %% anything; otherwise it inherits what the referenced declaration says.
 doc_or(undefined, Doc) -> Doc;
 doc_or(Doc, _) -> Doc.
+
+enum_values(Values) ->
+    [ {ews_alias:create({ok, Str}), Str} || {enumeration, Str, _} <- Values ].
+
+enum_value_docs(Values) ->
+    [ {Str, Doc} || {enumeration, Str, Doc} <- Values, Doc /= undefined ].
 
 simple_doc(#base{doc=Doc}) -> Doc;
 simple_doc(#enum{doc=Doc}) -> Doc;
