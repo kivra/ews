@@ -11,7 +11,7 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
-## Changes between 5.2.3 and next release
+## Changes between 5.2.3 and 5.3.0
 
 * New: the emitted .hrl says where every record came from. Each record and
   typedef is preceded by the qname of the XSD type or element it stands for,
