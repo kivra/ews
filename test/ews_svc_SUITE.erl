@@ -474,9 +474,11 @@ two_models_explicit_model(_Config) ->
         proplists:get_value(out, GetInfo2),
     [{"ResponseHeader", {Ns2, "SoapResponseHeader"}}] = proplists:get_value(
                                                           out_hdr, GetInfo2),
+    %% Record syntax, not a literal tuple: this should not need touching every
+    %% time #base{} grows a field.
     [{"ApiExceptionFault",
-      {base,{"http://www.w3.org/2001/XMLSchema","string"},
-       string,undefined,false,false}}] = proplists:get_value(
+      #base{xsd_type = {"http://www.w3.org/2001/XMLSchema", "string"},
+            erl_type = string}}] = proplists:get_value(
                                            fault, GetInfo2),
     EndPoint2 = proplists:get_value(endpoint, GetInfo2),
     [] = proplists:get_value(action, GetInfo2),
@@ -496,9 +498,11 @@ two_models_unambiguous(_Config) ->
         proplists:get_value(out, GetInfo),
     [{"ResponseHeader", {Ns, "SoapResponseHeader"}}] = proplists:get_value(
                                                           out_hdr, GetInfo),
+    %% Record syntax, not a literal tuple: this should not need touching every
+    %% time #base{} grows a field.
     [{"ApiExceptionFault",
-      {base,{"http://www.w3.org/2001/XMLSchema","string"},
-       string,undefined,false,false}}] = proplists:get_value(
+      #base{xsd_type = {"http://www.w3.org/2001/XMLSchema", "string"},
+            erl_type = string}}] = proplists:get_value(
                                            fault, GetInfo),
     EndPoint = proplists:get_value(endpoint, GetInfo),
     [] = proplists:get_value(action, GetInfo),

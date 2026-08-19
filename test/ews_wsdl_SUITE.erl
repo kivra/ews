@@ -25,6 +25,8 @@
         , unnamed_type_w_attrs/1
         , encode_decode_plain_xsd/1
         , record_to_map_xsd_with_attrs/1
+        , documentation_from_xsd/1
+        , documentation_does_not_duplicate_fields/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -50,6 +52,8 @@ groups() ->
     , {xsds,
        [ encode_decode_plain_xsd
        , record_to_map_xsd_with_attrs
+       , documentation_from_xsd
+       , documentation_does_not_duplicate_fields
        ]}
     ].
 
@@ -95,6 +99,7 @@ init_per_group(teleadr, Config) ->
 init_per_group(xsds, Config) ->
     application:ensure_all_started(ews),
     ok = ews:add_xsd_to_model(xsd_test, test_wsdl_file("importee.xsd")),
+    ok = ews:add_xsd_to_model(documented, test_wsdl_file("documented.xsd")),
     Config.
 
 end_per_group(google_v201306_campaignService, _Config) ->
@@ -106,6 +111,7 @@ end_per_group(mm_service, _Config) ->
 end_per_group(teleadr, _Config) ->
     ews:remove_model(tiny);
 end_per_group(xsds, _Config) ->
+    ews:remove_model(documented),
     ews:remove_model(xsd_test).
 
 google_v201306_ensure_record(Config) ->
@@ -430,6 +436,46 @@ record_to_map_xsd_with_attrs(_Config) ->
     ?assertMatch(#{'__attrs' := #{}}, SigsMap),
     %% signature child is undefined so should be omitted from map
     ?assertEqual(false, maps:is_key(signature, SigsMap)),
+    ok.
+
+%% <documentation> reaches the model from every place a schema can put it. A
+%% group or a sequence is dissolved into the type that references it and a
+%% simpleType becomes a field's type, so none of the three has a record of its
+%% own and their text goes to the fields instead. Where several apply the most
+%% specific wins: the element itself, else the group or sequence around it,
+%% else its type. The schema's own annotation documents the document, and is
+%% dropped.
+documentation_from_xsd(_Config) ->
+    Ns = "http://example.com/documented",
+    #type{doc = TypeDoc, elems = Elems} =
+        ews_svc:get_type(documented, {Ns, "Documented"}),
+    ?assertEqual(<<"What the type is for.">>, TypeDoc),
+    ?assertEqual([{{Ns, "inherits"}, <<"What the group is for.">>},
+                  {{Ns, "overrides"}, <<"What this element is for.">>},
+                  {{Ns, "from_sequence"}, <<"What the sequence is for.">>},
+                  {{Ns, "plain"}, undefined},
+                  {{Ns, "from_type"}, <<"What the simple type is for.">>},
+                  {{Ns, "status"}, undefined},
+                  {{Ns, "beats_its_type"}, <<"What this element is for.">>}],
+                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
+    %% An enumeration value is nothing on its own in the generated file, so
+    %% what it means is kept beside the values themselves, for the fields
+    %% typed by it to list. Values the schema said nothing about are absent.
+    [#elem{type = #enum{value_docs = ValueDocs}}] =
+        [ E || #elem{qname = {_, "status"}} = E <- Elems ],
+    ?assertEqual([{"open", <<"What open means.">>}], ValueDocs),
+    ok.
+
+%% Two branches of a choice declaring the same element still make one field.
+%% Documentation is not part of what makes an element the same element, so a
+%% documented branch must not double the field -- the generated header would
+%% not compile.
+documentation_does_not_duplicate_fields(_Config) ->
+    Ns = "http://example.com/documented",
+    #type{elems = Elems} = ews_svc:get_type(documented, {Ns, "Deduped"}),
+    ?assertEqual([{{Ns, "shared"}, <<"What the branch is for.">>},
+                  {{Ns, "only_here"}, undefined}],
+                 [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
     ok.
 
 tempfile() ->

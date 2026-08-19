@@ -11,6 +11,88 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 5.2.3 and 5.3.0
+
+* New: the emitted .hrl says where every record came from. Each record and
+  typedef is preceded by the qname of the XSD type or element it stands for,
+  which is also the key the model holds it under, so it can be pasted straight
+  into `ews_svc:get_type/2`. This matters most where the record name carries
+  no information: three namespaces declaring a `NotificationMessage` become
+  `notification_message`, `notification_message_1` and
+  `notification_message_2`, told apart only by the order the aliases happened
+  to be handed out in.
+* New: `<annotation><documentation>` from the schema is emitted as comments,
+  on the record for a type's own text and above a field for its element's:
+
+  ```erlang
+  %% {"http://minameddelanden.gov.se/schema/OfficialMatter/v3", "OfficialMatterExtension"}
+  %% Covers event information regarding an event in an official matter. If
+  %% present, this message is an event message regarding an official matter.
+  -record(official_matter_extension, {%% The creation time and date for this
+                                      %% message, originates from the sending
+                                      %% system.
+                                      timestamp :: binary() | string(),
+  ```
+
+  A group, sequence, choice or all is dissolved into the type that references
+  it, and a named simpleType becomes a field's type; none of them has a record
+  of its own, so their text goes to the fields instead. Where more than one
+  applies the most specific wins: what the element says itself, else what the
+  group or sequence around it says, else what its type says. A schema's own
+  top-level annotation documents the document rather than any declaration in
+  it, and is dropped.
+
+  An enumeration value is not a thing of its own in the generated file either,
+  so what the schema says about one is listed under every field of that type,
+  indented under the value so a description running to several lines cannot be
+  read as several values:
+
+  ```erlang
+  %% matter_status: The status of the matter.
+  %% senderinitiative: This means that the sender has taken an initiative
+  %%   in a matter.
+  %% closed: The matter is finished, will (probably) not generate any new
+  %%   events.
+  matter_status :: senderinitiative
+                 | recipientinitiative
+                 | closed | undefined
+  ```
+* New: the emitted file is headed by a comment saying it is generated. There
+  is deliberately no timestamp or version in it: regenerating an unchanged
+  model has to produce an unchanged file, so that a build which checks whether
+  the committed copy is current can tell a stale file from a fresh one.
+* Fix: the emitted file no longer ends with a blank line.
+* Fix: a schema whose group carries an `<annotation>` no longer fails to build
+  a model at all. Between 5.2.3 and this release, `ews_xsd:propagate_meta/3`
+  met the documentation among the group's parts and raised `function_clause`.
+
+## Changes between 5.2.1 and 5.2.3
+
+(5.2.2 carried no library changes.)
+
+* Fix: `elementFormDefault` and per-element `form` are honoured. XSD
+  qualifies a *locally* declared element on the wire only when its effective
+  form says so -- the enclosing schema's `elementFormDefault`, itself
+  defaulting to `unqualified`, overridable per declaration with `form=` --
+  while a *globally* declared element, a direct child of `<schema>`, is always
+  qualified. ews qualified everything, which a validating server rejects:
+  Mina meddelanden's Authority service wants `<arg0>` and got
+  `<ns:arg0 xmlns:ns="http://minameddelanden.gov.se/Authority">`.
+
+  **This changes what goes on the wire** for any schema that does not say
+  `elementFormDefault="qualified"`. Records, field names and record ordering
+  are unaffected.
+
+  Decoding keeps the tolerance it had, in both directions: a bare tag is
+  accepted for an element the model has qualified, as before, and a qualified
+  tag for one the model has unqualified, so a server that disagrees with its
+  own schema about form is still decoded.
+
+## Changes between 5.2.0 and 5.2.1
+
+* Performance: `ews_xml:clean_name/1` no longer allocates when the name is
+  already clean.
+
 ## Changes between 5.1.1 and 5.2.0
 
 * New: streaming decode of large XML documents with `ews:stream_decode/7`.
@@ -167,7 +249,23 @@ Removes the specified model.
 
 `ews:emit_complete_model_types(Model :: atom(), FileName :: list())`
 
-Emits the entire model as an Erlang .hrl file.
+Emits the entire model as an Erlang .hrl file. The file is headed by a comment
+saying it is generated, and every record is preceded by the qname it came from
+and by whatever the schema documented it with:
+
+```erlang
+%% Generated by ews from the WSDL and XSD files of the ek_mm
+%% model. Do not edit it by hand: regenerate it instead.
+
+%% {"http://minameddelanden.gov.se/schema/Authority", "Person"}
+-record(person, {id :: binary() | string(),
+                 name :: binary() | string()}).
+```
+
+The header carries no timestamp or version, so regenerating an unchanged model
+leaves the file byte-identical. That is what makes it worth committing the
+generated file and having a build step check that the committed copy is
+current -- `git diff --quiet` after regenerating is then a real answer.
 
 ### Services
 

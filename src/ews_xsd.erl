@@ -340,7 +340,13 @@ parse_types(Schema) ->
     %% Direct children of <schema> are global declarations; everything the
     %% recursion below reaches is local.
     Types = [ parse_type(E, Ctx, global) || E = #xmlElement{} <- Elements ],
-    [ T || T <- Types, T /= import, T /= include ].
+    %% A top-level <annotation> documents the schema document itself rather
+    %% than any declaration in it, and there is nowhere to put that once every
+    %% schema's types are emitted into one file, so it goes no further.
+    [ T || T <- Types, T /= import, T /= include, not is_doc(T) ].
+
+is_doc({doc, _}) -> true;
+is_doc(_) -> false.
 
 %% Both elementFormDefault and a per-element form attribute default to
 %% "unqualified" per the XSD spec.
@@ -418,11 +424,12 @@ maybe_ref(undefined, Element, #sctx{ns=Ns} = Ctx, Scope) ->
     MaxOccurs = to_integer(wh:get_attribute(Element, maxOccurs)),
     Children = [ parse_type(C, Ctx) ||
                    C <- wh:get_all_child_elements(Element) ],
+    {Doc, Parts} = split_doc(Children),
     #element{name=element_qname(Element, Ctx, Scope), ns=Ns, type=Type,
-             default=Default, fixed=Fixed, nillable=Nillable,
+             doc=Doc, default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
-             parts=Children};
-maybe_ref(Ref, Element, #sctx{ns=Ns}, _Scope) ->
+             parts=Parts};
+maybe_ref(Ref, Element, #sctx{ns=Ns} = Ctx, _Scope) ->
     Default = wh:get_attribute(Element, default),
     Fixed = wh:get_attribute(Element, fixed),
     Nillable = wh:get_attribute(Element, nillable),
@@ -431,7 +438,9 @@ maybe_ref(Ref, Element, #sctx{ns=Ns}, _Scope) ->
     %% A ref always resolves to a global declaration, which is qualified by
     %% the namespace it was declared in -- form does not apply.
     Qname = qname(Ref, Ns),
-    #element{name=Qname, ns=Ns, type=#reference{name=Qname},
+    {Doc, _} = split_doc([ parse_type(C, Ctx) ||
+                             C <- wh:get_all_child_elements(Element) ]),
+    #element{name=Qname, ns=Ns, type=#reference{name=Qname}, doc=Doc,
              default=Default, fixed=Fixed, nillable=Nillable,
              min_occurs=MinOccurs, max_occurs=MaxOccurs,
              parts=[]}.
@@ -460,14 +469,19 @@ parse_complex_type(ComplexType, Ctx) ->
     Name = decl_qname(wh:get_attribute(ComplexType, name), Ctx),
     %% logger:notice("ComplexType: ~p~n", [Name]),
     Abstract = wh:get_attribute(ComplexType, abstract),
+    OwnDoc = own_doc(ComplexType),
     Children = wh:get_all_child_elements(ComplexType),
     %%logger:notice("Children: ~tp~n", [Children]),
     Restriction = parse_type(wh:find_element(ComplexType, "restriction"), Ctx),
     Extension = parse_type(wh:find_element(ComplexType, "extension"), Ctx),
-    case Children of
-        [#xmlElement{expanded_name =
-                         {'http://www.w3.org/2001/XMLSchema',
-                          simpleContent}} = SimpleContent] ->
+    %% The simpleContent is looked for among the children rather than being
+    %% required to be the only one: an <annotation> is allowed beside it, and
+    %% requiring it alone meant a documented type took the branch below, where
+    %% simpleContent is not understood, and lost its value field.
+    case [ C || C = #xmlElement{expanded_name =
+                                    {'http://www.w3.org/2001/XMLSchema',
+                                     simpleContent}} <- Children ] of
+        [SimpleContent] ->
             RestrictionSC = parse_type(wh:find_element(SimpleContent,
                                                        "restriction"), Ctx),
             ExtensionSC = parse_type(wh:find_element(SimpleContent, "extension"),
@@ -486,22 +500,29 @@ parse_complex_type(ComplexType, Ctx) ->
             case [ EP || #attribute{} = EP <- ExtensionParts ] of
                 [] ->
                     #simple_type{name=Name,
-                                 restrictions=RestrictionFinal
+                                 restrictions=RestrictionFinal,
+                                 doc=OwnDoc
                                 };
                 [#attribute{} | _] = Attributes ->
                     %% logger:notice("SimpleContentAttrs: ~tp~n", [Attributes]),
                     #simple_content{name=Name,
                                     restrictions=RestrictionFinal,
+                                    doc=OwnDoc,
                                     attrs=Attributes
                                    }
             end;
-        _ ->
+        [] ->
             ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
-            Parts = flatten_children(ChildTypes),
+            %% Flattened first: a <complexContent> with more than one child
+            %% comes back as a list, and an <annotation> under it or under the
+            %% <extension> would otherwise stay buried in the parts.
+            {NestedDoc, TypeParts} = split_doc(lists:flatten(ChildTypes)),
+            Parts = flatten_children(TypeParts),
             {Extends, ExtendParts} = extract_extension(Extension),
             #complex_type{name=Name,
                           extends=Extends, abstract=Abstract,
                           restrictions=Restriction,
+                          doc=doc_or(OwnDoc, NestedDoc),
                           parts=Parts++ExtendParts}
     end.
 
@@ -517,16 +538,31 @@ extract_extension(#extension{base=Base, parts=ExtParts}) ->
 
 parse_simple_type(Simple, Ctx) ->
     Name = decl_qname(wh:get_attribute(Simple, name), Ctx),
+    Doc = own_doc(Simple),
     {Order, NewSimple} = list_or_union(Simple),
     case Order of
         union ->
-            #simple_type{name=Name, order=Order,
+            #simple_type{name=Name, order=Order, doc=Doc,
                          unionmembers = NewSimple};
         Other when Other == list orelse Other == undefined ->
             Restriction = wh:find_element(NewSimple, "restriction"),
             CompiledRestriction = parse_restriction(Restriction),
-            #simple_type{name=Name, order=Order,
+            #simple_type{name=Name, order=Order, doc=Doc,
                          restrictions=CompiledRestriction}
+    end.
+
+%% The declaration's own <annotation>, as opposed to one on anything nested
+%% inside it -- wh:get_docs/1 searches descendants, so it is given the
+%% annotation element rather than the declaration.
+own_doc(Element) ->
+    case wh:get_child(Element, "annotation") of
+        undefined ->
+            undefined;
+        Annotation ->
+            case wh:get_docs(Annotation) of
+                <<>> -> undefined;
+                Doc -> Doc
+            end
     end.
 
 list_or_union(Simple) ->
@@ -571,8 +607,9 @@ maybe_group_ref(undefined, Group, Ctx) ->
     Name = decl_qname(wh:get_attribute(Group, name), Ctx),
     Children = wh:get_all_child_elements(Group),
     ChildTypes = [ parse_type(C, Ctx) || C <- Children ],
-    Parts = flatten_children(ChildTypes),
-    #group{name=Name, parts=Parts};
+    {Doc, GroupParts} = split_doc(ChildTypes),
+    Parts = flatten_children(GroupParts),
+    #group{name=Name, parts=Parts, doc=Doc};
 maybe_group_ref(Reference0, Group, #sctx{ns=Ns}) ->
     Reference = qname(Reference0, Ns),
     MinOccurs = to_integer(wh:get_attribute(Group, minOccurs)),
@@ -606,7 +643,7 @@ parse_restriction(#xmlElement{name = Name, expanded_name = Qname} = Restriction)
 is_enumeration([]) ->
     false;
 is_enumeration(Values) ->
-    lists:any(fun({enumeration, _}) -> true; (_) -> false end, Values).
+    lists:any(fun({enumeration, _, _}) -> true; (_) -> false end, Values).
 
 parse_complex_content(ComplexContent, Ctx) ->
     case wh:get_all_child_elements(ComplexContent) of
@@ -649,6 +686,16 @@ parse_list(List, Ctx) ->
 parse_annotation(Annotation) ->
     {doc, wh:get_docs(Annotation)}.
 
+%% An <annotation> is not a part of the type it sits in, it is documentation
+%% for it, so it travels in its own field. Leaving it among the parts is how it
+%% used to end up in process/9's "unhandled" catch-all.
+split_doc(Children) ->
+    case lists:keytake(doc, 1, Children) of
+        {value, {doc, <<>>}, Rest} -> {undefined, Rest};
+        {value, {doc, Doc}, Rest} -> {Doc, Rest};
+        false -> {undefined, Children}
+    end.
+
 %% ----------------------------------------------------------------------------
 %% Utility functions
 
@@ -667,32 +714,54 @@ flatten_children(Types) ->
     %% after this do some uniqueness.
     %%
     Children = lists:flatten([ flatten_children(T, false) || T <- Types ]),
-    UniqueChildren = lists:foldl(
-        fun (Child, Acc) ->
-            case lists:member(Child, Acc) of
-                false -> Acc ++ [Child];
-                true -> Acc
-            end
-        end,
-        [],
-        Children
-    ),
-    UniqueChildren.
+    lists:foldl(fun add_unique/2, [], Children).
 
 flatten_children(Types, PropUndefined) when is_list(Types) ->
     [ flatten_children(T, PropUndefined) || T <- Types ];
 flatten_children(#sequence{min_occurs=0, parts=Parts}, _PropUndefined) ->
-    [ flatten_children(T, true) || T <- Parts ];
+    flatten_container(Parts, true);
 flatten_children(#sequence{min_occurs=_, parts=Parts}, PropUndefined) ->
-    [ flatten_children(T, PropUndefined) || T <- Parts ];
+    flatten_container(Parts, PropUndefined);
 flatten_children(#choice{min_occurs=_, parts=Parts}, _PropUndefined) ->
-    [ flatten_children(T, true) || T <- Parts ];
+    flatten_container(Parts, true);
 flatten_children(#all{min_occurs=_, parts=Parts}, PropUndefined) ->
-    [ flatten_children(T, PropUndefined) || T <- Parts ];
+    flatten_container(Parts, PropUndefined);
 flatten_children(#element{} = E, true) ->
     E#element{min_occurs=0};
 flatten_children(Any, _PropUndefined) ->
     Any.
+
+%% Two branches of a choice can declare the same element, and only one field
+%% can be emitted for it. Documentation is not part of what makes an element
+%% the same element, so it must not split a duplicate in two -- that put the
+%% same field in a record twice, and the generated file would not compile. The
+%% copy that is kept inherits the text if it had none of its own.
+add_unique(Child, Acc) ->
+    case lists:splitwith(fun (Seen) -> not same_part(Seen, Child) end, Acc) of
+        {_, []} ->
+            Acc ++ [Child];
+        {Before, [Seen | After]} ->
+            Before ++ [fill_doc(Seen, Child) | After]
+    end.
+
+same_part(A, B) ->
+    without_doc(A) =:= without_doc(B).
+
+without_doc(#element{} = E) -> E#element{doc = undefined};
+without_doc(Part) -> Part.
+
+fill_doc(#element{doc = undefined} = Seen, #element{doc = Doc}) ->
+    Seen#element{doc = Doc};
+fill_doc(Seen, _) ->
+    Seen.
+
+%% A sequence, choice or all can carry an annotation of its own, and
+%% dissolving the container leaves nowhere to put it -- so, as for a group, it
+%% goes to the elements the container contributes.
+flatten_container(Parts0, PropUndefined) ->
+    {Doc, Parts} = split_doc(Parts0),
+    Flat = lists:flatten([ flatten_children(P, PropUndefined) || P <- Parts ]),
+    propagate_doc(Flat, Doc).
 
 print_all_schema_stats(Schemas) ->
     [ print_schema_stats(S) || {_, _, S} <- Schemas ].
@@ -744,7 +813,8 @@ parse_restriction_property(Restriction) ->
         "maxLength" ->
             {max_length, to_integer(Value)};
         "enumeration" ->
-            {enumeration, Value};
+            %% A value can say what it means, and that is worth keeping.
+            {enumeration, Value, own_doc(Restriction)};
         "whiteSpace" ->
             {whitespace, Value};
         "pattern" ->
@@ -784,15 +854,16 @@ process(Types, Model) ->
     end,
     #model{type_map=TypeMap, elems=[], simple_types=Ts}.
 
-process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
+process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps,
+                  doc=Doc} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     case lists:keyfind(complex_type, 1, Ps) of
         #complex_type{extends=Ext, parts=Ps2,
-                      abstract=Abstract} ->
+                      abstract=Abstract, doc=CtDoc} ->
             TypeName = type_name(Qname, Ns, Parent),
-            Elem = #elem{qname=Qname, type=TypeName, meta=Meta},
+            Elem = #elem{qname=Qname, type=TypeName, meta=Meta, doc=Doc},
             ews_model:put_elem(Elem, Parent, TypeMap),
             {AccWithSubTypes, SubElems, Retry2, AttrAcc1} =
                 process(Ps2, Retry, Ts, TypeAcc, [],
@@ -802,7 +873,7 @@ process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
                 [] ->
                     Type = #type{qname=TypeName, extends=Ext,
                                  abstract=Abstract, elems=SubElems,
-                                 attrs=AttrAcc1},
+                                 doc=CtDoc, attrs=AttrAcc1},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry2, Ts, [Type | AccWithSubTypes],
                             [Elem | ElemAcc],
@@ -818,16 +889,14 @@ process([#element{name=Qname, ns=Ns, type=undefined, parts=Ps} = E | Rest],
         false ->
             #simple_type{} = Type = lists:keyfind(simple_type, 1, Ps),
             Base = process_simple(Type, Ts),
-            Elem = #elem{qname=Qname, type=Base, meta=Meta},
+            Elem = #elem{qname=Qname, type=Base, meta=Meta,
+                         doc=doc_or(Doc, simple_doc(Base))},
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#element{parts=[{doc, _}]} = E | Rest], Retry, Ts, TypeAcc, ElemAcc,
-        TypeMap, Model, Parent, AttrAcc) ->
-    process([E#element{parts=[]} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap,
-            Model, Parent, AttrAcc);
-process([#element{ns=Ns, type=#reference{name=RName}, parts=[]} = E | Rest],
+process([#element{ns=Ns, type=#reference{name=RName}, parts=[],
+                  doc=Doc} = E | Rest],
         Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
@@ -840,16 +909,17 @@ process([#element{ns=Ns, type=#reference{name=RName}, parts=[]} = E | Rest],
                     Parent, AttrAcc);
         #elem{type = #base{}} = E1 ->
             %% Override with meta from element with reference
-            Elem = E1#elem{meta = Meta},
+            Elem = E1#elem{meta = Meta, doc = doc_or(Doc, E1#elem.doc)},
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc);
         #elem{type = _} = E1 ->
             %% Override with meta from element with reference
-            Elem = E1#elem{meta = Meta},
+            Elem = E1#elem{meta = Meta, doc = doc_or(Doc, E1#elem.doc)},
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
+process([#element{name=Qname, ns=Ns, type=T, parts=[], doc=Doc} = E | Rest],
+        Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc) ->
     Meta = parse_meta(E),
     Qtype = type_qname(T, Ns),
@@ -857,18 +927,21 @@ process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
         false ->
             case lists:keyfind(Qtype, 1, Ts) of
                 false ->
-                    Elem = #elem{qname=Qname, type=Qtype, meta=Meta},
+                    Elem = #elem{qname=Qname, type=Qtype, meta=Meta, doc=Doc},
                     ews_model:put_elem(Elem, Parent, TypeMap),
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc);
                 {Qtype, BaseOrEnum} ->
-                    Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta},
+                    %% A field typed by a documented simple type says what the
+                    %% type says, unless the element says something itself.
+                    Elem = #elem{qname=Qname, type=BaseOrEnum, meta=Meta,
+                                 doc=doc_or(Doc, simple_doc(BaseOrEnum))},
                     ews_model:put_elem(Elem, Parent, TypeMap),
                     process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap,
                             Model, Parent, AttrAcc)
             end;
         #base{} = Base ->
-            Elem = #elem{qname=Qname, type=Base, meta=Meta} ,
+            Elem = #elem{qname=Qname, type=Base, meta=Meta, doc=Doc} ,
             ews_model:put_elem(Elem, Parent, TypeMap),
             process(Rest, Retry, Ts, TypeAcc, [Elem | ElemAcc], TypeMap, Model,
                     Parent, AttrAcc)
@@ -876,12 +949,13 @@ process([#element{name=Qname, ns=Ns, type=T, parts=[]} = E | Rest], Retry, Ts,
 process([#simple_type{} | Rest], Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
         Parent, AttrAcc) ->
     process(Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model, Parent, AttrAcc);
-process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, Ts,
+process([#complex_type{name=Qname, extends=Ext, parts=Ps, doc=Doc} = CT | Rest],
+        Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
     %% We don't want to pass in Retry in processing of parts
     case process(Ps, [], Ts, TypeAcc, [], TypeMap, Model, Qname, []) of
         {AccWithSubTypes, SubElems, [], AttrAcc} ->
-            Type = #type{qname=Qname, extends=Ext, elems=SubElems,
+            Type = #type{qname=Qname, extends=Ext, elems=SubElems, doc=Doc,
                          attrs=AttrAcc},
             ews_model:put(Type, Model, TypeMap),
             process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
@@ -890,7 +964,8 @@ process([#complex_type{name=Qname, extends=Ext, parts=Ps} = CT | Rest], Retry, T
             process(Rest, [CT | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
-process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
+process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps,
+                         doc=Doc} = CT
         | Rest], Retry, Ts,
         TypeAcc, ElemAcc, TypeMap, Model, Parent, _AttrAcc) ->
     #restriction{base_type = Bs} = Restrictions,
@@ -918,6 +993,7 @@ process([#simple_content{name=Qname, restrictions=Restrictions, attrs=Ps} = CT
                     %% logger:notice("AttrAcc ~tp~n", [AttrAcc]),
                     Type = #type{qname=Qname,
                                  elems=[SC],
+                                 doc=Doc,
                                  attrs=AttrAcc},
                     ews_model:put(Type, Model, TypeMap),
                     process(Rest, Retry, Ts, [Type | AccWithSubTypes], ElemAcc,
@@ -958,9 +1034,9 @@ process([#group_ref{ref=Ref, min_occurs=Min, max_occurs=Max} = Grr | Rest],
         false ->
             process(Rest, [Grr | Retry], Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc);
-        #group{parts=Ps} ->
+        #group{parts=Ps, doc=Doc} ->
             %% Turn a group into a sequence
-            NewPs = propagate_meta(Ps, Min, Max),
+            NewPs = propagate_doc(propagate_meta(Ps, Min, Max), Doc),
             process(NewPs ++ Rest, Retry, Ts, TypeAcc, ElemAcc, TypeMap, Model,
                     Parent, AttrAcc)
     end;
@@ -981,8 +1057,23 @@ propagate_meta([#group_ref{min_occurs=Min, max_occurs=Max} = Grr | T],
     [Grr#group_ref{min_occurs=maybe_override(RefMin, Min),
                    max_occurs=maybe_override(RefMax, Max)} |
      propagate_meta(T, RefMin, RefMax)];
+propagate_meta([Part | T], RefMin, RefMax) ->
+    %% Anything else a group can hold is left alone rather than crashing the
+    %% whole model: process/9 below reports what it cannot use.
+    [Part | propagate_meta(T, RefMin, RefMax)];
 propagate_meta([], _, _) ->
     [].
+
+%% A group is dissolved into the type that references it, so there is no
+%% record for it to document. Its text goes to the elements it contributes,
+%% except where an element documents itself, which is more specific.
+propagate_doc(Parts, undefined) ->
+    Parts;
+propagate_doc(Parts, Doc) ->
+    [ case P of
+          #element{doc = undefined} -> P#element{doc = Doc};
+          _ -> P
+      end || P <- Parts ].
 
 maybe_override(undefined, undefined) -> 1;
 maybe_override(undefined, N) -> N;
@@ -1074,35 +1165,37 @@ process_all_simple([_ | Rest]) ->
 process_all_simple([]) -> [].
 
 %% This process can't handle unions correctly
-do_process_simple(#simple_type{restrictions=Rs, order=Order}) ->
+do_process_simple(#simple_type{restrictions=Rs, order=Order, doc=Doc}) ->
     %% logger:notice("St: ~tp~n", [St]),
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
     case Rs of
         #enumeration{base_type=_Base, values=Values} = Enum ->
-            Vs = [ {ews_alias:create({ok, Str}), Str} ||
-                   {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+            #enum{type=to_base(Enum), values=enum_values(Values),
+                  value_docs=enum_value_docs(Values),
+                  list=IsList, union=IsUnion, doc=Doc};
         #restriction{base_type=_Base, values=Rvals} = Restriction ->
             BaseRec = to_base(Restriction),
-            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion}
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
+                         doc=Doc}
     end.
 
 %% This process can handle unions by finding them in the all processed
 %% simple types handles above by process_all_simple
 process_simple(#simple_type{restrictions=Rs, order=Order,
-                            unionmembers=Members}, Ts) ->
+                            unionmembers=Members, doc=Doc}, Ts) ->
     %% logger:notice("St: ~tp~n", [St]),
     IsList = case Order of list -> true; _ -> false end,
     IsUnion = case Order of union -> true; _ -> false end,
     case {Rs, IsUnion} of
         {#enumeration{base_type=_Base, values=Values} = Enum, false} ->
-            Vs = [ {ews_alias:create({ok, Str}), Str} ||
-                   {enumeration, Str} <- Values ],
-            #enum{type=to_base(Enum), values=Vs, list=IsList, union=IsUnion};
+            #enum{type=to_base(Enum), values=enum_values(Values),
+                  value_docs=enum_value_docs(Values),
+                  list=IsList, union=IsUnion, doc=Doc};
         {#restriction{base_type=_Base, values=Rvals} = Restriction, false} ->
             BaseRec = to_base(Restriction),
-            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion};
+            BaseRec#base{restrictions=Rvals, list=IsList, union=IsUnion,
+                         doc=Doc};
         {undefined, true} ->
             %% FIXME: get all the base types and restrictions for this union
             First = hd(Members),
@@ -1110,7 +1203,8 @@ process_simple(#simple_type{restrictions=Rs, order=Order,
                 undefined ->
                     error({non_existent_simple_type, First, Ts});
                 #base{} = BaseRec->
-                    BaseRec#base{list=IsList, union=IsUnion}
+                    BaseRec#base{list=IsList, union=IsUnion,
+                                 doc=doc_or(Doc, BaseRec#base.doc)}
             end
     end.
 
@@ -1120,6 +1214,21 @@ parse_meta(#element{default=D, fixed=F, nillable=N,
 
 def_one(undefined) -> 1;
 def_one(Any) -> Any.
+
+%% A declaration that references another one documents itself if it says
+%% anything; otherwise it inherits what the referenced declaration says.
+doc_or(undefined, Doc) -> Doc;
+doc_or(Doc, _) -> Doc.
+
+enum_values(Values) ->
+    [ {ews_alias:create({ok, Str}), Str} || {enumeration, Str, _} <- Values ].
+
+enum_value_docs(Values) ->
+    [ {Str, Doc} || {enumeration, Str, Doc} <- Values, Doc /= undefined ].
+
+simple_doc(#base{doc=Doc}) -> Doc;
+simple_doc(#enum{doc=Doc}) -> Doc;
+simple_doc(_) -> undefined.
 
 %% TODO: Handle more refined basic spec types (i.e. non_neg_integer() etc)
 to_base({"http://www.w3.org/2001/XMLSchema", "boolean"} = Qn) ->
@@ -1223,6 +1332,38 @@ form_schema(ElementFormDefault) ->
         "<xsd:simpleType><xsd:restriction base=\"xsd:string\"/></xsd:simpleType>"
         "</xsd:element>"
         "</xsd:sequence></xsd:complexType></xsd:element></xsd:schema>".
+
+%% A schema whose annotations sit in the three places that matter: on the
+%% schema itself, on a named complexType, and on a local element.
+doc_schema() ->
+    "<xsd:schema xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\""
+        " targetNamespace=\"urn:t\">"
+        "<xsd:annotation><xsd:documentation>Version 2.0</xsd:documentation>"
+        "</xsd:annotation>"
+        "<xsd:complexType name=\"T\">"
+        "<xsd:annotation><xsd:documentation>What T is for.</xsd:documentation>"
+        "</xsd:annotation>"
+        "<xsd:sequence>"
+        "<xsd:element name=\"a\" type=\"xsd:string\">"
+        "<xsd:annotation><xsd:documentation>What a is for.</xsd:documentation>"
+        "</xsd:annotation>"
+        "</xsd:element>"
+        "<xsd:element name=\"b\" type=\"xsd:string\"/>"
+        "</xsd:sequence></xsd:complexType></xsd:schema>".
+
+%% The schema's own annotation documents the document, not a declaration, so
+%% it is dropped rather than left to look like a type. The other two are kept
+%% on the declaration they belong to, and out of its parts.
+annotation_test() ->
+    {Schema, []} = xmerl_scan:string(doc_schema(),
+                                     [{space, normalize},
+                                      {namespace_conformant, true}]),
+    [#complex_type{doc = TypeDoc, parts = Parts}] = parse_types(Schema),
+    ?assertEqual(<<"What T is for.">>, TypeDoc),
+    %% Bare names: the fixture declares no elementFormDefault.
+    ?assertEqual([{"a", <<"What a is for.">>}, {"b", undefined}],
+                 [ {N, D} || #element{name = N, doc = D} <- Parts ]),
+    ?assertEqual([[], []], [ P || #element{parts = P} <- Parts ]).
 
 parse_form_schema(ElementFormDefault) ->
     {Schema, []} = xmerl_scan:string(form_schema(ElementFormDefault),
