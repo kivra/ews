@@ -15,7 +15,7 @@ ews is a library for interacting with SOAP web services. It includes functionali
 
 * Fix: an `<include>`d schema keeps the `elementFormDefault` of its own
   document. Including a schema splices its declarations into the including one,
-  which loses the boundary, so from 5.3.0 -- where the form became significant
+  which loses the boundary, so from 5.2.3 -- where the form became significant
   -- those declarations picked up the including document's default instead of
   their own. A qualified schema included by one that says nothing had its local
   elements go on the wire unqualified. They are now given their own form
