@@ -492,10 +492,9 @@ documentation_does_not_duplicate_fields(_Config) ->
 included_schema_keeps_its_element_form(Config) ->
     PrivDir = proplists:get_value(priv_dir, Config),
     Url = "http://example.com/included.xsd",
-    Cached = filename:join([PrivDir, "xsds", cache_name(Url)]),
-    ok = filelib:ensure_dir(Cached),
-    {ok, Included} = file:read_file(test_wsdl_file("included.xsd")),
-    ok = file:write_file(Cached, Included),
+    Nested = "http://example.com/included_nested.xsd",
+    ok = seed_cache(PrivDir, [Url, Nested]),
+    Was = application:get_env(ews, cache_base_dir),
     ok = application:set_env(ews, cache_base_dir, PrivDir),
     try
         ok = ews:add_xsd_to_model(including, test_wsdl_file("including.xsd")),
@@ -508,12 +507,34 @@ included_schema_keeps_its_element_form(Config) ->
         #type{elems = Theirs} = ews_svc:get_type(including, {Ns, "Included"}),
         ?assertEqual([{Ns, "qualified_by_its_own_schema"},
                       "asks_to_be_unqualified"],
-                     [ Q || #elem{qname = Q} <- Theirs ])
+                     [ Q || #elem{qname = Q} <- Theirs ]),
+        %% And a schema reached through two levels of include is resolved as
+        %% well, under the form its own document declares.
+        #type{elems = Deeper} = ews_svc:get_type(including, {Ns, "Nested"}),
+        ?assertEqual(["from_two_levels_down"],
+                     [ Q || #elem{qname = Q} <- Deeper ])
     after
         ews:remove_model(including),
-        application:unset_env(ews, cache_base_dir)
+        restore_env(ews, cache_base_dir, Was)
     end,
     ok.
+
+%% Puts the schemas where request_cached/1 will look for them, which is the
+%% only route find_includes/2 has to an included document.
+seed_cache(Dir, Urls) ->
+    lists:foreach(
+      fun (Url) ->
+              Name = filename:basename(Url),
+              Cached = filename:join([Dir, "xsds", cache_name(Url)]),
+              ok = filelib:ensure_dir(Cached),
+              {ok, Bin} = file:read_file(test_wsdl_file(Name)),
+              ok = file:write_file(Cached, Bin)
+      end, Urls).
+
+restore_env(App, Key, undefined) ->
+    application:unset_env(App, Key);
+restore_env(App, Key, {ok, Value}) ->
+    application:set_env(App, Key, Value).
 
 %% How ews_xsd names a cached schema: the url with its slashes flattened.
 cache_name(Url) ->

@@ -20,7 +20,10 @@ ews is a library for interacting with SOAP web services. It includes functionali
   their own. A qualified schema included by one that says nothing had its local
   elements go on the wire unqualified. They are now given their own form
   explicitly as they are spliced in, so it no longer matters what the including
-  schema says.
+  schema says. A schema reached through more than one level of `<include>` is
+  resolved too, which it previously was not: the nested `<include>` survived
+  into the merged schema, where it was reported as an unrecognised element and
+  the document it named was simply missing.
 
 ## Changes between 5.2.3 and 5.3.0
 

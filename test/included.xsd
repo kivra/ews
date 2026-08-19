@@ -2,6 +2,7 @@
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            targetNamespace="http://example.com/included"
            elementFormDefault="qualified">
+  <xs:include schemaLocation="http://example.com/included_nested.xsd"/>
   <xs:complexType name="Included">
     <xs:sequence>
       <xs:element name="qualified_by_its_own_schema" type="xs:string"/>

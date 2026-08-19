@@ -100,8 +100,7 @@ all_types(Schemas) ->
 
 get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace,
-                                   form_default(TopSchema)),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}},
@@ -114,8 +113,7 @@ get_all_schemas(Schema) ->
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace,
-                                   form_default(TopSchema)),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}, BaseDir},
@@ -128,30 +126,50 @@ get_all_schemas(Schema, BaseDir) ->
 
 %% Keep the schema element itself, not just its content: parse_types/1 reads
 %% targetNamespace and elementFormDefault off it.
-find_includes(#xmlElement{content=Content} = Schema, Ns, Form) ->
-    Schema#xmlElement{content=find_includes(Content, Ns, Form)};
-find_includes([#xmlText{} = Txt | T], Ns, Form) ->
-    [Txt | find_includes(T, Ns, Form)];
+find_includes(#xmlElement{content=Content} = Schema, Ns) ->
+    {Expanded, _Seen} = find_includes(Content, Ns, []),
+    Schema#xmlElement{content=Expanded}.
+
+%% Seen is the schemaLocations already spliced in. Including the same document
+%% twice is a no-op by definition, and a schema that includes another which
+%% includes the first is legal, so without this the walk below would not
+%% terminate.
+find_includes([#xmlText{} = Txt | T], Ns, Seen) ->
+    {Rest, NewSeen} = find_includes(T, Ns, Seen),
+    {[Txt | Rest], NewSeen};
 find_includes([#xmlElement{
                   expanded_name =
                       {'http://www.w3.org/2001/XMLSchema',
-                       include}} = IncElem | T], Ns, Form) ->
+                       include}} = IncElem | T], Ns, Seen) ->
     Url = wh:get_attribute(IncElem, schemaLocation),
     %%logger:notice("Url: ~tp~n", [Url]),
-    #schema{types = Include} = import_schema(Url, Ns),
-    #xmlElement{content=Content} = Include,
-    %% Splicing the content in loses the document boundary, and with it the
-    %% elementFormDefault that applies to these declarations. So each of them
-    %% is given that form explicitly on the way in, and then it does not matter
-    %% what the including schema's default is.
-    set_form(Content, form_default(Include)) ++ find_includes(T, Ns, Form);
-find_includes([#xmlElement{content=Content} = Elem | T], Ns, Form) ->
-    [Elem#xmlElement{content=find_includes(Content, Ns, Form)} |
-     find_includes(T, Ns, Form)];
-find_includes([#xmlComment{} = Comment | T], Ns, Form) ->
-    [Comment | find_includes(T, Ns, Form)];
-find_includes([], _, _) ->
-    [].
+    case lists:member(Url, Seen) of
+        true ->
+            find_includes(T, Ns, Seen);
+        false ->
+            #schema{types = Include} = import_schema(Url, Ns),
+            #xmlElement{content=Content} = Include,
+            %% Splicing the content in loses the document boundary, and with it
+            %% the elementFormDefault that applies to these declarations. So
+            %% each of them is given that form explicitly on the way in, and
+            %% then it does not matter what the including schema's default is.
+            Stamped = set_form(Content, form_default(Include)),
+            %% Walked in turn, so that a schema included by an included schema
+            %% is resolved as well -- and stamped with its own form, since that
+            %% is the document its declarations were written in.
+            {Inner, SeenInner} = find_includes(Stamped, Ns, [Url | Seen]),
+            {Rest, NewSeen} = find_includes(T, Ns, SeenInner),
+            {Inner ++ Rest, NewSeen}
+    end;
+find_includes([#xmlElement{content=Content} = Elem | T], Ns, Seen) ->
+    {Nested, SeenNested} = find_includes(Content, Ns, Seen),
+    {Rest, NewSeen} = find_includes(T, Ns, SeenNested),
+    {[Elem#xmlElement{content=Nested} | Rest], NewSeen};
+find_includes([#xmlComment{} = Comment | T], Ns, Seen) ->
+    {Rest, NewSeen} = find_includes(T, Ns, Seen),
+    {[Comment | Rest], NewSeen};
+find_includes([], _, Seen) ->
+    {[], Seen}.
 
 form_default(Schema) ->
     form(wh:get_attribute(Schema, elementFormDefault), unqualified).
