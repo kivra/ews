@@ -100,8 +100,7 @@ all_types(Schemas) ->
 
 get_all_schemas([TopSchema | T]) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace,
-                                   form_default(TopSchema)),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}},
@@ -114,8 +113,7 @@ get_all_schemas(Schema) ->
 
 get_all_schemas([TopSchema | T], BaseDir) ->
     Namespace = wh:get_attribute(TopSchema, targetNamespace),
-    ExpandedSchema = find_includes(TopSchema, Namespace,
-                                   form_default(TopSchema)),
+    ExpandedSchema = find_includes(TopSchema, Namespace),
     %%logger:notice("ExpandedSchema: ~tp~n", [ExpandedSchema]),
     Input = {Namespace, undefined, #schema{namespace=Namespace,
                                            types=ExpandedSchema}, BaseDir},
@@ -128,43 +126,76 @@ get_all_schemas(Schema, BaseDir) ->
 
 %% Keep the schema element itself, not just its content: parse_types/1 reads
 %% targetNamespace and elementFormDefault off it.
-find_includes(#xmlElement{content=Content} = Schema, Ns, Form) ->
-    Schema#xmlElement{content=find_includes(Content, Ns, Form)};
-find_includes([#xmlText{} = Txt | T], Ns, Form) ->
-    [Txt | find_includes(T, Ns, Form)];
+find_includes(#xmlElement{content=Content} = Schema, Ns) ->
+    {Expanded, _Seen} = find_includes(Content, Ns, []),
+    Schema#xmlElement{content=Expanded}.
+
+%% Seen is the schemaLocations already spliced in. Including the same document
+%% twice is a no-op by definition, and a schema that includes another which
+%% includes the first is legal, so without this the walk below would not
+%% terminate.
+find_includes([#xmlText{} = Txt | T], Ns, Seen) ->
+    {Rest, NewSeen} = find_includes(T, Ns, Seen),
+    {[Txt | Rest], NewSeen};
 find_includes([#xmlElement{
                   expanded_name =
                       {'http://www.w3.org/2001/XMLSchema',
-                       include}} = IncElem | T], Ns, Form) ->
+                       include}} = IncElem | T], Ns, Seen) ->
     Url = wh:get_attribute(IncElem, schemaLocation),
     %%logger:notice("Url: ~tp~n", [Url]),
-    #schema{types = Include} = import_schema(Url, Ns),
-    #xmlElement{content=Content} = Include,
-    warn_on_form_clash(Url, Include, Form),
-    Content ++ find_includes(T, Ns, Form);
-find_includes([#xmlElement{content=Content} = Elem | T], Ns, Form) ->
-    [Elem#xmlElement{content=find_includes(Content, Ns, Form)} |
-     find_includes(T, Ns, Form)];
-find_includes([#xmlComment{} = Comment | T], Ns, Form) ->
-    [Comment | find_includes(T, Ns, Form)];
-find_includes([], _, _) ->
-    [].
+    case lists:member(Url, Seen) of
+        true ->
+            find_includes(T, Ns, Seen);
+        false ->
+            #schema{types = Include} = import_schema(Url, Ns),
+            #xmlElement{content=Content} = Include,
+            %% Splicing the content in loses the document boundary, and with it
+            %% the elementFormDefault that applies to these declarations. So
+            %% each of them is given that form explicitly on the way in, and
+            %% then it does not matter what the including schema's default is.
+            Stamped = set_form(Content, form_default(Include)),
+            %% Walked in turn, so that a schema included by an included schema
+            %% is resolved as well -- and stamped with its own form, since that
+            %% is the document its declarations were written in.
+            {Inner, SeenInner} = find_includes(Stamped, Ns, [Url | Seen]),
+            {Rest, NewSeen} = find_includes(T, Ns, SeenInner),
+            {Inner ++ Rest, NewSeen}
+    end;
+find_includes([#xmlElement{content=Content} = Elem | T], Ns, Seen) ->
+    {Nested, SeenNested} = find_includes(Content, Ns, Seen),
+    {Rest, NewSeen} = find_includes(T, Ns, SeenNested),
+    {[Elem#xmlElement{content=Nested} | Rest], NewSeen};
+find_includes([#xmlComment{} = Comment | T], Ns, Seen) ->
+    {Rest, NewSeen} = find_includes(T, Ns, Seen),
+    {[Comment | Rest], NewSeen};
+find_includes([], _, Seen) ->
+    {[], Seen}.
 
 form_default(Schema) ->
     form(wh:get_attribute(Schema, elementFormDefault), unqualified).
 
-%% Splicing the included content in loses the document boundary, so its
-%% declarations are parsed under the including schema's elementFormDefault.
-%% When the two disagree, that silently gives the included schema's local
-%% elements the wrong form on the wire -- say so rather than let it pass.
-warn_on_form_clash(Url, Included, Form) ->
-    case form_default(Included) of
-        Form ->
-            ok;
-        Other ->
-            logger:warning("included schema ~ts declares elementFormDefault "
-                           "~p but is parsed as ~p: its local elements will "
-                           "get the wrong form~n", [Url, Other, Form])
+%% Writes an explicit form onto every element declaration that does not have
+%% one, so that it keeps the form its own document gave it once it has been
+%% spliced into another. A form attribute means nothing on a global
+%% declaration, which is qualified either way, so there is no need to tell the
+%% two apart here.
+set_form(Content, Form) ->
+    [ set_form_of(C, Form) || C <- Content ].
+
+set_form_of(#xmlElement{expanded_name = {'http://www.w3.org/2001/XMLSchema',
+                                         element},
+                        attributes = Attrs, content = Nested} = E, Form) ->
+    E#xmlElement{attributes = keep_own_form(Attrs, Form),
+                 content = set_form(Nested, Form)};
+set_form_of(#xmlElement{content = Nested} = E, Form) ->
+    E#xmlElement{content = set_form(Nested, Form)};
+set_form_of(Other, _Form) ->
+    Other.
+
+keep_own_form(Attrs, Form) ->
+    case lists:keymember(form, #xmlAttribute.name, Attrs) of
+        true -> Attrs;
+        false -> [#xmlAttribute{name = form, value = atom_to_list(Form)} | Attrs]
     end.
 
 do_get_all_schemas({Ns, Base, Schema}, Acc) ->
@@ -326,11 +357,9 @@ escape_slash([C | Rest]) -> [C | escape_slash(Rest)].
 %% TODO: Handle includes
 %%
 %% NOTE: an <include>d schema has been spliced into this one by find_includes/3
-%% before we get here, so its declarations are parsed under the *including*
-%% schema's elementFormDefault. That is wrong if the two documents disagree on
-%% it -- rare, since an include shares the targetNamespace, and warned about by
-%% warn_on_form_clash/3 -- and would need find_includes to keep the boundary
-%% to fix.
+%% before we get here, so the elementFormDefault read below is the including
+%% document's. find_includes/3 writes the included document's own form onto its
+%% declarations as it splices them, so they do not pick this one up.
 parse_types(Schema) ->
     Ctx = #sctx{ns = wh:get_attribute(Schema, targetNamespace),
                 form_default = form(wh:get_attribute(Schema,

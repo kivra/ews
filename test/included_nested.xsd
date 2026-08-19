@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Included by included.xsd, to cover a schema reached through two levels of
+  <include>. It declares "unqualified", which neither document above it does,
+  so its local element also shows that the form travels with the document it
+  was written in rather than with the outermost one.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://example.com/included"
+           elementFormDefault="unqualified">
+  <xs:complexType name="Nested">
+    <xs:sequence>
+      <xs:element name="from_two_levels_down" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

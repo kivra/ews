@@ -11,6 +11,20 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 5.3.0 and 5.3.1
+
+* Fix: an `<include>`d schema keeps the `elementFormDefault` of its own
+  document. Including a schema splices its declarations into the including one,
+  which loses the boundary, so from 5.2.3 -- where the form became significant
+  -- those declarations picked up the including document's default instead of
+  their own. A qualified schema included by one that says nothing had its local
+  elements go on the wire unqualified. They are now given their own form
+  explicitly as they are spliced in, so it no longer matters what the including
+  schema says. A schema reached through more than one level of `<include>` is
+  resolved too, which it previously was not: the nested `<include>` survived
+  into the merged schema, where it was reported as an unrecognised element and
+  the document it named was simply missing.
+
 ## Changes between 5.2.3 and 5.3.0
 
 * New: the emitted .hrl says where every record came from. Each record and

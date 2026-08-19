@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture for <include> and element form. This schema declares no
+  elementFormDefault, so its own local elements are unqualified, and it
+  includes a schema that declares "qualified". The included declarations keep
+  the form their own document gave them, whatever this one says.
+
+  The include resolves through ews's schema cache rather than over the network;
+  the suite puts the included file there first.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:i="http://example.com/included"
+           targetNamespace="http://example.com/included">
+  <xs:include schemaLocation="http://example.com/included.xsd"/>
+  <xs:element name="Including" type="i:Including"/>
+  <xs:complexType name="Including">
+    <xs:sequence>
+      <xs:element name="mine" type="xs:string"/>
+      <xs:element name="theirs" type="i:Included"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

@@ -27,6 +27,7 @@
         , record_to_map_xsd_with_attrs/1
         , documentation_from_xsd/1
         , documentation_does_not_duplicate_fields/1
+        , included_schema_keeps_its_element_form/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -54,6 +55,7 @@ groups() ->
        , record_to_map_xsd_with_attrs
        , documentation_from_xsd
        , documentation_does_not_duplicate_fields
+       , included_schema_keeps_its_element_form
        ]}
     ].
 
@@ -477,6 +479,66 @@ documentation_does_not_duplicate_fields(_Config) ->
                   {{Ns, "only_here"}, undefined}],
                  [ {Q, D} || #elem{qname = Q, doc = D} <- Elems ]),
     ok.
+
+%% An <include>d schema is spliced into the including document, which loses the
+%% boundary and with it the elementFormDefault that applied to those
+%% declarations. They have to keep the form their own document gave them: here
+%% a qualified schema is included by one that says nothing, so its locals stay
+%% qualified, and the one asking for unqualified still gets it.
+%%
+%% The include resolves through ews's schema cache, which is the only route
+%% find_includes/3 has -- so the included file is put there first, under the
+%% name the cache would have given it.
+included_schema_keeps_its_element_form(Config) ->
+    PrivDir = proplists:get_value(priv_dir, Config),
+    Url = "http://example.com/included.xsd",
+    Nested = "http://example.com/included_nested.xsd",
+    ok = seed_cache(PrivDir, [Url, Nested]),
+    Was = application:get_env(ews, cache_base_dir),
+    ok = application:set_env(ews, cache_base_dir, PrivDir),
+    try
+        ok = ews:add_xsd_to_model(including, test_wsdl_file("including.xsd")),
+        Ns = "http://example.com/included",
+        #type{elems = Mine} = ews_svc:get_type(including, {Ns, "Including"}),
+        %% The including schema declares no elementFormDefault, so its own
+        %% locals are unqualified.
+        ?assertEqual(["mine", "theirs"],
+                     [ Q || #elem{qname = Q} <- Mine ]),
+        #type{elems = Theirs} = ews_svc:get_type(including, {Ns, "Included"}),
+        ?assertEqual([{Ns, "qualified_by_its_own_schema"},
+                      "asks_to_be_unqualified"],
+                     [ Q || #elem{qname = Q} <- Theirs ]),
+        %% And a schema reached through two levels of include is resolved as
+        %% well, under the form its own document declares.
+        #type{elems = Deeper} = ews_svc:get_type(including, {Ns, "Nested"}),
+        ?assertEqual(["from_two_levels_down"],
+                     [ Q || #elem{qname = Q} <- Deeper ])
+    after
+        ews:remove_model(including),
+        restore_env(ews, cache_base_dir, Was)
+    end,
+    ok.
+
+%% Puts the schemas where request_cached/1 will look for them, which is the
+%% only route find_includes/2 has to an included document.
+seed_cache(Dir, Urls) ->
+    lists:foreach(
+      fun (Url) ->
+              Name = filename:basename(Url),
+              Cached = filename:join([Dir, "xsds", cache_name(Url)]),
+              ok = filelib:ensure_dir(Cached),
+              {ok, Bin} = file:read_file(test_wsdl_file(Name)),
+              ok = file:write_file(Cached, Bin)
+      end, Urls).
+
+restore_env(App, Key, undefined) ->
+    application:unset_env(App, Key);
+restore_env(App, Key, {ok, Value}) ->
+    application:set_env(App, Key, Value).
+
+%% How ews_xsd names a cached schema: the url with its slashes flattened.
+cache_name(Url) ->
+    [ case C of $/ -> $-; _ -> C end || C <- Url ].
 
 tempfile() ->
     filename:join("/tmp",
