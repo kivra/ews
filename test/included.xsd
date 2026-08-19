@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://example.com/included"
+           elementFormDefault="qualified">
+  <xs:complexType name="Included">
+    <xs:sequence>
+      <xs:element name="qualified_by_its_own_schema" type="xs:string"/>
+      <xs:element name="asks_to_be_unqualified" form="unqualified"
+                  type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>
