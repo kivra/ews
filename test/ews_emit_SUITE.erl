@@ -17,7 +17,8 @@
          simple_circular_graph/1,
          circular_graph/1,
          documented_graph/1,
-         enum_value_docs/1
+         enum_value_docs/1,
+         list_of_enums/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -29,7 +30,8 @@ groups() ->
        simple_circular_graph,
        circular_graph,
        documented_graph,
-       enum_value_docs
+       enum_value_docs,
+       list_of_enums
       ]}].
 
 all() ->
@@ -219,6 +221,40 @@ enum_value_docs(Config) ->
                  "             %% closed: Done with.\n"
                  "             e1 :: open\n"
                  "                 | closed}).\n">>,
+    Bin = <<H/binary, Expected/binary>>,
+    ok.
+
+%% A repeated enum is spelled as a list, and the bracket has to be laid out so
+%% that the values still line up under each other.
+list_of_enums(Config) ->
+    Table = ets:new(type_table, []),
+    Enum = #enum{type = string_type(), values = [{sms, "sms"},
+                                                 {e_mail, "eMail"}]},
+    One = #enum{type = string_type(), values = [{sms, "sms"}]},
+    ets:insert(Table, {{"ns", "t1"},
+                       #type{qname={"ns", "t1"}, alias = t1,
+                             elems = [#elem{qname = {"ns", "e1"},
+                                            type = Enum,
+                                            meta = meta(undefined, 0, 2)},
+                                      #elem{qname = {"ns", "e2"},
+                                            type = Enum,
+                                            meta = meta(undefined, 1, 1)},
+                                      #elem{qname = {"ns", "e3"},
+                                            type = One,
+                                            meta = meta(undefined, 1, 2)}]}}),
+    Filename = emit_file(Config),
+    ews_emit:model_to_file(#model{type_map=Table}, Filename, test),
+    {ok, Bin} = file:read_file(Filename),
+    H = header(),
+    %% e1 is a list, so the bracket shares a column with the pipe under it and
+    %% both values share one too. e2 is not a list. e3 is a list with a single
+    %% value, where there is nothing to line up and no space is wanted.
+    Expected = <<"%% {\"ns\", \"t1\"}\n"
+                 "-record(t1, {e1 :: [ sms\n"
+                 "                   | e_mail] | undefined,\n"
+                 "             e2 :: sms\n"
+                 "                 | e_mail,\n"
+                 "             e3 :: [sms]}).\n">>,
     Bin = <<H/binary, Expected/binary>>,
     ok.
 

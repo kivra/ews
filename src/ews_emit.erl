@@ -138,8 +138,16 @@ output_single_type(#base{erl_type=Et}, #meta{max = Max}, _SpecIndent, _Tbl,
 output_single_type(E = #enum{values=Values}, #meta{max = Max},
                    SpecIndent, _Tbl, _ModelRef, _Unresolved) ->
     #enum{list=IsList} = E,
-    EnumSpec = emit_enum([ V || {V, _} <- Values ], SpecIndent),
-    add_list(EnumSpec, IsList orelse Max > 1);
+    Vs = [ V || {V, _} <- Values ],
+    case {IsList orelse Max > 1, Vs} of
+        {true, [_, _ | _]} ->
+            %% A list of several values is opened with "[ " rather than "[", so
+            %% that the bracket lands in the same column as the pipes under it
+            %% and every value in the same column as the first.
+            ["[ ", emit_enum(Vs, SpecIndent + 2), "]"];
+        {AsList, _} ->
+            add_list(emit_enum(Vs, SpecIndent), AsList)
+    end;
 output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl,
                    ModelRef, Unresolved) ->
     Atn = ews_alias:get_alias(Tn, ModelRef),
