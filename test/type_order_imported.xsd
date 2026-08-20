@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Imported by type_order.xsd. Its target namespace sorts before the importing
+  document's, which is what decides the record name they collide over.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://example.com/aaa-order"
+           elementFormDefault="qualified">
+  <xs:complexType name="Collide">
+    <xs:sequence>
+      <xs:element name="from_the_imported_schema" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

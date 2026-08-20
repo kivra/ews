@@ -87,13 +87,26 @@ parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
 %% parsing, so from here on nothing needs to know which schema a type came
 %% from.
 %%
-%% The order is not arbitrary: process/2 hands the types to ews_alias in this
-%% order, and the first type to claim a record name keeps it. This reproduces
-%% the order the namespace-propagation pass used to leave behind -- it flipped
-%% the accumulator once per schema -- so that record names stay put.
+%% The order still matters: process/2 hands the types to ews_alias in it, the
+%% first type to claim a record name keeps it, and the rest get a _1 or a _2.
+%% Until 6.0.0 this reproduced the order left behind by a namespace-propagation
+%% pass that flipped its accumulator once per schema, which no reading of the
+%% schemas could predict. What is left is the order get_all_schemas/1 returns,
+%% which is worth knowing exactly, since it decides record names:
+%%
+%%   * schemas sorted by target namespace -- they come back through
+%%     lists:ukeysort/2 keyed on it, so this is not the order the documents are
+%%     imported or written in. A namespace added later that sorts earlier takes
+%%     the plain name off whatever held it.
+%%   * within a schema, the order the declarations are written in -- except
+%%     that a type whose parts include an element ref cannot be resolved on the
+%%     first pass through process/2 and is aliased in the second, after every
+%%     type that resolved on the first.
+%%
+%% Which is to say: predictable, and worth checking against the qname comment
+%% ews_emit puts above each record rather than worked out by hand.
 all_types(Schemas) ->
-    lists:foldl(fun(#schema{types=Ts}, Acc) -> lists:reverse(Acc) ++ Ts end,
-                [], Schemas).
+    lists:append([ Ts || #schema{types=Ts} <- Schemas ]).
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions

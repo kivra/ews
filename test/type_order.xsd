@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture for the order types are aliased in. Three schemas declare a type of
+  the same name, so they get `collide`, `collide_1` and `collide_2`, and which
+  gets which is decided by the order the schemas are processed in.
+
+  Three rather than two, because that is what it takes to tell the candidate
+  orders apart. Sorted by namespace they are aaa, mmm, zzz, with zzz the
+  document you are reading. Processing in that order gives the plain name to
+  aaa. The accumulator-flipping order this replaced gave it to mmm, the middle
+  one. Reading the WSDL top-down would predict zzz. All three answers differ,
+  so the test can only pass for one of them.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:a="http://example.com/aaa-order"
+           xmlns:m="http://example.com/mmm-order"
+           targetNamespace="http://example.com/zzz-order"
+           elementFormDefault="qualified">
+  <xs:import namespace="http://example.com/aaa-order"
+             schemaLocation="type_order_imported.xsd"/>
+  <xs:import namespace="http://example.com/mmm-order"
+             schemaLocation="type_order_middle.xsd"/>
+  <xs:complexType name="Collide">
+    <xs:sequence>
+      <xs:element name="from_the_importing_schema" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

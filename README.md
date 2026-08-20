@@ -11,6 +11,38 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 5.3.1 and 6.0.0
+
+* **Breaking: types are declared in a predictable order, which changes which
+  record gets which name.** The order the schemas' declarations are processed
+  in decides who wins a name collision: the first type to claim a record name
+  keeps it, and the rest get a `_1` or a `_2`. That order used to come out of a
+  pass that flipped its accumulator once per schema, so no reading of the
+  schemas could predict it.
+
+  What is left is worth stating exactly, since it decides record names:
+  schemas **sorted by target namespace** -- not the order they are imported or
+  written in -- and within a schema the order the declarations are written in,
+  except that a type whose parts include an element `ref` is resolved on a
+  second pass and so is aliased after every type that resolved on the first.
+
+  Two consequences worth knowing. A namespace added later that sorts earlier
+  will take a plain record name off whatever held it, so suffixes are not
+  stable across schema additions. And the reliable way to check which type a
+  record stands for is the qname comment above it, not the name.
+
+  Nothing about the emitted records changes except which name lands on which
+  XSD type -- and that changes silently, because the *set* of names is the
+  same. Code referring to a `_1` or `_2` record still compiles and now means a
+  different type. For Mina meddelanden, `#deliver_secure{}` was
+  `{Service/v3, deliverSecure}` and is now `{Service/v2, deliverSecure}`, with
+  v3 having become `#deliver_secure_1{}`.
+
+  Upgrading means regenerating the .hrl and then checking every reference to a
+  suffixed record. The qname comment above each record, added in 5.3.0, is
+  what makes that checkable: it says which XSD type the record stands for, so
+  the audit is a diff of comments rather than guesswork.
+
 ## Changes between 5.3.0 and 5.3.1
 
 * Fix: an `<include>`d schema keeps the `elementFormDefault` of its own
