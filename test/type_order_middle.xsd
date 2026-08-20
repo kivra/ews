@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The middle namespace of the three in type_order.xsd. It is the one the old
+  accumulator-flipping order handed the plain record name to, so it is what
+  tells that order and the current one apart.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://example.com/mmm-order"
+           elementFormDefault="qualified">
+  <xs:complexType name="Collide">
+    <xs:sequence>
+      <xs:element name="from_the_middle_schema" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

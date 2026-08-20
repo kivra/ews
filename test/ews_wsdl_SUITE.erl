@@ -527,25 +527,34 @@ included_schema_keeps_its_element_form(Config) ->
     end,
     ok.
 
-%% When two schemas declare a type of the same name, the one processed first
-%% gets the record name and the other gets a _1. The order is by target
-%% namespace, not the order the documents are reached in: here the imported
-%% schema's namespace sorts before the importing one's, and it is the imported
-%% type that keeps the plain name. Reading the WSDL top-down would predict the
-%% other way round, which is exactly why this is worth pinning.
+%% When several schemas declare a type of the same name, the one processed
+%% first gets the record name and the rest get a _1 and a _2. Three schemas,
+%% because that is what it takes to pin the order: sorted they are aaa, mmm,
+%% zzz, where zzz is the importing document. Processing in that order gives the
+%% plain name to aaa; the accumulator-flipping order this replaced gave it to
+%% mmm; and reading the WSDL top-down would predict zzz. Each type is
+%% identified by the element it contains rather than by the name under test,
+%% so this says which type holds the name and not merely that some type does.
 type_order_decides_record_names(_Config) ->
     ok = ews:add_xsd_to_model(type_order, test_wsdl_file("type_order.xsd")),
     try
-        Imported = {"http://example.com/aaa-order", "Collide"},
+        First = {"http://example.com/aaa-order", "Collide"},
+        Middle = {"http://example.com/mmm-order", "Collide"},
         Importing = {"http://example.com/zzz-order", "Collide"},
-        ?assertMatch(#type{alias = collide},
-                     ews_svc:get_type(type_order, Imported)),
-        ?assertMatch(#type{alias = collide_1},
-                     ews_svc:get_type(type_order, Importing))
+        ?assertEqual({collide, ["from_the_imported_schema"]},
+                     alias_and_elems(First)),
+        ?assertEqual({collide_1, ["from_the_middle_schema"]},
+                     alias_and_elems(Middle)),
+        ?assertEqual({collide_2, ["from_the_importing_schema"]},
+                     alias_and_elems(Importing))
     after
         ews:remove_model(type_order)
     end,
     ok.
+
+alias_and_elems(Qname) ->
+    #type{alias = Alias, elems = Elems} = ews_svc:get_type(type_order, Qname),
+    {Alias, [ N || #elem{qname = {_, N}} <- Elems ]}.
 
 %% Puts the schemas where request_cached/1 will look for them, which is the
 %% only route find_includes/2 has to an included document.
