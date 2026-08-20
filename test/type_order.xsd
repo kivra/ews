@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture for the order types are aliased in. Two schemas declare a type of
+  the same name, so one of them gets `collide` and the other `collide_1`, and
+  which is which is decided by the order the schemas are processed in.
+
+  The importing document's namespace sorts *after* the imported one's, so this
+  tells the two candidate rules apart: reading the WSDL top-down would predict
+  this document's own type wins, and it does not.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:a="http://example.com/aaa-order"
+           targetNamespace="http://example.com/zzz-order"
+           elementFormDefault="qualified">
+  <xs:import namespace="http://example.com/aaa-order"
+             schemaLocation="type_order_imported.xsd"/>
+  <xs:complexType name="Collide">
+    <xs:sequence>
+      <xs:element name="from_the_importing_schema" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

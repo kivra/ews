@@ -17,9 +17,19 @@ ews is a library for interacting with SOAP web services. It includes functionali
   record gets which name.** The order the schemas' declarations are processed
   in decides who wins a name collision: the first type to claim a record name
   keeps it, and the rest get a `_1` or a `_2`. That order used to come out of a
-  pass that flipped its accumulator once per schema, so it followed no rule you
-  could see in the WSDL. It is now simply schema by schema, and within a schema
-  the order the declarations are written in.
+  pass that flipped its accumulator once per schema, so no reading of the
+  schemas could predict it.
+
+  What is left is worth stating exactly, since it decides record names:
+  schemas **sorted by target namespace** -- not the order they are imported or
+  written in -- and within a schema the order the declarations are written in,
+  except that a type whose parts include an element `ref` is resolved on a
+  second pass and so is aliased after every type that resolved on the first.
+
+  Two consequences worth knowing. A namespace added later that sorts earlier
+  will take a plain record name off whatever held it, so suffixes are not
+  stable across schema additions. And the reliable way to check which type a
+  record stands for is the qname comment above it, not the name.
 
   Nothing about the emitted records changes except which name lands on which
   XSD type -- and that changes silently, because the *set* of names is the

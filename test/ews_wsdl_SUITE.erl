@@ -28,6 +28,7 @@
         , documentation_from_xsd/1
         , documentation_does_not_duplicate_fields/1
         , included_schema_keeps_its_element_form/1
+        , type_order_decides_record_names/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -56,6 +57,7 @@ groups() ->
        , documentation_from_xsd
        , documentation_does_not_duplicate_fields
        , included_schema_keeps_its_element_form
+       , type_order_decides_record_names
        ]}
     ].
 
@@ -522,6 +524,26 @@ included_schema_keeps_its_element_form(Config) ->
     after
         ews:remove_model(including),
         restore_env(ews, cache_base_dir, Was)
+    end,
+    ok.
+
+%% When two schemas declare a type of the same name, the one processed first
+%% gets the record name and the other gets a _1. The order is by target
+%% namespace, not the order the documents are reached in: here the imported
+%% schema's namespace sorts before the importing one's, and it is the imported
+%% type that keeps the plain name. Reading the WSDL top-down would predict the
+%% other way round, which is exactly why this is worth pinning.
+type_order_decides_record_names(_Config) ->
+    ok = ews:add_xsd_to_model(type_order, test_wsdl_file("type_order.xsd")),
+    try
+        Imported = {"http://example.com/aaa-order", "Collide"},
+        Importing = {"http://example.com/zzz-order", "Collide"},
+        ?assertMatch(#type{alias = collide},
+                     ews_svc:get_type(type_order, Imported)),
+        ?assertMatch(#type{alias = collide_1},
+                     ews_svc:get_type(type_order, Importing))
+    after
+        ews:remove_model(type_order)
     end,
     ok.
 
