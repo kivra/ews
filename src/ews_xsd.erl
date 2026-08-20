@@ -83,17 +83,18 @@ parse_schema(Schemas0, Model, BaseDir) when is_atom(Model) ->
     NewTypes = process(all_types(PrSchemas), Model),
     NewTypes.
 
-%% Every schema's declarations, in one list. The qnames were settled while
-%% parsing, so from here on nothing needs to know which schema a type came
-%% from.
+%% Every schema's declarations, in one list, schema by schema and in the order
+%% each schema declares them. The qnames were settled while parsing, so from
+%% here on nothing needs to know which schema a type came from.
 %%
-%% The order is not arbitrary: process/2 hands the types to ews_alias in this
-%% order, and the first type to claim a record name keeps it. This reproduces
-%% the order the namespace-propagation pass used to leave behind -- it flipped
-%% the accumulator once per schema -- so that record names stay put.
+%% The order still matters, and is worth knowing about: process/2 hands the
+%% types to ews_alias in it, and the first type to claim a record name keeps
+%% it, so the rest are what get a _1 or a _2. Until 6.0.0 this reproduced the
+%% order left behind by a namespace-propagation pass that flipped its
+%% accumulator once per schema, which put the schemas in an order no one could
+%% predict from reading the WSDL.
 all_types(Schemas) ->
-    lists:foldl(fun(#schema{types=Ts}, Acc) -> lists:reverse(Acc) ++ Ts end,
-                [], Schemas).
+    lists:append([ Ts || #schema{types=Ts} <- Schemas ]).
 
 %% ----------------------------------------------------------------------------
 %% Import schema functions

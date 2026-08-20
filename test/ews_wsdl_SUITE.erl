@@ -223,10 +223,11 @@ colliding_types(_Config) ->
                  , "SmsMessage@header"
                  }, SmsHeaderType),
     %% the header elements inside SmsMessage and EmailMessage
-    %% should both resolve
-    ?assertMatch(#type{alias=header_1, elems=[_, _]},
+    %% should both resolve. EmailMessage is declared first in importee.xsd, so
+    %% its header is the one that gets the bare alias.
+    ?assertMatch(#type{alias=header, elems=[_, _]},
                  ews_model:get(EmailHeaderType, Tbl)),
-    ?assertMatch(#type{alias=header, elems=[_]},
+    ?assertMatch(#type{alias=header_1, elems=[_]},
                  ews_model:get(SmsHeaderType, Tbl)),
     meck:unload(hackney),
     ok.
@@ -242,7 +243,7 @@ serialize_deserialize(_Config) ->
     %% "client" serializes request
     EmailMessage =
         [{email_message,
-          {header_1,
+          {header,
            <<"moose@sausage.com">>, <<"Hej">>},
           <<"apa">>}],
     EmailSOAP = ews:serialize_service_op( mm_notification
@@ -261,7 +262,7 @@ serialize_deserialize(_Config) ->
     %% "server" serializes response
     SmsMessage =
         [{sms_message,
-          {header,
+          {header_1,
            <<"0015551212">>},
           <<"bepa">>}],
     SmsSOAP = iolist_to_binary(
@@ -375,7 +376,7 @@ encode_decode_plain_xsd(_Config) ->
     %% Model loaded by init_per_group(xsds, ...)
     RootMessage =
         {sms_message,
-         {header,
+         {header_1,
           <<"070123456">>},
          <<"puss!">>},
     RootXML =
@@ -388,13 +389,18 @@ encode_decode_plain_xsd(_Config) ->
         <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:RSAKeyValueType x"
           "mlns:p1=\"http://www.w3.org/2000/09/xmldsig#\"><p1:Modulus>15</"
           "p1:Modulus><p1:Exponent>3</p1:Exponent></p1:RSAKeyValueType>">>,
+    %% EmailMessage's anonymous header type. Both anonymous header types are
+    %% called header on the wire, so decoding one on its own can only resolve
+    %% to whichever of them the model holds under that name -- the first
+    %% declared. This uses that one, so the round-trip below is not a bet on
+    %% which type wins.
     Unnamed =
         {header,
-          <<"070123456">>},
+          <<"moose@sausage.com">>, <<"Hej">>},
     UnnamedXML =
         <<"<?xml version=\"1.0\" encoding=\"UTF-8\"?><p1:header xmlns:p1="
-          "\"http://example.com/importee\"><p1:From>070123456</p1:From></p"
-          "1:header>">>,
+          "\"http://example.com/importee\"><p1:From>moose@sausage.com</p1:"
+          "From><p1:Subject>Hej</p1:Subject></p1:header>">>,
     Encoded = ews:encode(xsd_test, RootMessage),
     ?assertMatch(RootXML, Encoded),
     EncNamed = ews:encode(xsd_test, NamedType),
