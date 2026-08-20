@@ -18,7 +18,8 @@
          circular_graph/1,
          documented_graph/1,
          enum_value_docs/1,
-         list_of_enums/1
+         list_of_enums/1,
+         unaliased_type_fails/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -31,7 +32,8 @@ groups() ->
        circular_graph,
        documented_graph,
        enum_value_docs,
-       list_of_enums
+       list_of_enums,
+       unaliased_type_fails
       ]}].
 
 all() ->
@@ -256,6 +258,33 @@ list_of_enums(Config) ->
                  "                 | e_mail,\n"
                  "             e3 :: [sms]}).\n">>,
     Bin = <<H/binary, Expected/binary>>,
+    ok.
+
+%% A type the model cannot name would have been written as #false{}, a record
+%% no one declared: the file would not compile and the error would point far
+%% from the cause. Emitting says which type of which model it could not name
+%% instead.
+unaliased_type_fails(Config) ->
+    Table = ets:new(type_table, []),
+    %% In the table, so the dependency walk resolves it, but never registered
+    %% with ews_alias for this model -- which is what a second model sharing
+    %% the type used to leave behind.
+    Unaliased = {"ns", "unaliased"},
+    ets:insert(Table, {Unaliased,
+                       #type{qname = Unaliased, alias = unaliased,
+                             elems = []}}),
+    ets:insert(Table, {{"ns", "t1"},
+                       #type{qname={"ns", "t1"}, alias = t1,
+                             elems = [#elem{qname = {"ns", "e1"},
+                                            type = Unaliased,
+                                            meta = meta(undefined, 1, 1)}]}}),
+    Filename = emit_file(Config),
+    {error, {no_alias_for_type, Unaliased, test}} =
+        try ews_emit:model_to_file(#model{type_map=Table}, Filename, test) of
+            Unexpected -> {emitted, Unexpected}
+        catch
+            error:Reason -> {error, Reason}
+        end,
     ok.
 
 int_type() ->

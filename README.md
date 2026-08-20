@@ -43,6 +43,20 @@ ews is a library for interacting with SOAP web services. It includes functionali
   what makes that checkable: it says which XSD type the record stands for, so
   the audit is a diff of comments rather than guesswork.
 
+## Changes between 5.3.1 and 5.3.2
+
+* Fix: two models in one node can share a type. Aliases are held per model, and
+  every lookup matched on the model, but the table was a set keyed on the qname
+  alone -- so the second model to alias a shared type replaced the first
+  model's row, leaving it with no name for a type it still had. Emitting that
+  model then wrote `#false{}` where the record should have been, and the
+  generated file did not compile. An xmldsig schema imported by two APIs is the
+  case that found it.
+* Fix: emitting a type the model cannot name now fails, saying which type of
+  which model, instead of writing `#false{}` into the file and leaving the
+  compiler to complain about a record nobody declared.
+
+
 ## Changes between 5.3.0 and 5.3.1
 
 * Fix: an `<include>`d schema keeps the `elementFormDefault` of its own

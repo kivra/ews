@@ -64,7 +64,12 @@ stop() ->
 %% >-----------------------------------------------------------------------< %%
 
 init([]) ->
-    {ok, #state{alias_map=ets:new(ews_alias_map, [])}}.
+    %% A bag, because what identifies a row is the qname *and the model*: every
+    %% lookup below matches on both. A set keys on the qname alone, so a second
+    %% model aliasing a type the first one already had -- an xmldsig schema
+    %% imported by two APIs, say -- replaced its row, and the first model was
+    %% left with no alias for a type it still had.
+    {ok, #state{alias_map=ets:new(ews_alias_map, [bag])}}.
 
 handle_call({create, {Ns, N}, Model}, _, #state{alias_map=Map} = State) ->
     Alias = create_alias({Ns, N}, Model, Map),
