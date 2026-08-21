@@ -27,7 +27,19 @@
 %% included.
 -define(DOC_WIDTH, 76).
 
-model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
+%% Returns {error, Reason} rather than raising: this runs inside ews_svc's
+%% handle_call, so an exception here would take that process down and every
+%% model loaded in the node with it -- a worse outcome than the file it failed
+%% to write.
+model_to_file(Model, Filename, ModelRef) ->
+    try
+        do_model_to_file(Model, Filename, ModelRef)
+    catch
+        error:{no_alias_for_type, _, _} = Reason ->
+            {error, Reason}
+    end.
+
+do_model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),
     logger:notice("emitting ~p records unresolved: ~p resolved: ~p~n",
                   [ length(Unresolved) + length(Resolved)

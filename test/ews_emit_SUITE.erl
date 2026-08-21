@@ -19,7 +19,8 @@
          documented_graph/1,
          enum_value_docs/1,
          list_of_enums/1,
-         unaliased_type_fails/1
+         unaliased_type_fails/1,
+         unaliased_type_fails_through_the_api/1
         ]).
 
 suite() -> [{timetrap, {seconds, 20}}].
@@ -33,7 +34,8 @@ groups() ->
        documented_graph,
        enum_value_docs,
        list_of_enums,
-       unaliased_type_fails
+       unaliased_type_fails,
+       unaliased_type_fails_through_the_api
       ]}].
 
 all() ->
@@ -280,12 +282,33 @@ unaliased_type_fails(Config) ->
                                             meta = meta(undefined, 1, 1)}]}}),
     Filename = emit_file(Config),
     {error, {no_alias_for_type, Unaliased, test}} =
-        try ews_emit:model_to_file(#model{type_map=Table}, Filename, test) of
-            Unexpected -> {emitted, Unexpected}
-        catch
-            error:Reason -> {error, Reason}
-        end,
+        ews_emit:model_to_file(#model{type_map=Table}, Filename, test),
     ok.
+
+%% And through the API a caller actually uses. Emitting runs inside ews_svc, so
+%% raising there would cost that process every model loaded in the node; the
+%% failure has to come back as a value. Wiping a real model's aliases is the
+%% shortest way to the state the two-model bug used to leave behind.
+unaliased_type_fails_through_the_api(Config) ->
+    %% A model with one type referring to another, since that is the reference
+    %% the emitter has to name. element_form.wsdl has testOp's arg1 typed
+    %% Person, and needs nothing fetched to load.
+    {ok, Wsdl} = file:read_file(test_file("element_form.wsdl")),
+    {ok, _} = ews_svc:add_wsdl_bin(emit_api_test, Wsdl),
+    try
+        ok = ews_alias:remove_model(emit_api_test),
+        Filename = emit_file(Config),
+        {error, {no_alias_for_type, _, emit_api_test}} =
+            ews:emit_complete_model_types(emit_api_test, Filename),
+        %% Still there, still holding the model it was asked about.
+        [_ | _] = ews_svc:list_types(emit_api_test)
+    after
+        ews:remove_model(emit_api_test)
+    end,
+    ok.
+
+test_file(Basename) ->
+    filename:join([code:priv_dir(ews), "..", "test", Basename]).
 
 int_type() ->
     #base{xsd_type = {"http://www.w3.org/2001/XMLSchema","int"},

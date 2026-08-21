@@ -24,7 +24,7 @@
 -export([start_link/0, stop/0]).
 
 -export([create/1, create_unique/2, get_alias/2, get_qname/2,
-         get_alias_map/1]).
+         get_alias_map/1, remove_model/1]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, code_change/3, terminate/2]).
@@ -58,18 +58,25 @@ get_qname(Alias, Model) when is_atom(Model) ->
 get_alias_map(Model) when is_atom(Model) ->
     gen_server:call(?MODULE, {get_alias_map, Model}).
 
+%% Forgets a model's aliases. Nothing else ever removes a row, so without this
+%% a node that loads models under fresh refs -- a reload loop, or one model per
+%% tenant -- keeps every alias it has ever handed out, and the scans in
+%% create_alias/3 get slower with each one.
+remove_model(Model) when is_atom(Model) ->
+    gen_server:call(?MODULE, {remove_model, Model}).
+
 stop() ->
     gen_server:cast(?MODULE, stop).
 
 %% >-----------------------------------------------------------------------< %%
 
 init([]) ->
-    %% A bag, because what identifies a row is the qname *and the model*: every
-    %% lookup below matches on both. A set keys on the qname alone, so a second
-    %% model aliasing a type the first one already had -- an xmldsig schema
-    %% imported by two APIs, say -- replaced its row, and the first model was
-    %% left with no alias for a type it still had.
-    {ok, #state{alias_map=ets:new(ews_alias_map, [bag])}}.
+    %% Keyed on {Model, Qname}, because that pair is what identifies an alias:
+    %% two models can each hold one for the same type -- an xmldsig schema
+    %% imported by two APIs, say. Keyed on the qname alone, as it was until
+    %% 6.0.1, the second model to alias a shared type replaced the first
+    %% model's row and left it with no name for a type it still had.
+    {ok, #state{alias_map=ets:new(ews_alias_map, [])}}.
 
 handle_call({create, {Ns, N}, Model}, _, #state{alias_map=Map} = State) ->
     Alias = create_alias({Ns, N}, Model, Map),
@@ -80,6 +87,9 @@ handle_call({get_alias, {Ns, N}, Model}, _, #state{alias_map=Map} = State) ->
 handle_call({get_qname, Alias, Model}, _, #state{alias_map=Map} = State) ->
     Qname = get_qname(Alias, Model, Map),
     {reply, Qname, State};
+handle_call({remove_model, Model}, _, #state{alias_map=Map} = State) ->
+    true = ets:match_delete(Map, {{Model, '_'}, '_', '_'}),
+    {reply, ok, State};
 handle_call({get_alias_map, Model}, _, #state{alias_map=AliasMap} = State) ->
     %% We need to process the alias map a bit to return it in the correct
     %% format
@@ -109,7 +119,7 @@ create_alias({Ns, N}, Model, Map) when is_atom(Model) ->
     Alias = to_underscore(N2),
     case get_qname(Alias, Model, Map) of
         false ->
-            ets:insert(Map, {{Ns, N}, Alias, Alias, Model}),
+            ets:insert(Map, {{Model, {Ns, N}}, Alias, Alias}),
             Alias;
         {Ns, N} ->
             Alias;
@@ -117,9 +127,10 @@ create_alias({Ns, N}, Model, Map) when is_atom(Model) ->
             case get_alias({Ns, N}, Model, Map) of
                 false ->
                     Aliases =
-                        [ A || [A] <- ets:match(Map, {'_', '$1', Alias, Model}) ],
+                        [ A || [A] <- ets:match(Map, {{Model, '_'}, '$1',
+                                                      Alias}) ],
                     NewAlias = create_new_alias(Aliases),
-                    ets:insert(Map, {{Ns, N}, NewAlias, Alias, Model}),
+                    ets:insert(Map, {{Model, {Ns, N}}, NewAlias, Alias}),
                     NewAlias;
                 AnAlias ->
                     AnAlias
@@ -152,15 +163,15 @@ find_postfix(Alias) ->
     end.
 
 get_alias({Ns, N}, Model, Map) when is_atom(Model) ->
-    case ets:match(Map, {{Ns,N}, '$0', '_', Model}) of
+    case ets:lookup(Map, {Model, {Ns, N}}) of
         [] ->
             false;
-        [[Alias]] ->
+        [{_, Alias, _}] ->
             Alias
     end.
 
 get_qname(Alias, Model, Map) when is_atom(Model) ->
-    case ets:match(Map, {'$0', Alias, '_', Model}) of
+    case ets:match(Map, {{Model, '$0'}, Alias, '_'}) of
         [] ->
             false;
         [[Qname]] ->
@@ -168,7 +179,7 @@ get_qname(Alias, Model, Map) when is_atom(Model) ->
     end.
 
 process_alias_map(AliasMap, Model) ->
-    Matches = ets:match(AliasMap, {{'$0', '$1'}, '$2', '_', Model}),
+    Matches = ets:match(AliasMap, {{Model, {'$0', '$1'}}, '$2', '_'}),
     [ {{Ns, N}, A} || [Ns, N, A] <- Matches ].
 
 to_underscore(Word) ->
