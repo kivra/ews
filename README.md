@@ -11,6 +11,27 @@ ews is a library for interacting with SOAP web services. It includes functionali
 * call web service operations with automatic encoding of operands and decoding of the response
 * supply hooks that are applied immediately before or after the actual SOAP calls
 
+## Changes between 6.0.0 and 6.0.1
+
+* Fix: each model keeps its own alias for a type two of them share. Aliases are
+  held per model, and every lookup matched on the model, but the table was
+  keyed on the qname alone -- so the second model to alias a shared type
+  replaced the first model's row, leaving it with no name for a type it still
+  had. Emitting that model then wrote `#false{}` where the record should have
+  been, and the generated file did not compile. An xmldsig schema imported by
+  two APIs is the case that found it.
+
+  Sharing a type does not mean sharing a name: both models alias it to the
+  same record name, so their generated headers declare the same record and
+  cannot be included in one module. A module wanting both APIs needs one of
+  them behind a module boundary.
+* Fix: `ews_alias` forgets a model's aliases when `ews:remove_model/1` drops
+  the model. Nothing removed them before, which a node loading models under
+  fresh refs would have noticed as a table that only grows.
+* Fix: emitting a type the model cannot name now fails, saying which type of
+  which model, instead of writing `#false{}` into the file and leaving the
+  compiler to complain about a record nobody declared.
+
 ## Changes between 5.3.1 and 6.0.0
 
 * **Breaking: types are declared in a predictable order, which changes which
