@@ -27,7 +27,19 @@
 %% included.
 -define(DOC_WIDTH, 76).
 
-model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
+%% Returns {error, Reason} rather than raising: this runs inside ews_svc's
+%% handle_call, so an exception here would take that process down and every
+%% model loaded in the node with it -- a worse outcome than the file it failed
+%% to write.
+model_to_file(Model, Filename, ModelRef) ->
+    try
+        do_model_to_file(Model, Filename, ModelRef)
+    catch
+        error:{no_alias_for_type, _, _} = Reason ->
+            {error, Reason}
+    end.
+
+do_model_to_file(#model{type_map=Tbl, simple_types=Ts}, Filename, ModelRef) ->
     {Unresolved, Resolved} = sort_types(Tbl, Ts),
     logger:notice("emitting ~p records unresolved: ~p resolved: ~p~n",
                   [ length(Unresolved) + length(Resolved)
@@ -150,12 +162,24 @@ output_single_type(E = #enum{values=Values}, #meta{max = Max},
     end;
 output_single_type(Tn = {_,_}, #meta{max = Max}, _SpecIndent, Tbl,
                    ModelRef, Unresolved) ->
-    Atn = ews_alias:get_alias(Tn, ModelRef),
+    Atn = alias_of(Tn, ModelRef),
     SubTypes = ews_model:get_subs(Tn, Tbl),
-    Atns = [Atn | [ews_alias:get_alias(T, ModelRef) || {T, _} <- SubTypes]],
+    Atns = [Atn | [alias_of(T, ModelRef) || {T, _} <- SubTypes]],
     string:join(
       [add_list(record_spec(T, Unresolved), Max > 1) || T <- Atns],
       " | ").
+
+%% A type the model has no alias for used to be emitted as #false{}, which is
+%% no record anyone declared: the generated file would not compile, and the
+%% error would name a line a long way from the cause. Fail here, saying which
+%% type of which model could not be named.
+alias_of(Qname, ModelRef) ->
+    case ews_alias:get_alias(Qname, ModelRef) of
+        false ->
+            error({no_alias_for_type, Qname, ModelRef});
+        Alias ->
+            Alias
+    end.
 
 output_erl_type(string) ->
     "binary() | string()";

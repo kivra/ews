@@ -514,7 +514,13 @@ handle_call({emit_model, ModelRef, File}, _,
         undefined ->
             {reply, {error, no_model}, State};
         Model ->
-            {reply, ews_emit:model_to_file(Model, File, ModelRef), State}
+            %% Belt and braces: model_to_file/3 turns the failure it knows
+            %% about into {error, Reason}, and anything else it might raise
+            %% must not cost this process the models it holds.
+            Reply = try ews_emit:model_to_file(Model, File, ModelRef)
+                    catch Class:Reason -> {error, {Class, Reason}}
+                    end,
+            {reply, Reply, State}
     end;
 handle_call({get_service_models, ServiceName}, _, State) ->
     {reply, get_service_models(ServiceName, State), State};
@@ -560,6 +566,9 @@ handle_call({remove_post_hook, ModelRef, HookRef}, _,
     {reply, ok, State#state{models = Models#{ModelRef => NewModel}}};
 handle_call({remove_model, ModelRef}, _, State) ->
     #state{models = Models, services = Svcs, service_index = SvcIdx} = State,
+    %% The aliases go with it. Nothing else ever removes them, so a node that
+    %% loads models under fresh refs would keep every one it has handed out.
+    ok = ews_alias:remove_model(ModelRef),
     NewModels = maps:remove(ModelRef, Models),
     NewSvcs = maps:remove(ModelRef, Svcs),
     NewSvcIdx = maps:fold(fun (Svc, ModelRefs, Acc) ->
