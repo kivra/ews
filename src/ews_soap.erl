@@ -94,8 +94,8 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
 %% The spec is the contract across both hackney generations, whatever dialyzer
 %% infers from the one in this build: under 1.x the reference clause runs and
 %% hackney:body/1 may answer {error, _}.
--spec body(binary() | term()) -> {ok, binary()} | {error, term()}.
-body(Body) when is_binary(Body) ->
+-spec body(binary() | string() | term()) -> {ok, binary() | string()} | {error, term()}.
+body(Body) when is_binary(Body); is_list(Body) ->
     {ok, Body};
 body(Ref) ->
     hackney:body(Ref).
