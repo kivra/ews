@@ -30,12 +30,15 @@
 -include("ews.hrl").
 -include_lib("ews/include/ews.hrl").
 
-%% The two hackney:body/1 branches in call/8 exist to support hackney 1.x,
-%% where hackney:request/5 returns a body reference. Under hackney 4.x the
-%% body is returned directly as a binary, so those branches look unreachable
-%% to dialyzer against the 4.x specs. Keep both for runtime cross-version
-%% support and silence the resulting failing-call warnings.
--dialyzer({nowarn_function, [call/8]}).
+%% Dialyzer analyses against whichever hackney is in *this* build -- 4.x, whose
+%% spec says request/5 answers with a binary body -- and so declares the hackney
+%% 1.x path dead twice over: body/1's reference clause, and call/8's branch for
+%% the {error, _} that hackney:body/1 can answer with. Both are reachable under
+%% 1.x, which consumers do pin (see the comment on body/1). A -spec on body/1
+%% does not help, since dialyzer prefers its own success typing for a local call,
+%% so silence the two functions. This file carried the same suppression, for the
+%% same reason, before the paths were factored out.
+-dialyzer({nowarn_function, [body/1, call/8]}).
 
 %% ----------------------------------------------------------------------------
 
@@ -51,7 +54,8 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
     ExtraHeaders = maps:get(http_headers, Opts, []),
     HttpOpts0 = maps:get(http_options, Opts, []),
     HttpOpts1 = add_pool(HttpOpts0, ModelRef),
-    HttpOpts = add_timeouts(HttpOpts1),
+    HttpOpts2 = add_timeouts(HttpOpts1),
+    HttpOpts = add_with_body(HttpOpts2),
     Hdrs = [{<<"SOAPAction">>, a2b(SoapAction)},
             {<<"Content-Type">>, <<"text/xml; charset=utf-8">>}] ++ ExtraHeaders,
     BodyIoList = make_soap(Header, Body),
@@ -59,23 +63,52 @@ call(Endpoint, OpName, SoapAction, Header, Body, Opts, PrePostHooks,
     [NewEndpoint, _NewOpName, NewSoap, NewHttpOpts] =
         ews_svc:run_hooks(PrePostHooks, HookArgs),
     case hackney:request(post, NewEndpoint, Hdrs, NewSoap, NewHttpOpts) of
-        %% newer hackney have started returning body per default.
-        {ok, 200, HttpHdr, RespXml} when is_binary(RespXml) ->
-            XmlTerm = ews_xml:decode(RespXml),
-            Resp = parse_envelope(XmlTerm),
-            fix_header(Resp, HttpHdr, IncludeHttpHdr);
-        {ok, 200, HttpHdr, RespRef} ->
-            {ok, RespEnv} = hackney:body(RespRef),
-            XmlTerm = ews_xml:decode(RespEnv),
-            Resp = parse_envelope(XmlTerm),
-            fix_header(Resp, HttpHdr, IncludeHttpHdr);
-        {ok, _Code, HttpHdr, FaultRef} ->
-            {ok, FaultEnv} = hackney:body(FaultRef),
-            XmlTerm = ews_xml:decode(FaultEnv),
-            Resp = parse_envelope(XmlTerm),
-            fix_header(Resp, HttpHdr, IncludeHttpHdr);
+        {ok, _Code, HttpHdr, BodyOrRef} ->
+            case body(BodyOrRef) of
+                {ok, Env} ->
+                    Resp = parse_envelope(ews_xml:decode(Env)),
+                    fix_header(Resp, HttpHdr, IncludeHttpHdr);
+                {error, _} = Error ->
+                    Error
+            end;
         {error, Error} ->
             {error, Error}
+    end.
+
+%% With `with_body' asked for above, both hackney generations answer with the body
+%% and this is the only clause that runs. It stays because the option can be
+%% taken away again: http_options come from the caller, and a pre_post hook is
+%% free to rebuild the list (ek_spar's does). Losing the option under hackney 1.x
+%% would otherwise hand a client reference to the XML decoder, which is a worse
+%% error than the one this fixes -- so accept either shape and be done with it.
+%%
+%% Both generations are in use among the applications depending on ews: ek_mm
+%% pins hackney 1.25, kivra_core 1.17, sparer 4.7. A level-0 pin in any of them
+%% decides which hackney ews runs against, whatever this application's own
+%% constraint says.
+%%
+%% The status code plays no part: a fault arrives as a SOAP envelope like any
+%% other answer, parse_envelope/1 recognises it, and a body that is not an
+%% envelope at all comes back as {error, {not_envelope, _}}. Deciding by status
+%% instead is what left the non-200 path calling hackney:body/1 on a binary.
+%% The spec is the contract across both hackney generations, whatever dialyzer
+%% infers from the one in this build: under 1.x the reference clause runs and
+%% hackney:body/1 may answer {error, _}.
+-spec body(binary() | term()) -> {ok, binary()} | {error, term()}.
+body(Body) when is_binary(Body) ->
+    {ok, Body};
+body(Ref) ->
+    hackney:body(Ref).
+
+%% Make both hackney generations answer the same way. 1.x hands back a client
+%% reference unless asked for the body up front; 4.x always hands back the body
+%% and treats this option as a deprecated no-op (hackney.erl: "The `with_body'
+%% option is deprecated and ignored"). Asking for it means one response shape
+%% whichever version a consumer has pinned.
+add_with_body(Options) ->
+    case proplists:is_defined(with_body, Options) of
+        true  -> Options;
+        false -> Options ++ [with_body]
     end.
 
 add_pool(Options, ModelRef) ->
